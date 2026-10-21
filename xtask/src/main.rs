@@ -5,7 +5,7 @@
 //!                                           ffmpeg, sox, flac, lame, opusenc, oggenc, wavpack,
 //!                                           python3, git, cmake)
 //!   test                                    Rust + UI tests (generates fixtures first if missing)
-//!   bench                                   Rust benchmarks
+//!   bench                                   performance budgets on a 200k-track library
 //!   ci                                      everything CI runs: fmt, clippy, lint, typecheck, tests
 
 use std::path::{Path, PathBuf};
@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     let result = match cmd {
         "fixtures" => fixtures(rest),
         "test" => test(),
-        "bench" => run(Command::new("cargo").args(["bench", "--workspace"])),
+        "bench" => bench(),
         "ci" => ci(),
         other => Err(format!("unknown command `{other}`")),
     };
@@ -144,6 +144,21 @@ fn test() -> Result {
         .args(["test", "--workspace"])
         .env("CADENZA_FIXTURES", fixtures_dir()))?;
     run(Command::new("pnpm").args(["-r", "test"]))
+}
+
+/// Performance budgets at library scale (`CADENZA_PERF_TRACKS`, default 200 000).
+fn bench() -> Result {
+    run(Command::new("cargo").args([
+        "test",
+        "--release",
+        "-p",
+        "cadenza-library",
+        "--test",
+        "perf",
+        "--",
+        "--ignored",
+        "--nocapture",
+    ]))
 }
 
 fn ci() -> Result {

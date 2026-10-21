@@ -136,6 +136,8 @@ pub struct FileTags {
     pub pictures: Vec<Picture>,
     /// Text that looks like a legacy 8-bit encoding stored as Latin-1, with a suggested repair.
     pub legacy: Vec<LegacyText>,
+    /// An embedded CUE sheet (FLAC/Vorbis `CUESHEET` comment), for single-file albums.
+    pub cuesheet: Option<String>,
     pub audio: AudioInfo,
 }
 
@@ -247,6 +249,7 @@ fn read_typed<R: Read + Seek>(r: &mut R, ft: FileType, opts: ParseOptions) -> Re
     use lofty::wavpack::WavPackFile;
 
     let mut legacy = Vec::new();
+    let mut cuesheet = None;
     let (format, fields, pictures, audio) = match ft {
         FileType::Mpeg => {
             let f = MpegFile::read_from(r, opts)?;
@@ -284,6 +287,9 @@ fn read_typed<R: Read + Seek>(r: &mut R, ft: FileType, opts: ParseOptions) -> Re
                 .iter()
                 .map(|(p, _)| vorbis::picture(p))
                 .collect();
+            if let Some(vc) = f.vorbis_comments() {
+                cuesheet = vc.get("CUESHEET").map(str::to_owned);
+            }
             match f.vorbis_comments() {
                 Some(vc) => {
                     let (fields, more) = vorbis::read(vc);
@@ -448,6 +454,7 @@ fn read_typed<R: Read + Seek>(r: &mut R, ft: FileType, opts: ParseOptions) -> Re
         fields,
         pictures,
         legacy,
+        cuesheet,
         audio,
     })
 }

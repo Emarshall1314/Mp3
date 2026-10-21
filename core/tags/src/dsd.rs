@@ -27,6 +27,7 @@ pub(crate) fn read<R: Read + Seek>(r: &mut R, magic: &[u8; 4]) -> Result<FileTag
         fields,
         pictures,
         legacy,
+        cuesheet: None,
         audio,
     })
 }
