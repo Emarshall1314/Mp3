@@ -330,6 +330,12 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D11 | Platforms: Linux + Android only | Owner decision 2026-10-21 |
 | D12 | Personal use; no code signing, no store builds | Owner decision. Linux ships as AppImage + .deb; Android as a sideloaded APK signed with a local keystore |
 | D13 | Owner supplies cloud and API credentials (Dropbox/Google/Microsoft app registrations, AcoustID key, Discogs token) in Settings | Personal build; nothing embedded |
+| D14 | TypeScript pinned to 6.0 | typescript-eslint 8.x supports TS < 6.1; revisit when it supports 7.x |
+| D15 | Fixture generator written in Python with **mutagen (GPL-2.0+)** as the independent tag oracle | Test-time tool only, never linked or shipped; an oracle that shares no code with our tag crate catches mapping bugs our own writer would repeat |
+| D16 | Monkey's Audio 3.99 Unix port (Monkey's Audio licence) built from source by xtask, pinned commit | Only available APE encoder; test-time only |
+| D17 | FLAC embedded art is limited to one 16 MiB metadata block | Format limit, found by the fixtures. The M4 artwork tools must resize or refuse instead of failing mid-write |
+| D18 | AAC gapless: honour the MP4 edit list *and* iTunSMPB | ffmpeg-made files carry only an edit list, iTunes-made ones only iTunSMPB. ffmpeg itself ignores the edit list's end trim, so Cadenza applies trimming itself (M1 gapless test) |
+| D19 | ID3v2.3 multi-value text is read as one "/"-joined string, not split | Splitting would break "AC/DC"; the owner can opt in per field later |
 
 ## 14. Owner answers (2026-10-21)
 
