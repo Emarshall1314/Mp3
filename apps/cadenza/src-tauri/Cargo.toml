@@ -1,0 +1,25 @@
+[package]
+name = "cadenza-app"
+description = "Cadenza Tauri shell (Linux desktop + Android)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# The staticlib/cdylib types are required for the Android build.
+name = "cadenza_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+cadenza-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12", features = [] }
+
+[lints]
+workspace = true

@@ -1,6 +1,11 @@
 # Cadenza — Architecture
 
-Status: **draft for approval** (2026-10-21). Working name "Cadenza" is a placeholder.
+Status: **approved** (2026-10-21). Working name "Cadenza" is a placeholder.
+
+**Scope (owner decision, overrides the original spec's platform list):** personal use only, never
+published or distributed. Target platforms are **Linux desktop and Android**. Windows, macOS and iOS
+are out of scope; the design keeps them possible (output-backend trait, UniFFI-ready API) but no work
+is planned for them.
 
 Priorities, in order, decide every trade-off below:
 **never damage files → sound quality → metadata quality → design polish → feature breadth.**
@@ -24,7 +29,7 @@ Priorities, in order, decide every trade-off below:
 │ tags       read/write all tag formats, lossless round-trip, encodings, artwork   │
 │ decode     Symphonia + DSD reader + libopus + libwavpack (+ FFmpeg fallback)     │
 │ engine     queue/player state machine, gapless scheduler, DSP graph, signal path │
-│ output     WASAPI · CoreAudio · ALSA · AAudio · iOS RemoteIO · capture/null     │
+│ output     ALSA · AAudio (Android) · capture/null                               │
 │ sync       change log, HLC, blob store, cloud providers, LAN peer, crypto        │
 │ online     MusicBrainz, Cover Art Archive, Discogs, AcoustID, LRCLIB, scrobblers │
 │ fixtures   test-library generator (tools/), no copyrighted audio                 │
@@ -41,7 +46,7 @@ core/                 Cargo workspace
   api/                cadenza-api: the only crate apps depend on
   library/ tags/ decode/ engine/ output/ dsp/ sync/ online/ common/
 ui/                   Vite + React + TS; shared by every shell
-apps/cadenza/         Tauri 2 project (desktop + iOS + Android targets)
+apps/cadenza/         Tauri 2 project (Linux desktop + Android targets)
   plugins/            Tauri plugins in Rust/Swift/Kotlin (media session, audio session, USB)
 tools/fixtures/       generates the test library (Rust + ffmpeg/sox CLI)
 docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
@@ -64,14 +69,12 @@ docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
 | Decode | libopus via `opus` bindings | 1.5 | BSD-3 | Opus |
 | Decode | libwavpack (own thin FFI) | 5.x | BSD-3 | WavPack incl. hybrid/DSD |
 | Decode | DSF/DFF reader | in-house | — | simple container formats |
-| Decode fallback | FFmpeg, dynamically linked | 7.x | **LGPL-2.1+** | desktop + Android only; also used by the converter |
+| Decode fallback | FFmpeg, dynamically linked | 6.1+ | **LGPL-2.1+** | Linux + Android; also used by the converter |
 | Tags | lofty | 0.25 | MIT/Apache | used at the *concrete* tag-type level (see §6) |
 | Resampling | rubato | 5.0 | MIT/Apache | sinc, quality preset ~ SoX VHQ. `soxr` crate rejected: LGPL, unmaintained since 2024 |
 | Loudness | ebur128 | 0.1 | MIT | R128 / ReplayGain 2 scan |
 | Fingerprint | rusty-chromaprint | 0.3 | MIT | port of Chromaprint (avoids LGPL C lib) |
 | Ring buffer | rtrb | 0.4 | MIT/Apache | wait-free SPSC |
-| Output Win | wasapi | 0.26 | MIT | shared + exclusive event mode |
-| Output mac/iOS | coreaudio-rs (+ raw HAL calls) | 0.14 | MIT/Apache | rate switching, hog mode |
 | Output Linux | alsa | 0.12 | MIT/Apache | `hw:`/`plughw:`/`default` (PipeWire) |
 | Output Android | AAudio via `ndk` + Kotlin plugin | — | MIT/Apache | bit-perfect mixer attributes API 34+ |
 | FS watch | notify | 8.2 | CC0 | |
@@ -82,10 +85,12 @@ docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
 | mDNS | mdns-sd | 0.21 | MIT/Apache | LAN fast path |
 | Crypto | chacha20poly1305, argon2 (RustCrypto) | — | MIT/Apache | optional client-side encryption |
 | Images | image, fast_image_resize | 0.25, 6.1 | MIT/Apache | thumbnails, bulk resize |
-| Media controls | souvlaki (desktop) + own Swift/Kotlin plugins | 0.8 | MIT | SMTC, MPRIS, MPNowPlaying |
+| Media controls | souvlaki (Linux MPRIS) + own Kotlin plugin (Android MediaSession) | 0.8 | MIT | |
 
-No GPL dependencies. **Licences to approve:** MPL-2.0 (Symphonia, UniFFI), LGPL (FFmpeg, dynamic, not shipped on iOS).
-cpal is deliberately not used for output, as the spec asks: it can't do exclusive mode or hog mode properly.
+No GPL dependencies; MPL-2.0 and dynamically linked LGPL accepted by the owner. Because the app is
+never distributed, licences are a hygiene concern rather than a legal one; the no-GPL rule is kept
+anyway so the option to share later stays open.
+cpal is deliberately not used for output, as the spec asks: it hides `hw:` device control and format negotiation.
 
 ## 4. Data model (SQLite, one DB per device)
 
@@ -174,7 +179,7 @@ title + album artist appear under "Other versions".
   …). The UI shows the best guess and alternatives, and the fixer rewrites them as UTF-8.
 - **Safe write protocol.** (1) Write into a temp file in the same directory. (2) Re-read and verify that
   the tags equal the intended tags and the audio hash is unchanged. (3) fsync. (4) Atomically rename
-  over the original (`ReplaceFileW` on Windows; on Unix, `rename`). (5) Optionally keep the old file in
+  over the original (`rename(2)`, then fsync the directory). (5) Optionally keep the old file in
   backups. Any failure leaves the original untouched; read-only or locked files are reported per file.
 - **Round-trip tests** run for every format with fixture files full of unknown frames (see ROADMAP M1/M4).
 
@@ -251,39 +256,42 @@ Cloud layout (inside an app-scoped folder):
 
 ## 10. Per-platform capabilities and limits
 
-| Capability | Windows | macOS | Linux | iOS | Android |
-|---|---|---|---|---|---|
-| Bit-perfect | WASAPI exclusive | CoreAudio rate switch + hog mode (float path is transparent at unity volume) | ALSA `hw:`; **needs the device released by PipeWire/Pulse** — UI explains this | Preferred sample rate; no exclusive mode — best-effort, shown in signal path | API 34+ bit-perfect mixer attributes for USB DACs; older → resampled, shown |
-| DSD | DoP (native ASIO: **not planned** — Steinberg SDK licence) | DoP | DoP or native via ALSA where the driver supports it | DoP best-effort / PCM | DoP on API 34+ USB / PCM |
-| Media controls | SMTC | Now Playing | MPRIS | Lock screen / Control Centre | MediaSession |
-| Translucent sidebar | Mica/Acrylic | Vibrancy | Compositor-dependent; falls back to solid | blur in webview | blur in webview |
-| Mini player always-on-top / tray | yes | yes (menu bar) | yes (tray where supported) | — | — |
-| Custom CSS | yes | yes | yes | no (spec: desktop) | no |
-| AirPlay | — | system picker | — | system picker | — |
-| Background sync | always | always | always | BG tasks only; limited by iOS | WorkManager + foreground service |
+| Capability | Linux | Android |
+|---|---|---|
+| Bit-perfect | ALSA `hw:` exclusive. **The device must be released by PipeWire/PulseAudio**: the output picker detects a busy device and explains how to release it (PipeWire device profile "Off", or `pw-reserve`-style D-Bus device reservation, which we request automatically). | API 34+ (Android 14) bit-perfect mixer attributes for USB DACs. Older versions or internal speakers are resampled by the OS, shown in the signal path. |
+| Sample-rate switching | Reopen `hw:` at the track's rate | Via mixer attributes on API 34+ USB; otherwise the OS mixer rate |
+| DSD | DoP via `hw:`; native DSD (`DSD_U32_BE`) where the driver exposes it | DoP over USB on API 34+ bit-perfect path; otherwise DSD→PCM |
+| Shared mode | ALSA `default` (PipeWire), our resampler targets the server rate | AAudio shared stream |
+| Media controls | MPRIS (D-Bus) | MediaSession + notification + lock screen, via a Kotlin foreground `MediaSessionService` |
+| Translucent sidebar | Real window transparency needs a compositor; WebKitGTK `backdrop-filter` works in-page. Falls back to solid with Reduce Transparency or no compositor. | In-page blur |
+| Mini player always-on-top / tray | Yes (tray needs a StatusNotifier host, e.g. KDE or GNOME with AppIndicator extension) | — (floating mini player in-app) |
+| Custom CSS | Yes | No (spec: desktop only) |
+| Global media hotkeys | MPRIS covers media keys under most desktops; X11 global shortcuts; Wayland via the GlobalShortcuts portal where available | Headset/Bluetooth via MediaSession |
+| Background sync | Always | WorkManager for periodic sync, foreground service while transferring; Wi-Fi-only and charging-only options |
+| Casting | Chromecast, UPnP/DLNA | Chromecast, UPnP/DLNA |
 
-## 11. Mobile approach (decision pending a spike)
+## 11. Mobile approach (Android; decision pending a spike)
 
-**Default: Tauri 2 mobile + native plugins.** Audio, decoding and sync run in Rust and don't depend
-on the webview. On iOS, an audio-session plugin (Swift) sets the `audio` background mode,
-`AVAudioSession` and `MPRemoteCommandCenter`. On Android, a `MediaSessionService` foreground service
-(Kotlin) owns the media session, and the Rust engine outputs via AAudio.
+**Default: Tauri 2 Android + native plugins.** Audio, decoding and sync run in Rust and don't depend on
+the webview. A Kotlin `MediaSessionService` foreground service owns the media session (lock screen,
+notification, headset and Bluetooth buttons, audio focus). The Rust engine outputs via AAudio, and USB
+DACs use `AudioManager.setPreferredMixerAttributes` (API 34+) for bit-perfect output.
 
-**Fallback:** SwiftUI / Jetpack Compose UIs over the same core via UniFFI. `cadenza-api` is designed
-UniFFI-ready from day one (plain data types, callback-interface events), so switching only replaces
-the UI layer.
+**Fallback:** a Jetpack Compose UI over the same core via UniFFI. `cadenza-api` is designed
+UniFFI-ready from day one (plain data types, callback-interface events), so switching replaces only
+the UI.
 
-**Spike criteria** (all must pass on a real device for Tauri to be kept):
+**Spike criteria** (all must pass on the owner's phone for Tauri to be kept):
 - 30 min of background playback with the screen locked
-- lock-screen controls work
-- Bluetooth/headset buttons work
+- notification and lock-screen controls work
+- Bluetooth and headset buttons work
 - calls interrupt playback and it resumes afterwards
 - gapless playback is maintained in the background
 - USB DAC at native rate on Android 14+
 - memory stays bounded with a 200k-track catalogue
-- scrolling stays at 60 fps on a mid-range Android device
+- scrolling stays at 60 fps
 
-⚠ This container has no Xcode, Android SDK or devices, so the spike can't run here. See ROADMAP M0.
+The spike APK is built by CI (or locally once `dl.google.com` is reachable) and sideloaded.
 
 ## 12. Testing strategy
 
@@ -302,8 +310,8 @@ the UI layer.
   - sync convergence: property tests with randomised offline edits on N simulated devices against an
     in-memory and a MinIO-style local S3 store, plus interrupted transfers and trash recovery
   - performance budgets as benchmarks with thresholds in CI
-- **CI:** GitHub Actions matrix (windows, macos, ubuntu) builds and tests core and UI. Mobile builds
-  run on macOS/Ubuntu runners; mobile device tests need real hardware.
+- **CI:** GitHub Actions on Ubuntu builds and tests core, UI and the Linux bundle, and builds the
+  Android APK. Android device tests need the owner's phone.
 
 ## 13. Decisions log
 
@@ -311,15 +319,21 @@ the UI layer.
 |---|---|---|
 | D1 | rubato over libsoxr | MIT, maintained; quality preset matches our requirements |
 | D2 | No cpal; per-OS backends | exclusive/hog/hw control, per spec |
-| D3 | libopus + libwavpack + own DSD reader alongside Symphonia; FFmpeg only as desktop/Android fallback and for the converter | keeps iOS free of LGPL; native libs are BSD |
+| D3 | libopus + libwavpack + own DSD reader alongside Symphonia; FFmpeg only as fallback and for the converter | native libs are BSD and cross-compile cleanly for Android |
 | D4 | rusty-chromaprint over libchromaprint | MIT vs LGPL; no C build |
 | D5 | Track identity = BLAKE3 of the audio stream | survives tag edits, moves, sync |
 | D6 | lofty concrete tag types only | lossless round-trip |
 | D7 | OpenDAL for cloud providers | one maintained crate covers all five providers |
 | D8 | Minimal OAuth scopes (app folder / `drive.file`) | avoids Google restricted-scope audit; least privilege |
 | D9 | One Tauri project covers desktop + mobile | shared UI; native fallback kept cheap via UniFFI-ready API |
-| D10 | No native ASIO | Steinberg SDK licence is proprietary; WASAPI exclusive covers bit-perfect |
+| D10 | ~~No native ASIO~~ | Moot: Windows out of scope (D11) |
+| D11 | Platforms: Linux + Android only | Owner decision 2026-10-21 |
+| D12 | Personal use; no code signing, no store builds | Owner decision. Linux ships as AppImage + .deb; Android as a sideloaded APK signed with a local keystore |
+| D13 | Owner supplies cloud and API credentials (Dropbox/Google/Microsoft app registrations, AcoustID key, Discogs token) in Settings | Personal build; nothing embedded |
 
-## 14. Open questions for the owner
+## 14. Owner answers (2026-10-21)
 
-See the summary in the planning message; answers will be recorded here.
+- Recommendations approved as written (licences, OpenDAL, rubato, no ASIO).
+- Personal use only; never published.
+- Platforms: Linux and Android only.
+- Repository: not yet provided; the work is local until a GitHub remote is available.

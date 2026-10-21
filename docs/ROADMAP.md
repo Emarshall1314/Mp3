@@ -7,17 +7,17 @@ Each milestone is a vertical slice that ends with a usable, tested app and a dem
 - no placeholder UI remains
 - PROGRESS.md is updated
 
-Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
+Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS and iOS are out of scope.)
 
 ---
 
 ## M0 — Bootstrap (D)
 - Monorepo skeleton (`core/`, `ui/`, `apps/cadenza/`, `tools/`, `docs/`), workspace lints, rustfmt, eslint, prettier.
 - `cargo xtask` with tasks: `fixtures`, `test`, `bench`, `ci`.
-- GitHub Actions matrix (windows, macos, ubuntu): build core + UI + Tauri desktop bundle and run tests.
+- GitHub Actions (ubuntu): build core + UI + Tauri Linux bundle and run tests; build the Android APK.
 - Fixture generator v1: WAV/FLAC/ALAC/AIFF/MP3/AAC/Opus/Vorbis/WavPack/APE/DSF/DFF across depths, rates and tags.
-- **Mobile spike** (needs Xcode + Android SDK + devices): a minimal Tauri app that plays FLAC from Rust,
-  measured against ARCHITECTURE §11 criteria. Result recorded as a decision.
+- **Android spike**: a minimal Tauri Android app that plays FLAC from Rust in the background with a
+  media session, measured against ARCHITECTURE §11 criteria on the owner's phone. Result recorded as a decision.
 
 ## M1 — Foundation (D)
 - `library`: schema v1 + migrations, WAL, writer thread + reader pool.
@@ -25,8 +25,7 @@ Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
 - `scanner`: parallel incremental scan, audio hash, watcher, move detection, artwork extraction + thumbnail cache.
 - `search`: FTS5 + advanced query parser + saved searches.
 - `decode`: Symphonia (+ libopus, libwavpack, DSF/DFF→PCM) with gapless trim (LAME, iTunSMPB, Opus pre-skip).
-- `engine` v1: queue, play/pause/seek/next, gapless scheduler, ring buffer, shared-mode output on all
-  three desktop OSes, ReplayGain off.
+- `engine` v1: queue, play/pause/seek/next, gapless scheduler, ring buffer, shared-mode output on Linux, ReplayGain off.
 - UI v1: tokens + Default Light/Dark, sidebar, album grid (virtualised, size slider), songs list
   (virtualised, sortable columns), album page (basic), search, player bar, queue panel, context menus
   (Play Next / Later / Go to Album / Artist).
@@ -34,7 +33,7 @@ Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
   library (budget: incremental rescan in seconds), search < 50 ms.
 
 ## M2 — Hi-res engine (D)
-- Output backends: WASAPI exclusive, CoreAudio rate switch + hog, ALSA `hw:`; device enumeration +
+- Output backends: ALSA `hw:` exclusive (with PipeWire device reservation), ALSA `default` shared; device enumeration +
   hot-plug; per-device settings; output picker in the player bar.
 - Automatic sample-rate switching, including the format-change boundary; DoP; DSD→PCM decimator.
 - DSP graph in f64: ReplayGain/R128 (track/album/auto, clipping prevention) + scanner, 10-band GEQ,
@@ -50,7 +49,7 @@ Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
 - Synced lyrics view (embedded + `.lrc`), tap-to-seek.
 - Mini player (always-on-top), tray/menu-bar controller, translucent sidebar per OS.
 - Light/dark/auto, spring motion, Reduce Motion/Transparency, keyboard navigation pass.
-- Desktop system media controls (SMTC, MPNowPlaying, MPRIS).
+- Desktop system media controls (MPRIS).
 
 ## M4 — Tag editing (D)
 - `tags` write path with the safe-write protocol; round-trip tests for every format with unknown frames;
@@ -86,13 +85,13 @@ Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
   recovery, encrypted round trip.
 
 ## M7 — Mobile (M)
-- Shell per the spike outcome (Tauri mobile or native UIs over UniFFI).
+- Shell per the spike outcome (Tauri Android or Compose over UniFFI).
 - Mobile UI: tab bar (customisable), floating mini player, swipe-up Now Playing, long-press menus.
 - Background playback, lock screen / Control Centre / notification controls, audio focus + interruptions,
   headset/BT/car buttons.
-- USB DAC: Android 14+ bit-perfect mixer attributes; iOS preferred sample rate; resample indicator.
+- USB DAC: Android 14+ bit-perfect mixer attributes; resample indicator on older versions.
 - Full/partial mirror with pinning and AAC/Opus transcoded copies; Wi-Fi/charging-only sync; background sync.
-- Stretch: CarPlay / Android Auto browsing, widgets, watch controls.
+- Stretch: Android Auto browsing, home-screen widgets, Wear OS controls.
 
 ## M8 — Extras (D+M)
 - Home shelves from own library (Recently Played/Added, Heavy Rotation, Favourites, Rediscover, On This Day, random picks).
@@ -103,10 +102,11 @@ Platforms per milestone: **D** = Windows/macOS/Linux, **M** = iOS/Android.
   broken/changed files); quality check (spectrogram, lossy-source/upsampled detection).
 - Converter (FLAC/ALAC/MP3/AAC/Opus, tags + art preserved).
 - Import/export: iTunes/Apple Music XML, M3U/M3U8/PLS/XSPF, CSV/JSON, backup/restore.
-- Scrobbling (Last.fm, ListenBrainz, offline cache); casting (Chromecast, UPnP/DLNA; AirPlay via system picker); visualizer.
+- Scrobbling (Last.fm, ListenBrainz, offline cache); casting (Chromecast, UPnP/DLNA); visualizer.
 
 ## M9 — Hardening (D+M)
 - Performance pass against budgets (60 fps lists at 200k, search < 50 ms, cold start < 2 s, rescan in seconds).
 - Accessibility audit (screen readers on every OS, focus, text scaling).
-- Packaging: MSI/MSIX, notarised DMG, AppImage + Flatpak + .deb, iOS/Android builds; auto-update (Tauri updater, signed).
+- Packaging: AppImage + .deb, Android APK (local keystore); auto-update via the Tauri updater against a
+  location the owner chooses (e.g. their cloud storage). No store builds, no code signing certificates.
 - User documentation.

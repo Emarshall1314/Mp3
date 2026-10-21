@@ -1,0 +1,7 @@
+/target
+node_modules/
+/ui/dist
+/fixtures-out
+/apps/cadenza/src-tauri/gen/schemas
+*.log
+.DS_Store

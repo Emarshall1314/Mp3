@@ -1,0 +1,6 @@
+target
+node_modules
+ui/dist
+pnpm-lock.yaml
+apps/cadenza/src-tauri/gen
+docs
