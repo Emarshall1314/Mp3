@@ -1,0 +1,26 @@
+[package]
+name = "cadenza-engine"
+description = "Playback engine: queue, gapless scheduling, ring buffer, outputs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cadenza-decode = { path = "../decode" }
+crossbeam-channel = "0.5"
+rtrb = "0.4"
+rubato = "5.0"
+audioadapter-buffers = "5.2"
+serde.workspace = true
+thiserror = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+alsa = "0.12"
+
+[dev-dependencies]
+cadenza-testkit = { path = "../testkit" }
+
+[lints]
+workspace = true
