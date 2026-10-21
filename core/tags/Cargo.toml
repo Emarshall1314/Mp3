@@ -1,0 +1,22 @@
+[package]
+name = "cadenza-tags"
+description = "Lossless tag reading (and later writing) for every format Cadenza supports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+chardetng = "1.0"
+encoding_rs = "0.8"
+lofty = "0.25"
+serde.workspace = true
+thiserror = "2"
+
+[dev-dependencies]
+cadenza-testkit = { path = "../testkit" }
+sha1_smol = "1"
+
+[lints]
+workspace = true
