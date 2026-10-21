@@ -1,9 +1,10 @@
 //! `cargo xtask <command>`: project automation that would otherwise live in shell scripts.
 //!
 //! Commands:
-//!   fixtures [--out DIR] [--only GROUP...]  generate the test library (needs ffmpeg, sox, flac,
-//!                                           lame, opusenc, oggenc, wavpack, python3)
-//!   test                                    Rust + UI tests, then the fixture self-check
+//!   fixtures [--out DIR] [--only GROUP...]  generate and self-check the test library (needs
+//!                                           ffmpeg, sox, flac, lame, opusenc, oggenc, wavpack,
+//!                                           python3, git, cmake)
+//!   test                                    Rust + UI tests (generates fixtures first if missing)
 //!   bench                                   Rust benchmarks
 //!   ci                                      everything CI runs: fmt, clippy, lint, typecheck, tests
 
@@ -81,36 +82,68 @@ fn python_env() -> Result<PathBuf> {
     Ok(python)
 }
 
-fn fixtures(args: &[String]) -> Result {
-    let python = python_env()?;
-    let mut cmd = Command::new(python);
-    // -I: isolated mode, so nothing from the current directory shadows stdlib modules.
-    cmd.arg("-I").arg(root().join("tools/fixtures/generate.py"));
-    if !args.iter().any(|a| a == "--out") {
-        cmd.arg("--out").arg(fixtures_dir());
+/// Monkey's Audio has no distro package; build the encoder used for APE fixtures from a pinned
+/// commit of the Unix port. It is a test-time tool only and never linked into Cadenza.
+const MAC_REPO: &str = "https://github.com/fernandotcl/monkeys-audio";
+const MAC_COMMIT: &str = "5fe956c7e67c13daa80518a4cc7001e9fa185297";
+
+fn monkeys_audio() -> Result<PathBuf> {
+    let src = root().join("target/tools/monkeys-audio");
+    let bin = src.join("build/mac");
+    if bin.exists() {
+        return Ok(bin);
     }
-    run(cmd.args(args))
+    if !src.join(".git").exists() {
+        run(Command::new("git")
+            .args(["clone", "--quiet", MAC_REPO])
+            .arg(&src))?;
+    }
+    run(Command::new("git")
+        .arg("-C")
+        .arg(&src)
+        .args(["checkout", "--quiet", MAC_COMMIT]))?;
+    run(Command::new("cmake")
+        .arg("-S")
+        .arg(&src)
+        .arg("-B")
+        .arg(src.join("build"))
+        .arg("-DCMAKE_BUILD_TYPE=Release"))?;
+    run(Command::new("cmake")
+        .arg("--build")
+        .arg(src.join("build"))
+        .arg("-j"))?;
+    Ok(bin)
 }
 
-fn fixture_check() -> Result {
+fn fixtures(args: &[String]) -> Result {
     let python = python_env()?;
+    let mut cmd = Command::new(&python);
+    cmd.env("CADENZA_MAC", monkeys_audio()?);
+    // -I: isolated mode, so nothing from the current directory shadows stdlib modules.
+    cmd.arg("-I").arg(root().join("tools/fixtures/generate.py"));
+    let out = match args.iter().position(|a| a == "--out") {
+        Some(i) => PathBuf::from(args.get(i + 1).ok_or("--out needs a directory")?),
+        None => {
+            cmd.arg("--out").arg(fixtures_dir());
+            fixtures_dir()
+        }
+    };
+    run(cmd.args(args))?;
+    // Never hand tests a library that doesn't match its own manifest.
     run(Command::new(python)
         .arg("-I")
         .arg(root().join("tools/fixtures/check.py"))
-        .arg(fixtures_dir()))
+        .arg(out))
 }
 
 fn test() -> Result {
-    run(Command::new("cargo").args(["test", "--workspace"]))?;
-    run(Command::new("pnpm").args(["-r", "test"]))?;
-    if fixtures_dir().join("manifest.json").exists() {
-        fixture_check()?;
-    } else {
-        eprintln!(
-            "(fixtures not generated; run `cargo xtask fixtures` to include the fixture self-check)"
-        );
+    if !fixtures_dir().join("manifest.json").exists() {
+        fixtures(&[])?;
     }
-    Ok(())
+    run(Command::new("cargo")
+        .args(["test", "--workspace"])
+        .env("CADENZA_FIXTURES", fixtures_dir()))?;
+    run(Command::new("pnpm").args(["-r", "test"]))
 }
 
 fn ci() -> Result {
@@ -126,6 +159,7 @@ fn ci() -> Result {
     run(Command::new("pnpm").args(["format:check"]))?;
     run(Command::new("pnpm").args(["-r", "lint"]))?;
     run(Command::new("pnpm").args(["-r", "typecheck"]))?;
+    // Regenerate from scratch so CI exercises the generator and its self-check every time.
     fixtures(&[])?;
     test()
 }
