@@ -58,15 +58,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The runner image ships the Android SDK and NDK.
+      # The runner image ships the Android SDK and NDK. Its variables are only visible to the
+      # shell (not to `${{ env }}`), so NDK_HOME is set inside each step.
       - name: Generate Android project
-        run: pnpm --filter @cadenza/app tauri android init --ci
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" pnpm --filter @cadenza/app tauri android init --ci
       - name: Build APK (arm64)
-        run: pnpm --filter @cadenza/app tauri android build --apk --target aarch64
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" pnpm --filter @cadenza/app tauri android build --apk --target aarch64
       - uses: actions/upload-artifact@v7
         with:
           name: cadenza-android
