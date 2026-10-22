@@ -1018,6 +1018,20 @@ impl Player {
                 self.queue.set_shuffle(on);
                 self.resync_after_queue_change();
             }
+            Cmd::SetOutput(backend) => {
+                let resume = self
+                    .segments
+                    .front()
+                    .map(|seg| (seg.index, self.position_ms()));
+                self.stream = None;
+                self.backend = backend;
+                match (resume, self.status) {
+                    (Some((index, ms)), Status::Playing | Status::Paused) => {
+                        self.start_at(index, ms);
+                    }
+                    _ => self.publish(),
+                }
+            }
             Cmd::Quit => {}
         }
     }

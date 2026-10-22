@@ -17,6 +17,7 @@ import { duration, streamSpec, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
+import { OutputPicker } from './OutputPicker';
 import { QualityBadge } from './QualityBadge';
 
 /// Persistent bar: artwork, title/artist, transport, scrubber, volume, queue toggle.
@@ -74,6 +75,11 @@ export function PlayerBar() {
                   : trackSpec(shown)
               }
             />
+            {player?.stream?.bitPerfect && (
+              <span className="bit-perfect" title="The device receives exactly the file's samples">
+                Bit-perfect
+              </span>
+            )}
           </>
         ) : (
           <div className="now-playing-empty">Not playing</div>
@@ -130,6 +136,7 @@ export function PlayerBar() {
 
       <div className="player-extras">
         <VolumeControl />
+        <OutputPicker />
         <button
           className={`icon-button ${queueOpen ? 'active' : ''}`}
           aria-pressed={queueOpen}

@@ -5,12 +5,62 @@
 pub mod aaudio;
 #[cfg(target_os = "linux")]
 pub mod alsa;
+#[cfg(target_os = "linux")]
+mod reserve;
 
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
 use crate::Result;
+
+/// An output the user can choose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputDevice {
+    /// Stable identifier: `default`, or an ALSA name such as `hw:CARD=DAC,DEV=0`.
+    pub id: String,
+    pub name: String,
+    /// Opened exclusively (bit-perfect capable) rather than through the OS mixer.
+    pub exclusive: bool,
+}
+
+/// The id of the platform's shared default output.
+pub const DEFAULT_DEVICE: &str = "default";
+
+/// The outputs on this machine, the shared default first.
+pub fn devices() -> Vec<OutputDevice> {
+    let mut list = vec![OutputDevice {
+        id: DEFAULT_DEVICE.into(),
+        name: "System Default".into(),
+        exclusive: false,
+    }];
+    #[cfg(target_os = "linux")]
+    list.extend(alsa::devices());
+    list
+}
+
+/// The backend for a device id from [`devices`]. Unknown ids fall back to the default.
+pub fn backend(id: &str) -> Box<dyn OutputBackend> {
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(alsa::Alsa {
+            device: id.to_owned(),
+            exclusive: id != DEFAULT_DEVICE,
+        })
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = id;
+        Box::new(aaudio::AAudio)
+    }
+    // Linux and Android are the only platforms (D11); elsewhere the core builds for tests only.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = id;
+        Box::new(Capture::new())
+    }
+}
 
 /// What the player asks an output for: the source's format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

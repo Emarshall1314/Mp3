@@ -1,0 +1,84 @@
+import { useEffect, useRef, useState } from 'react';
+import { Check, Speaker } from 'lucide-react';
+import { api } from '../api';
+import { attempt } from '../store';
+import type { Outputs } from '../types';
+
+/// Output device menu in the player bar. The list is fetched each time it opens, so devices
+/// plugged in since are there.
+export function OutputPicker() {
+  const [outputs, setOutputs] = useState<Outputs | null>(null);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void api.outputs().then((o) => live && setOutputs(o));
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      live = false;
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
+
+  const missing =
+    outputs && !outputs.devices.some((d) => d.id === outputs.current) ? outputs.current : null;
+
+  return (
+    <div className="output-picker" ref={ref}>
+      <button
+        className={`icon-button ${open ? 'active' : ''}`}
+        aria-label="Output device"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Output device"
+        onClick={() => setOpen(!open)}
+      >
+        <Speaker size={18} />
+      </button>
+      {open && (
+        <div className="popover output-menu" role="menu" aria-label="Output device">
+          <h2 className="popover-title">Output</h2>
+          {!outputs && <p className="muted">Looking for devices…</p>}
+          {outputs?.devices.map((d) => {
+            const current = d.id === outputs.current;
+            return (
+              <button
+                key={d.id}
+                role="menuitemradio"
+                aria-checked={current}
+                className="output-item"
+                onClick={() => {
+                  setOpen(false);
+                  if (!current) void attempt(api.setOutput(d.id));
+                }}
+              >
+                <span className="check">{current && <Check size={14} />}</span>
+                <span className="output-text">
+                  <span>{d.name}</span>
+                  <span className="muted small">
+                    {d.exclusive
+                      ? `Exclusive · bit-perfect capable · ${d.id}`
+                      : 'Shared · through the system mixer'}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {missing && (
+            <p className="muted small" role="status">
+              The selected device ({missing}) is not connected.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

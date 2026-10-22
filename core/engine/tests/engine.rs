@@ -454,3 +454,29 @@ fn exclusive_output_reopens_only_when_the_depth_would_not_fit() {
     );
     assert_eq!(h.capture.snapshot().len(), 1);
 }
+
+#[test]
+fn switching_outputs_continues_from_the_same_position() {
+    let first = Capture::paced(4.0);
+    let second = Capture::new();
+    let h = harness(first);
+    let e = entry("gapless/flac/01");
+    h.engine.set_queue(vec![item(e)], 0, true);
+    h.wait("some playback", Duration::from_secs(5), |s| {
+        s.position_ms >= 300
+    });
+    h.engine.set_output(Box::new(second.clone()));
+    h.wait("end", Duration::from_secs(20), |s| {
+        s.status == Status::Stopped
+    });
+    let full = reference(e);
+    let a = &h.capture.snapshot()[0].samples;
+    let b = &second.snapshot()[0].samples;
+    assert!(!a.is_empty() && !b.is_empty());
+    // The second output starts where the listener was, and plays to the end.
+    let resumed_at = full.len() - b.len();
+    assert!(b[..] == full[resumed_at..], "tail differs");
+    let heard = resumed_at as f64 / 2.0 / 44_100.0;
+    assert!((0.25..2.0).contains(&heard), "resumed at {heard:.2} s");
+    assert!(h.errors().is_empty(), "{:?}", h.errors());
+}

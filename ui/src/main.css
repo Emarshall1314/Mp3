@@ -858,6 +858,85 @@ input[type='range']::-webkit-slider-thumb {
   width: 96px;
 }
 
+.bit-perfect {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- popovers (output picker) ---------- */
+
+.output-picker {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  z-index: 100;
+  bottom: calc(100% + var(--space-2));
+  right: 0;
+  width: 320px;
+  padding: var(--space-2);
+  border-radius: var(--radius-m);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  box-shadow: var(--shadow-menu);
+  border: 1px solid var(--color-separator);
+}
+
+.popover-title {
+  margin: var(--space-1) var(--space-2) var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.popover p {
+  margin: var(--space-2);
+}
+
+.output-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-s);
+  text-align: left;
+}
+
+.output-item:hover,
+.output-item:focus-visible {
+  background: var(--color-badge);
+  outline: none;
+}
+
+.output-item .check {
+  width: 14px;
+  flex: none;
+  padding-top: 2px;
+  color: var(--color-accent);
+}
+
+.output-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.output-text .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 11px;
+}
+
 /* ---------- queue ---------- */
 
 .queue-panel {

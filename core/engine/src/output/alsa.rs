@@ -6,11 +6,66 @@
 //!   resampling is disabled, and the integer format is chosen to carry the source's bit depth
 //!   unchanged, so an untouched source is bit-perfect.
 
+use std::ffi::CString;
+use std::time::{Duration, Instant};
+
 use alsa::pcm::{Access, Format, HwParams, PCM};
 use alsa::{Direction, ValueOr};
 
-use super::{DeviceFormat, Output, OutputBackend, Quantizer, StreamRequest};
+use super::reserve::Reservation;
+use super::{DeviceFormat, Output, OutputBackend, OutputDevice, Quantizer, StreamRequest};
 use crate::{Error, Result};
+
+/// Every playback device on every sound card, as `hw:CARD=<id>,DEV=<n>` (stable across reboots and
+/// hot-plug, unlike card numbers).
+pub fn devices() -> Vec<OutputDevice> {
+    let mut out = Vec::new();
+    for card in alsa::card::Iter::new().flatten() {
+        let Ok(ctl) = alsa::Ctl::new(&format!("hw:{}", card.get_index()), false) else {
+            continue;
+        };
+        let Ok(info) = ctl.card_info() else { continue };
+        let (Ok(card_id), Ok(card_name)) = (info.get_id(), info.get_name()) else {
+            continue;
+        };
+        let pcms: Vec<(i32, String)> = alsa::ctl::DeviceIter::new(&ctl)
+            .filter_map(|dev| {
+                let pcm = ctl.pcm_info(dev as u32, 0, Direction::Playback).ok()?;
+                Some((dev, pcm.get_name().unwrap_or_default().to_owned()))
+            })
+            .collect();
+        let several = pcms.len() > 1;
+        for (dev, pcm_name) in pcms {
+            out.push(OutputDevice {
+                id: format!("hw:CARD={card_id},DEV={dev}"),
+                name: if several && !pcm_name.is_empty() {
+                    format!("{card_name} · {pcm_name}")
+                } else {
+                    card_name.to_owned()
+                },
+                exclusive: true,
+            });
+        }
+    }
+    out
+}
+
+/// The card number behind `hw:CARD=<id>,…`, `hw:<n>,…` or `plughw:…`, for the reservation.
+fn card_index(device: &str) -> Option<i32> {
+    let rest = device.split_once(':')?.1;
+    let card = rest
+        .split(',')
+        .next()?
+        .trim_start_matches("CARD=")
+        .trim_matches(['\'', '"']);
+    if let Ok(n) = card.parse() {
+        return Some(n);
+    }
+    let name = CString::new(card).ok()?;
+    alsa::card::Card::from_str(&name)
+        .ok()
+        .map(|c| c.get_index())
+}
 
 #[derive(Debug, Clone)]
 pub struct Alsa {
@@ -66,6 +121,8 @@ fn layout(format: Format) -> Option<(usize, u8)> {
 
 pub struct AlsaOutput {
     pcm: PCM,
+    /// Held while the device is open; released after the PCM closes (field order).
+    _reservation: Option<Reservation>,
     device: String,
     rate: u32,
     channels: u16,
@@ -94,7 +151,23 @@ unsafe impl Send for AlsaOutput {}
 
 impl OutputBackend for Alsa {
     fn open(&self, request: StreamRequest) -> Result<Box<dyn Output>> {
-        let pcm = PCM::new(&self.device, Direction::Playback, false).map_err(err)?;
+        let reservation = match (self.exclusive, card_index(&self.device)) {
+            (true, Some(card)) => Reservation::acquire(card)?,
+            _ => None,
+        };
+        // A sound server that agreed to release the card closes it asynchronously.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let pcm = loop {
+            match PCM::new(&self.device, Direction::Playback, false) {
+                Ok(pcm) => break pcm,
+                Err(e)
+                    if e.errno() == EBUSY && reservation.is_some() && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => return Err(err(e)),
+            }
+        };
         let (rate, channels, format, can_pause) = {
             let hwp = HwParams::any(&pcm).map_err(err)?;
             hwp.set_access(Access::RWInterleaved).map_err(err)?;
@@ -142,6 +215,7 @@ impl OutputBackend for Alsa {
         };
         Ok(Box::new(AlsaOutput {
             pcm,
+            _reservation: reservation,
             device: self.device.clone(),
             rate,
             channels,

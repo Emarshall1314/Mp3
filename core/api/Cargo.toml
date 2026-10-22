@@ -12,6 +12,7 @@ cadenza-engine = { path = "../engine" }
 cadenza-library = { path = "../library" }
 notify = "8.2"
 serde.workspace = true
+serde_json.workspace = true
 thiserror = "2"
 
 [dev-dependencies]

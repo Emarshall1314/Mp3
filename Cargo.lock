@@ -305,6 +305,7 @@ dependencies = [
  "cadenza-testkit",
  "notify",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -344,6 +345,7 @@ dependencies = [
  "cadenza-decode",
  "cadenza-testkit",
  "crossbeam-channel",
+ "dbus",
  "rtrb",
  "rubato",
  "serde",

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, LibraryStats,
-    PlayerState, Repeat, Root, SavedSearch, ScanStatus, SearchResults, SongSort, TrackRow,
+    Outputs, PlayerState, Repeat, Root, SavedSearch, ScanStatus, SearchResults, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -165,6 +165,16 @@ fn set_volume(app: App<'_>, volume: f32) {
     app.set_volume(volume);
 }
 
+#[tauri::command(async)]
+fn outputs(app: App<'_>) -> Outputs {
+    app.outputs()
+}
+
+#[tauri::command(async)]
+fn set_output(app: App<'_>, id: String) -> Res<()> {
+    app.set_output(&id).map_err(e)
+}
+
 #[tauri::command]
 fn play_index(app: App<'_>, index: usize) {
     app.play_index(index);
@@ -239,13 +249,9 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let handle = app.handle().clone();
-            let cadenza = Cadenza::open(
-                &data_dir,
-                cadenza_api::default_output(),
-                move |event: ApiEvent| {
-                    let _ = handle.emit("cadenza://event", event);
-                },
-            )?;
+            let cadenza = Cadenza::open(&data_dir, None, move |event: ApiEvent| {
+                let _ = handle.emit("cadenza://event", event);
+            })?;
             // `cadenza --add-folder <path>`: add a music folder from the command line or a script.
             let args: Vec<String> = std::env::args().collect();
             for pair in args.windows(2).filter(|w| w[0] == "--add-folder") {
@@ -292,6 +298,8 @@ pub fn run() {
             clear_upcoming,
             set_repeat,
             set_shuffle,
+            outputs,
+            set_output,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

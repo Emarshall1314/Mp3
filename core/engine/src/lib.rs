@@ -21,7 +21,8 @@ use crossbeam_channel::{Sender, unbounded};
 use serde::Serialize;
 
 pub use output::{
-    Capture, CapturedStream, DeviceFormat, Output, OutputBackend, Quantizer, StreamRequest,
+    Capture, CapturedStream, DeviceFormat, Output, OutputBackend, OutputDevice, Quantizer,
+    StreamRequest,
 };
 pub use queue::{QueueItem, Repeat};
 
@@ -153,6 +154,7 @@ pub(crate) enum Cmd {
     ClearUpcoming,
     Repeat(Repeat),
     Shuffle(bool),
+    SetOutput(Box<dyn OutputBackend>),
     Quit,
 }
 
@@ -258,6 +260,10 @@ impl Engine {
     }
     pub fn set_shuffle(&self, on: bool) {
         self.send(Cmd::Shuffle(on));
+    }
+    /// Switches outputs; playback continues on the new one from the same position.
+    pub fn set_output(&self, backend: Box<dyn OutputBackend>) {
+        self.send(Cmd::SetOutput(backend));
     }
 }
 

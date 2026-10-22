@@ -166,3 +166,15 @@ export interface BuildInfo {
   targetArch: string;
   debug: boolean;
 }
+
+export interface OutputDevice {
+  id: string;
+  name: string;
+  /** Opened exclusively (bit-perfect capable) rather than through the OS mixer. */
+  exclusive: boolean;
+}
+
+export interface Outputs {
+  devices: OutputDevice[];
+  current: string;
+}

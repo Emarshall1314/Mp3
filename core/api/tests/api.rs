@@ -42,7 +42,7 @@ fn add_folder_scan_play_and_watch() {
     let sink = Arc::clone(&events);
     let app = Cadenza::open(
         &tmp.path().join("data"),
-        Box::new(Capture::new()),
+        Some(Box::new(Capture::new())),
         move |e| sink.lock().unwrap().push(e),
     )
     .unwrap();

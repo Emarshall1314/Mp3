@@ -5,6 +5,7 @@
 //! Types stay plain so the same API can later be exported through UniFFI if a native mobile UI
 //! is needed.
 
+mod settings;
 mod watch;
 
 use std::path::{Path, PathBuf};
@@ -14,11 +15,14 @@ use std::thread;
 
 use serde::Serialize;
 
-pub use cadenza_engine::{Event as PlayerEvent, PlayerState, Repeat, Status, StreamInfo};
+pub use cadenza_engine::{
+    DeviceFormat, Event as PlayerEvent, OutputDevice, PlayerState, Repeat, Status, StreamInfo,
+};
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, Root, SavedSearch, ScanPhase,
     ScanProgress, ScanReport, SearchResults, SongSort, TrackRow,
 };
+pub use settings::Settings;
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem};
 use cadenza_library::Library;
@@ -148,6 +152,8 @@ impl Scanner {
 pub struct Cadenza {
     library: Arc<Library>,
     engine: Engine,
+    settings: settings::Store,
+    current: Mutex<Settings>,
     scanner: Arc<Scanner>,
     _watcher: Mutex<Option<watch::Watcher>>,
 }
@@ -158,35 +164,39 @@ impl std::fmt::Debug for Cadenza {
     }
 }
 
-/// The platform's default output.
-pub fn default_output() -> Box<dyn OutputBackend> {
+/// The outputs on this machine and which one is in use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Outputs {
+    pub devices: Vec<OutputDevice>,
+    pub current: String,
+}
+
+/// The backend for a saved device id. On Linux, `CADENZA_ALSA_DEVICE` overrides it (for running
+/// the app against ALSA's `null` device in tests and demos).
+fn backend_for(id: &str) -> Box<dyn OutputBackend> {
     #[cfg(target_os = "linux")]
-    {
-        let device = std::env::var("CADENZA_ALSA_DEVICE").unwrap_or_else(|_| "default".into());
-        Box::new(cadenza_engine::output::alsa::Alsa {
+    if let Ok(device) = std::env::var("CADENZA_ALSA_DEVICE") {
+        return Box::new(cadenza_engine::output::alsa::Alsa {
             device,
             exclusive: false,
-        })
+        });
     }
-    #[cfg(target_os = "android")]
-    {
-        Box::new(cadenza_engine::output::aaudio::AAudio)
-    }
-    // Linux and Android are the only platforms (D11); elsewhere the core builds for tests only.
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
-        Box::new(cadenza_engine::Capture::new())
-    }
+    cadenza_engine::output::backend(id)
 }
 
 impl Cadenza {
-    /// Opens the library in `data_dir` and starts the player on `output`.
+    /// Opens the library in `data_dir` and starts the player on `output`, or on the saved output
+    /// device when `None`.
     pub fn open(
         data_dir: &Path,
-        output: Box<dyn OutputBackend>,
+        output: Option<Box<dyn OutputBackend>>,
         on_event: impl Fn(ApiEvent) + Send + Sync + 'static,
     ) -> Result<Self> {
         let library = Arc::new(Library::open(data_dir)?);
+        let store = settings::Store::new(data_dir);
+        let saved = store.load();
+        let output = output.unwrap_or_else(|| backend_for(&saved.output_device));
         let emit: Emit = Arc::new(on_event);
         let player_emit = Arc::clone(&emit);
         let counting = Arc::clone(&library);
@@ -211,6 +221,8 @@ impl Cadenza {
         let me = Self {
             library,
             engine,
+            settings: store,
+            current: Mutex::new(saved),
             scanner,
             _watcher: Mutex::new(None),
         };
@@ -422,6 +434,32 @@ impl Cadenza {
     }
     pub fn set_volume(&self, volume: f32) {
         self.engine.set_volume(volume);
+    }
+
+    // ---- outputs --------------------------------------------------------------------------
+
+    /// Lists outputs afresh (devices come and go).
+    pub fn outputs(&self) -> Outputs {
+        Outputs {
+            devices: cadenza_engine::output::devices(),
+            current: self.settings().output_device,
+        }
+    }
+
+    /// Switches to output `id` (playback continues there) and remembers the choice.
+    pub fn set_output(&self, id: &str) -> Result<()> {
+        let mut settings = self.settings();
+        settings.output_device = id.to_owned();
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        self.engine.set_output(backend_for(id));
+        Ok(())
+    }
+
+    pub fn settings(&self) -> Settings {
+        self.current.lock().map(|s| s.clone()).unwrap_or_default()
     }
     pub fn remove_from_queue(&self, index: usize) {
         self.engine.remove(index);
