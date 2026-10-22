@@ -185,7 +185,10 @@ impl SongSort {
             SongSort::Artist => {
                 format!("t.sort_artist{d}, t.sort_album{d}, t.disc_no, t.track_no, t.id")
             }
-            SongSort::Album => format!("t.sort_album{d}, t.disc_no, t.track_no, t.id"),
+            // Same-titled albums by different artists stay apart.
+            SongSort::Album => {
+                format!("t.sort_album{d}, t.album_id{d}, t.disc_no, t.track_no, t.id")
+            }
             SongSort::Year => {
                 format!("t.year{d}, t.sort_artist, t.sort_album, t.disc_no, t.track_no, t.id")
             }

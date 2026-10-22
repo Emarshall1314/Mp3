@@ -187,6 +187,11 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX edit_changes_batch ON edit_changes(batch_id);
     "#,
+    // 4: albums with the same title stay apart when sorting songs by album.
+    r#"
+    DROP INDEX tracks_sort_album;
+    CREATE INDEX tracks_sort_album ON tracks(sort_album, album_id, disc_no, track_no) WHERE missing_since IS NULL;
+    "#,
 ];
 
 pub(crate) struct Db {

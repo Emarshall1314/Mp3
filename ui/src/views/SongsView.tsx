@@ -8,11 +8,38 @@ import { attempt, useStore } from '../store';
 import type { SongSort, TrackRow } from '../types';
 import { EmptyLibrary } from './EmptyLibrary';
 import { updateLayout, useLook } from '../hooks/useAppearance';
-import { COLUMN_SPECS, type Column, type ColumnId, columnTemplate, moveTo } from '../theme/layout';
+import {
+  COLUMN_SPECS,
+  type Column,
+  type ColumnId,
+  type Grouping,
+  columnTemplate,
+  moveTo,
+} from '../theme/layout';
 import { DENSITY } from '../theme/look';
 import { QualityBadge } from '../components/QualityBadge';
 
 const PAGE = 200;
+
+const GROUP_LABELS: Record<Exclude<Grouping, 'none'>, string> = {
+  album: 'Album',
+  artist: 'Artist',
+  genre: 'Genre',
+};
+
+/// The group a song belongs to (albums by id: titles repeat across artists).
+function groupOf(g: Grouping, t: TrackRow): string {
+  if (g === 'album') return String(t.albumId);
+  if (g === 'artist') return t.artist;
+  if (g === 'genre') return t.genre;
+  return '';
+}
+
+/// What a group is called.
+function groupLabel(g: Grouping, t: TrackRow): string {
+  if (g === 'album') return [t.album, t.albumartist].filter(Boolean).join(' — ');
+  return groupOf(g, t);
+}
 
 /// One cell's content for a column.
 function cell(id: ColumnId, t: TrackRow) {
@@ -130,6 +157,10 @@ export function SongsView() {
   const pending = useRef(new Set<number>());
   const scroller = useRef<HTMLDivElement>(null);
   const columns = useLook((s) => s.look.layout.columns);
+  const grouping = useLook((s) => s.look.layout.grouping);
+  // Grouped lists are sorted by their group (albums keep disc and track order within).
+  const sortBy: SongSort = grouping === 'none' ? sort : grouping;
+  const descending = grouping === 'none' ? desc : false;
   const ROW = DENSITY[useLook((s) => s.look.density)].row;
 
   useEffect(() => {
@@ -139,7 +170,7 @@ export function SongsView() {
   useEffect(() => {
     setPages(new Map());
     pending.current.clear();
-  }, [sort, desc, libraryVersion]);
+  }, [sortBy, descending, libraryVersion]);
 
   const v = useVirtualizer({
     count: count ?? 0,
@@ -156,13 +187,13 @@ export function SongsView() {
     for (let p = Math.floor(first / PAGE); p <= Math.floor(last / PAGE); p++) {
       if (pages.has(p) || pending.current.has(p)) continue;
       pending.current.add(p);
-      const key = `${sort}-${desc}`;
-      void api.songs(sort, desc, p * PAGE, PAGE).then((rows) => {
+      const key = `${sortBy}-${descending}`;
+      void api.songs(sortBy, descending, p * PAGE, PAGE).then((rows) => {
         pending.current.delete(p);
-        if (key === `${sort}-${desc}`) setPages((prev) => new Map(prev).set(p, rows));
+        if (key === `${sortBy}-${descending}`) setPages((prev) => new Map(prev).set(p, rows));
       });
     }
-  }, [first, last, pages, sort, desc, count]);
+  }, [first, last, pages, sortBy, descending, count]);
 
   // One row is in the Tab order (the selected one, else the first visible); arrows move.
   const focusSelected = useRef(false);
@@ -199,7 +230,7 @@ export function SongsView() {
 
   if (count === 0) return <EmptyLibrary />;
   const row = (i: number) => pages.get(Math.floor(i / PAGE))?.[i % PAGE];
-  const play = (i: number) => void attempt(api.playSongs(sort, desc, i));
+  const play = (i: number) => void attempt(api.playSongs(sortBy, descending, i));
 
   return (
     <section className="view">
@@ -207,9 +238,21 @@ export function SongsView() {
         <h1>Songs</h1>
         <div className="view-controls">
           <span className="muted">{count?.toLocaleString()} songs</span>
+          <label>
+            Group by{' '}
+            <select
+              value={grouping}
+              onChange={(e) => updateLayout({ grouping: e.target.value as Grouping })}
+            >
+              <option value="none">Nothing</option>
+              <option value="album">Album</option>
+              <option value="artist">Artist</option>
+              <option value="genre">Genre</option>
+            </select>
+          </label>
           <button
             className="pill"
-            onClick={() => void attempt(api.playSongs(sort, desc, 0, true))}
+            onClick={() => void attempt(api.playSongs(sortBy, descending, 0, true))}
             disabled={!count}
           >
             <Shuffle size={14} aria-hidden /> Shuffle All
@@ -220,18 +263,29 @@ export function SongsView() {
         className="song-table"
         role="grid"
         aria-rowcount={count ?? 0}
-        style={{ '--song-cols': columnTemplate(columns) } as React.CSSProperties}
+        style={
+          {
+            '--song-cols': (grouping === 'none' ? '' : '180px ') + columnTemplate(columns),
+          } as React.CSSProperties
+        }
       >
         <div className="song-head" role="row">
+          {grouping !== 'none' && (
+            <div role="columnheader" className="c-group">
+              {GROUP_LABELS[grouping]}
+            </div>
+          )}
           {columns.map((c, i) => (
             <ColumnHeader
               key={c.id}
               column={c}
               index={i}
-              sort={sort}
-              desc={desc}
+              sort={sortBy}
+              desc={descending}
               onSort={(by) => {
-                if (by === sort) setDesc(!desc);
+                // Sorting by another column ends grouping.
+                if (grouping !== 'none') updateLayout({ grouping: 'none' });
+                if (by === sortBy && grouping === 'none') setDesc(!desc);
                 else {
                   setSort(by);
                   setDesc(false);
@@ -244,6 +298,10 @@ export function SongsView() {
           <div style={{ height: v.getTotalSize(), position: 'relative' }}>
             {items.map((it) => {
               const t = row(it.index);
+              const label = t && grouping !== 'none' ? groupOf(grouping, t) : null;
+              const prev = it.index > 0 ? row(it.index - 1) : undefined;
+              const starts =
+                label !== null && (it.index === 0 || (prev && groupOf(grouping, prev) !== label));
               return (
                 <div
                   key={it.key}
@@ -251,7 +309,7 @@ export function SongsView() {
                   aria-rowindex={it.index + 1}
                   aria-selected={selected === it.index}
                   tabIndex={it.index === tabRow ? 0 : -1}
-                  className={`song-row ${it.index % 2 ? 'odd' : ''} ${t && t.id === playingId ? 'playing' : ''} ${selected === it.index ? 'selected' : ''}`}
+                  className={`song-row ${it.index % 2 ? 'odd' : ''} ${t && t.id === playingId ? 'playing' : ''} ${selected === it.index ? 'selected' : ''} ${starts ? 'group-start' : ''}`}
                   style={{ transform: `translateY(${it.start}px)`, height: ROW }}
                   onClick={() => setSelected(it.index)}
                   onDoubleClick={() => play(it.index)}
@@ -259,11 +317,20 @@ export function SongsView() {
                   onContextMenu={t ? menuHandler(() => trackMenu(t)) : undefined}
                 >
                   {t ? (
-                    columns.map((c) => (
-                      <div key={c.id} role="gridcell" className={`c-${c.id}`}>
-                        {cell(c.id, t)}
-                      </div>
-                    ))
+                    <>
+                      {grouping !== 'none' && (
+                        <div role="gridcell" className="c-group">
+                          {starts
+                            ? groupLabel(grouping, t) || `Unknown ${GROUP_LABELS[grouping]}`
+                            : ''}
+                        </div>
+                      )}
+                      {columns.map((c) => (
+                        <div key={c.id} role="gridcell" className={`c-${c.id}`}>
+                          {cell(c.id, t)}
+                        </div>
+                      ))}
+                    </>
                   ) : (
                     <div role="gridcell" className="loading-cell" />
                   )}

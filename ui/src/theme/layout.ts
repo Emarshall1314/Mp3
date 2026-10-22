@@ -19,6 +19,7 @@ export type ColumnId =
   | 'plays'
   | 'time';
 export type GridOrList = 'grid' | 'list';
+export type Grouping = 'none' | 'album' | 'artist' | 'genre';
 export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal';
 
@@ -55,6 +56,8 @@ export interface Layout {
   dock: Dock;
   /// Home's shelves in order; ones not listed are hidden.
   shelves: ShelfId[];
+  /// The song list grouped (and sorted) by album, artist or genre.
+  grouping: Grouping;
 }
 
 export interface Preset {
@@ -128,6 +131,7 @@ export const DEFAULT_LAYOUT: Layout = {
   nowPlaying: 'artwork',
   dock: { position: 'right', size: 320, x: 80, y: 80, w: 340, h: 420 },
   shelves: ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
+  grouping: 'none',
 };
 
 export const BUILT_IN_PRESETS: Preset[] = [
@@ -214,6 +218,7 @@ export function normaliseLayout(value: unknown): Layout {
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
     nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal'], d.nowPlaying),
     dock: normaliseDock(v.dock),
+    grouping: pick(v.grouping, ['none', 'album', 'artist', 'genre'], d.grouping),
     shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),
   };
 }

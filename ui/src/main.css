@@ -2917,3 +2917,12 @@ kbd {
 .dock[data-position='floating'] {
   background-color: var(--color-surface);
 }
+
+/* Grouped song list: the group's name on its first row, a line above it. */
+.song-row.group-start {
+  border-top: 1px solid var(--color-separator);
+}
+
+.song-row .c-group {
+  font-weight: 600;
+}
