@@ -21,6 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2.8"
+tauri-plugin-cadenza-android = { path = "../plugins/android" }
 
 [features]
 # Set by the Tauri CLI for production builds: serve the bundled UI instead of the dev server.
@@ -31,3 +32,6 @@ workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 souvlaki = "0.8"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

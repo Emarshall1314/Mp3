@@ -15,6 +15,8 @@ use cadenza_api::{
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(desktop)]
 mod desktop;
 #[cfg(target_os = "linux")]
@@ -259,6 +261,53 @@ fn toggle_mini_player(app: tauri::AppHandle) -> Res<()> {
     }
 }
 
+/// Whether Cadenza may read music folders. Always on desktop; Android asks for file access.
+#[tauri::command(async)]
+fn storage_access(handle: AppHandle) -> Res<bool> {
+    #[cfg(target_os = "android")]
+    {
+        storage(&handle).has_access().map_err(e)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = handle;
+        Ok(true)
+    }
+}
+
+/// Asks for file access (Android's settings page); true once granted.
+#[tauri::command(async)]
+fn request_storage_access(handle: AppHandle) -> Res<bool> {
+    #[cfg(target_os = "android")]
+    {
+        storage(&handle).request_access().map_err(e)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = handle;
+        Ok(true)
+    }
+}
+
+/// Android's folder picker, as a path (`None` if cancelled). Desktop uses the dialog plugin.
+#[tauri::command(async)]
+fn pick_music_folder(handle: AppHandle) -> Res<Option<String>> {
+    #[cfg(target_os = "android")]
+    {
+        storage(&handle).pick_folder().map_err(e)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = handle;
+        Err("use the folder dialog on this platform".into())
+    }
+}
+
+#[cfg(target_os = "android")]
+fn storage(handle: &AppHandle) -> State<'_, tauri_plugin_cadenza_android::Storage<tauri::Wry>> {
+    handle.state()
+}
+
 /// Brings the main window to the front.
 #[tauri::command]
 fn show_main_window(app: tauri::AppHandle) {
@@ -274,12 +323,16 @@ fn dsp(app: App<'_>) -> DspSettings {
 }
 
 #[tauri::command(async)]
-fn set_dsp(app: App<'_>, settings: DspSettings) -> Res<()> {
+fn set_dsp(app: App<'_>, mut settings: DspSettings) -> Res<()> {
+    if let Some(path) = &settings.convolution_path {
+        settings.convolution_path = Some(tauri_plugin_cadenza_android::local_path(path)?);
+    }
     app.set_dsp(settings).map_err(e)
 }
 
 #[tauri::command(async)]
 fn import_autoeq(app: App<'_>, path: String) -> Res<ImportedEq> {
+    let path = tauri_plugin_cadenza_android::local_path(&path)?;
     app.import_autoeq(std::path::Path::new(&path)).map_err(e)
 }
 
@@ -355,6 +408,7 @@ fn artwork_response(app: &AppHandle, uri: &tauri::http::Uri) -> Response<Vec<u8>
 pub fn run() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_cadenza_android::init())
         .register_asynchronous_uri_scheme_protocol("cadenza", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(artwork_response(&app, request.uri())));
@@ -362,7 +416,7 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let handle = app.handle().clone();
-            // Player events also go to the desktop media controls (MPRIS).
+            // Player events also go to the system media controls (MPRIS, Android's media session).
             let (to_media, media_events) = std::sync::mpsc::channel();
             let cadenza = Cadenza::open(&data_dir, None, move |event: ApiEvent| {
                 if let ApiEvent::Player { event } = &event {
@@ -389,7 +443,15 @@ pub fn run() {
                     .name("cadenza-mpris".into())
                     .spawn(move || mpris::run(app_ref, handle, media_events))?;
             }
-            #[cfg(not(target_os = "linux"))]
+            // Android: the playback service's media session (lock screen, notification).
+            #[cfg(target_os = "android")]
+            {
+                let app_ref = Arc::clone(&cadenza);
+                std::thread::Builder::new()
+                    .name("cadenza-session".into())
+                    .spawn(move || android::run(app_ref, media_events))?;
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
             drop(media_events);
             app.manage(cadenza);
             #[cfg(desktop)]
@@ -451,6 +513,9 @@ pub fn run() {
             settings,
             set_crossfade,
             set_appearance,
+            storage_access,
+            request_storage_access,
+            pick_music_folder,
             analyze_loudness,
             import_autoeq,
             eq_curve,

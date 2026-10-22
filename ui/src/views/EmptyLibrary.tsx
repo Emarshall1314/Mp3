@@ -1,6 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderPlus } from 'lucide-react';
-import { api } from '../api';
+import { api, isAndroid } from '../api';
 import { attempt, useStore } from '../store';
 
 /// First run (or every folder removed): say what to do, with the one button that does it.
@@ -25,6 +25,12 @@ export function EmptyLibrary() {
         Choose the folder where your music lives. Cadenza reads it, never changes it, and keeps up
         with new files.
       </p>
+      {isAndroid && (
+        <p className="muted small">
+          Android first asks you to allow Cadenza access to all files: it reads music files
+          directly, along with their lyrics, cue sheets and folder artwork.
+        </p>
+      )}
       <button className="pill primary" onClick={() => void addFolder()}>
         <FolderPlus size={16} aria-hidden /> Add Music Folder…
       </button>
@@ -33,9 +39,22 @@ export function EmptyLibrary() {
 }
 
 export async function addFolder() {
-  const picked = await open({ directory: true, multiple: false, title: 'Add Music Folder' });
+  const picked = isAndroid
+    ? await pickOnAndroid()
+    : await open({ directory: true, multiple: false, title: 'Add Music Folder' });
   if (typeof picked === 'string') {
     await attempt(api.addRoot(picked));
     useStore.getState().libraryChanged();
   }
+}
+
+/// Android: file access first (its settings page), then the system folder picker.
+async function pickOnAndroid(): Promise<string | null> {
+  const granted =
+    (await attempt(api.storageAccess())) || (await attempt(api.requestStorageAccess()));
+  if (!granted) {
+    useStore.getState().showToast('Cadenza can’t read music folders without access to files.');
+    return null;
+  }
+  return (await attempt(api.pickMusicFolder())) ?? null;
 }

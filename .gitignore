@@ -6,3 +6,5 @@ node_modules/
 *.log
 .DS_Store
 *.tsbuildinfo
+/apps/cadenza/plugins/android/android/.tauri
+/apps/cadenza/plugins/android/android/build

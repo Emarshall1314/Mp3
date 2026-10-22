@@ -33,14 +33,15 @@ pub const DEFAULT_DEVICE: &str = "default";
 
 /// The outputs on this machine, the shared default first.
 pub fn devices() -> Vec<OutputDevice> {
-    let mut list = vec![OutputDevice {
+    let default = OutputDevice {
         id: DEFAULT_DEVICE.into(),
         name: "System Default".into(),
         exclusive: false,
-    }];
+    };
     #[cfg(target_os = "linux")]
-    list.extend(alsa::devices());
-    list
+    return std::iter::once(default).chain(alsa::devices()).collect();
+    #[cfg(not(target_os = "linux"))]
+    vec![default]
 }
 
 /// The backend for a device id from [`devices`]. `dop`: send DSD to it as DoP (see

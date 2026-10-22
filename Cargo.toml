@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core/*", "apps/cadenza/src-tauri", "xtask"]
+members = ["core/*", "apps/cadenza/src-tauri", "apps/cadenza/plugins/*", "xtask"]
 
 [workspace.package]
 version = "0.1.0"

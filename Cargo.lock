@@ -324,11 +324,13 @@ name = "cadenza-app"
 version = "0.1.0"
 dependencies = [
  "cadenza-api",
+ "jni",
  "serde",
  "serde_json",
  "souvlaki",
  "tauri",
  "tauri-build",
+ "tauri-plugin-cadenza-android",
  "tauri-plugin-dialog",
 ]
 
@@ -4287,6 +4289,15 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-cadenza-android"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
