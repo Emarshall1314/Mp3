@@ -725,3 +725,51 @@ fn replay_gain_modes_pick_the_right_gain_and_scale_the_samples() {
         "{events:?}"
     );
 }
+
+#[test]
+fn crossfade_overlaps_tracks_from_different_albums_only() {
+    let e = entry("formats/flac_s16_44100"); // 1 s
+    let track = |id: i64, album: i64| QueueItem {
+        track_id: id,
+        album_id: Some(album),
+        ..item(e)
+    };
+    let run = |items: Vec<QueueItem>| {
+        let h = harness(Capture::paced(10.0));
+        h.engine.set_crossfade(0.25);
+        h.engine.set_queue(items, 0, true);
+        h.wait("queued", Duration::from_secs(5), |s| s.queue_length > 0);
+        h.wait("end", Duration::from_secs(20), |s| {
+            s.status == Status::Stopped
+        });
+        h
+    };
+    let one = reference(e);
+    let frames = one.len() / 2;
+    let fade = 44_100 / 4;
+
+    // Different albums: the second starts 0.25 s before the first ends, equal-power mixed.
+    let h = run(vec![track(1, 1), track(2, 2)]);
+    let out = h.capture.snapshot()[0].samples.clone();
+    assert_eq!(out.len() / 2, 2 * frames - fade);
+    let head = frames - fade;
+    assert!(
+        out[..head * 2] == one[..head * 2],
+        "before the fade: track one alone"
+    );
+    let mid = head + fade / 2;
+    let (a, b) = (one[mid * 2], one[(mid - head) * 2]);
+    let t = ((fade / 2) as f64 + 0.5) / fade as f64 * std::f64::consts::FRAC_PI_2;
+    assert!((out[mid * 2] - (a * t.cos() + b * t.sin())).abs() < 1e-12);
+    assert!(
+        out[frames * 2..] == one[fade * 2..],
+        "after the fade: track two alone"
+    );
+    assert_eq!(h.finished(), [(1, true), (2, true)]);
+    assert!(h.errors().is_empty(), "{:?}", h.errors());
+
+    // Same album: gapless, no fade.
+    let h = run(vec![track(1, 1), track(2, 1)]);
+    let out = &h.capture.snapshot()[0].samples;
+    assert_eq!(out.len(), 2 * one.len());
+}

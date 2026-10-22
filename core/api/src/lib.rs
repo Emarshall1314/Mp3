@@ -246,6 +246,7 @@ impl Cadenza {
         });
         engine.set_dsp(saved.current_dsp());
         engine.set_replay_gain(saved.replay_gain);
+        engine.set_crossfade(saved.crossfade_s);
         let me = Self {
             library,
             engine,
@@ -565,6 +566,19 @@ impl Cadenza {
         if on {
             self.analyzer.start();
         }
+        Ok(())
+    }
+
+    /// Crossfade length in seconds (0: off).
+    pub fn set_crossfade(&self, seconds: f64) -> Result<()> {
+        let seconds = seconds.clamp(0.0, 12.0);
+        let mut settings = self.settings();
+        settings.crossfade_s = seconds;
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        self.engine.set_crossfade(seconds);
         Ok(())
     }
 

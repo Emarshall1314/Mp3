@@ -9,7 +9,7 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, DspSettings, EqBand,
     ImportedEq, LibraryStats, LoudnessStatus, Outputs, PlayerState, Repeat, ReplayGainSettings,
-    Root, SavedSearch, ScanStatus, SearchResults, SongSort, TrackRow,
+    Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -192,6 +192,16 @@ fn set_replay_gain(app: App<'_>, settings: ReplayGainSettings) -> Res<()> {
 }
 
 #[tauri::command]
+fn settings(app: App<'_>) -> Settings {
+    app.settings()
+}
+
+#[tauri::command(async)]
+fn set_crossfade(app: App<'_>, seconds: f64) -> Res<()> {
+    app.set_crossfade(seconds).map_err(e)
+}
+
+#[tauri::command]
 fn loudness_status(app: App<'_>) -> LoudnessStatus {
     app.loudness_status()
 }
@@ -352,6 +362,8 @@ pub fn run() {
             replay_gain,
             set_replay_gain,
             loudness_status,
+            settings,
+            set_crossfade,
             analyze_loudness,
             import_autoeq,
             eq_curve,

@@ -326,6 +326,10 @@ struct Source {
     info: StreamInfo,
     /// Linear ReplayGain factor applied to decoded PCM.
     gain: f64,
+    /// Frames decoded so far (from the seek point).
+    decoded: u64,
+    /// A crossfade into the next entry was considered (once per track).
+    fade_tried: bool,
 }
 
 impl Source {
@@ -392,6 +396,8 @@ fn open_source(item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source>
         duration_ms,
         info,
         gain: 1.0,
+        decoded: 0,
+        fade_tried: false,
     })
 }
 
@@ -419,6 +425,8 @@ struct Player {
     /// Decoded next track whose format needs a new output (waits for the ring to drain).
     reopen_with: Option<Source>,
     resampler: Option<Resampler>,
+    /// Frames fed to / produced by the resampler since the stream opened or was flushed.
+    resampled_in: u64,
     resampled_out: u64,
     pending: Vec<f64>,
     segments: VecDeque<Segment>,
@@ -439,6 +447,15 @@ struct Player {
     dsd_unsupported: bool,
     dsp: DspSettings,
     replay_gain: ReplayGainSettings,
+    /// Crossfade length in seconds (0: off).
+    crossfade_s: f64,
+    /// The next track, fading in under the end of the current one.
+    incoming: Option<Source>,
+    /// Incoming audio decoded but not yet mixed (interleaved, source format).
+    xf_buf: Vec<f64>,
+    /// Frames into the fade, and its length.
+    xf_pos: u64,
+    xf_len: u64,
 }
 
 pub(crate) fn run(
@@ -457,6 +474,7 @@ pub(crate) fn run(
         source: None,
         reopen_with: None,
         resampler: None,
+        resampled_in: 0,
         resampled_out: 0,
         pending: Vec::new(),
         segments: VecDeque::new(),
@@ -473,6 +491,11 @@ pub(crate) fn run(
         dsd_unsupported: false,
         dsp: DspSettings::default(),
         replay_gain: ReplayGainSettings::default(),
+        crossfade_s: 0.0,
+        incoming: None,
+        xf_buf: Vec::new(),
+        xf_pos: 0,
+        xf_len: 0,
     };
     loop {
         let busy = p.status == Status::Playing && p.stream.is_some();
@@ -624,13 +647,14 @@ impl Player {
                         }
                     };
                     let frame = offset_ms * src.rate as u64 / 1000;
-                    if frame > 0
-                        && let Err(e) = src.dec.seek(frame)
-                    {
-                        (self.emit)(Event::Error {
-                            track_id: Some(item.track_id),
-                            message: e.to_string(),
-                        });
+                    if frame > 0 {
+                        match src.dec.seek(frame) {
+                            Ok(at) => src.decoded = at,
+                            Err(e) => (self.emit)(Event::Error {
+                                track_id: Some(item.track_id),
+                                message: e.to_string(),
+                            }),
+                        }
                     }
                     self.queue.current = Some(index);
                     let stream = self
@@ -759,7 +783,10 @@ impl Player {
             s.set_draining(false);
         }
         self.pending.clear();
+        self.resampled_in = 0;
         self.resampled_out = 0;
+        self.incoming = None;
+        self.xf_buf.clear();
         let stream = self.stream.as_ref().ok_or(Error::Stopped)?;
         self.packer = if request.dsd {
             DsdPacker::new(stream.format, stream.channels)
@@ -785,6 +812,8 @@ impl Player {
 
     fn stop_output(&mut self) {
         self.stream = None;
+        self.incoming = None;
+        self.xf_buf.clear();
         self.source = None;
         self.reopen_with = None;
         self.resampler = None;
@@ -818,12 +847,16 @@ impl Player {
             if stream.space_frames() < stream.rate as usize / 50 {
                 return;
             }
+            let (out_rate, out_ch) = (stream.rate, stream.channels);
+            let fade_start = self.fade_start();
             let Some(src) = self.source.as_mut() else {
                 return;
             };
-            let (out_rate, out_ch) = (stream.rate, stream.channels);
             match src.dec.next_chunk() {
                 Ok(Some(chunk)) => {
+                    let before = src.decoded;
+                    src.decoded += chunk.frames(src.channels) as u64;
+                    let after = src.decoded;
                     match (chunk, self.packer.as_mut()) {
                         (Chunk::Dsd(bytes), Some(packer)) => {
                             self.f64_buf.clear();
@@ -836,21 +869,23 @@ impl Player {
                             }
                         }
                     }
-                    remix(&self.f64_buf, src.channels, out_ch, &mut self.remix_buf);
-                    match self.resampler.as_mut() {
-                        Some(r) => {
-                            let before = self.pending.len();
-                            if let Err(e) = r.process(&self.remix_buf, &mut self.pending) {
-                                (self.emit)(Event::Error {
-                                    track_id: Some(src.item.track_id),
-                                    message: e.to_string(),
-                                });
-                            }
-                            self.resampled_out +=
-                                ((self.pending.len() - before) / out_ch.max(1) as usize) as u64;
-                        }
-                        None => self.pending.extend_from_slice(&self.remix_buf),
+                    let channels = src.channels;
+                    let mut buf = std::mem::take(&mut self.f64_buf);
+                    let mut split = 0;
+                    if let Some((at, total)) = fade_start
+                        && after > at
+                    {
+                        // This chunk reaches the fade: up to its start the track plays alone.
+                        split = (at.saturating_sub(before) as usize * usize::from(channels))
+                            .min(buf.len());
+                        self.emit_samples(&buf[..split], channels, out_ch);
+                        self.start_crossfade(total - before.max(at));
                     }
+                    if self.incoming.is_some() {
+                        self.mix_incoming(&mut buf[split..]);
+                    }
+                    self.emit_samples(&buf[split..], channels, out_ch);
+                    self.f64_buf = buf;
                 }
                 Ok(None) => self.source_ended(out_rate, out_ch),
                 Err(e) => {
@@ -864,11 +899,144 @@ impl Player {
         }
     }
 
+    /// Remixes and resamples decoded samples into `pending`.
+    fn emit_samples(&mut self, samples: &[f64], channels: u16, out_ch: u16) {
+        remix(samples, channels, out_ch, &mut self.remix_buf);
+        match self.resampler.as_mut() {
+            Some(r) => {
+                let before = self.pending.len();
+                if let Err(e) = r.process(&self.remix_buf, &mut self.pending) {
+                    (self.emit)(Event::Error {
+                        track_id: None,
+                        message: e.to_string(),
+                    });
+                }
+                self.resampled_in += (self.remix_buf.len() / out_ch.max(1) as usize) as u64;
+                self.resampled_out +=
+                    ((self.pending.len() - before) / out_ch.max(1) as usize) as u64;
+            }
+            None => self.pending.extend_from_slice(&self.remix_buf),
+        }
+    }
+
+    /// Where the current track's fade-out would start, and its length, if a crossfade is still
+    /// to be considered.
+    fn fade_start(&self) -> Option<(u64, u64)> {
+        if self.crossfade_s <= 0.0 || self.incoming.is_some() || self.packer.is_some() {
+            return None;
+        }
+        let src = self.source.as_ref().filter(|s| !s.fade_tried)?;
+        let total = src.dec.spec().total_frames?;
+        let fade = ((self.crossfade_s * f64::from(src.rate)) as u64).min(total / 3);
+        (fade > 0).then_some((total - fade, total))
+    }
+
+    /// Opens the next entry to fade in over the current track's last `remaining` frames, if it
+    /// qualifies: from another album (albums stay gapless) and with the same rate and channels
+    /// (both are mixed before the shared resampler).
+    fn start_crossfade(&mut self, remaining: u64) {
+        if let Some(src) = self.source.as_mut() {
+            src.fade_tried = true;
+        }
+        let Some(src) = self.source.as_ref() else {
+            return;
+        };
+        if remaining == 0 {
+            return;
+        }
+        let Some(next) = self.queue.after(src.index).filter(|n| *n != src.index) else {
+            return;
+        };
+        let Some(item) = self.queue.items.get(next).cloned() else {
+            return;
+        };
+        if item.album_id.is_some() && item.album_id == src.item.album_id {
+            return;
+        }
+        let Ok(incoming) = self.open(&item, next, true) else {
+            return;
+        };
+        if (incoming.rate, incoming.channels) != (src.rate, src.channels)
+            || incoming
+                .dec
+                .spec()
+                .total_frames
+                .is_some_and(|t| t < 2 * remaining)
+        {
+            return;
+        }
+        // The incoming track starts (for position and play counting) where the fade starts.
+        let (pushed, rate, ch) = self
+            .stream
+            .as_ref()
+            .map(|s| (s.pushed, s.rate, s.channels))
+            .unwrap_or((0, src.rate, src.channels));
+        let pending_frames = (self.pending.len() / usize::from(ch.max(1))) as u64;
+        self.segments.push_back(Segment {
+            start: pushed + pending_frames,
+            index: incoming.index,
+            track_id: incoming.item.track_id,
+            offset_ms: 0,
+            duration_ms: incoming.duration_ms,
+            rate,
+            info: incoming.info.clone(),
+        });
+        self.xf_buf.clear();
+        self.xf_pos = 0;
+        self.xf_len = remaining;
+        self.incoming = Some(incoming);
+    }
+
+    /// Mixes the incoming track into `out` (the outgoing one) with equal-power curves.
+    fn mix_incoming(&mut self, out: &mut [f64]) {
+        let Some(inc) = self.incoming.as_mut() else {
+            return;
+        };
+        let ch = usize::from(inc.channels.max(1));
+        let need = out.len();
+        let mut chunk_buf = Vec::new();
+        while self.xf_buf.len() < need {
+            match inc.dec.next_chunk() {
+                Ok(Some(chunk)) => {
+                    inc.decoded += chunk.frames(inc.channels) as u64;
+                    to_f64(chunk, inc.format, &mut chunk_buf);
+                    if inc.gain != 1.0 {
+                        chunk_buf.iter_mut().for_each(|v| *v *= inc.gain);
+                    }
+                    self.xf_buf.extend_from_slice(&chunk_buf);
+                }
+                // A short or failing incoming track fades in from silence.
+                _ => self.xf_buf.resize(need, 0.0),
+            }
+        }
+        let len = self.xf_len.max(1) as f64;
+        for (f, (out, inc)) in out
+            .chunks_exact_mut(ch)
+            .zip(self.xf_buf.chunks_exact(ch))
+            .enumerate()
+        {
+            let t = ((self.xf_pos + f as u64) as f64 + 0.5) / len;
+            let (fade_in, fade_out) = (t.min(1.0) * std::f64::consts::FRAC_PI_2).sin_cos();
+            for (o, i) in out.iter_mut().zip(inc) {
+                *o = *o * fade_out + i * fade_in;
+            }
+        }
+        self.xf_pos += (need / ch) as u64;
+        self.xf_buf.drain(..need);
+    }
+
     /// The decoder hit the end: chain the next entry gaplessly, or wait to reopen, or end.
     fn source_ended(&mut self, out_rate: u32, out_ch: u16) {
         let Some(src) = self.source.take() else {
             return;
         };
+        if let Some(incoming) = self.incoming.take() {
+            // The fade is complete: the incoming track carries on, after what it decoded ahead.
+            let rest = std::mem::take(&mut self.xf_buf);
+            self.emit_samples(&rest, incoming.channels, out_ch);
+            self.source = Some(incoming);
+            return;
+        }
         let next = self.queue.after(src.index);
         let mut next_src = None;
         if let Some(mut n) = next {
@@ -902,11 +1070,7 @@ impl Player {
         });
         if !same_format && let Some(r) = self.resampler.as_mut() {
             // Close the resampled stream exactly: total out = total in × ratio.
-            let expected = src
-                .dec
-                .spec()
-                .total_frames
-                .map(|f| f * r.to as u64 / r.from as u64);
+            let expected = Some(self.resampled_in * r.to as u64 / r.from as u64);
             let _ = r.flush(&mut self.pending, expected, self.resampled_out);
         }
         match next_src {
@@ -1059,6 +1223,9 @@ impl Player {
                 } else {
                     self.queue.after(current).unwrap_or(current)
                 };
+            }
+            if let Some(inc) = self.incoming.as_mut() {
+                inc.index = self.queue.after(current).unwrap_or(inc.index);
             }
             self.publish();
         }
@@ -1232,6 +1399,9 @@ impl Player {
                     }
                     _ => self.publish(),
                 }
+            }
+            Cmd::SetCrossfade(seconds) => {
+                self.crossfade_s = seconds.clamp(0.0, 12.0);
             }
             Cmd::SetDsp(settings) => {
                 self.dsp = *settings;

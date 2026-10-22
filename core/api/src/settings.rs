@@ -21,6 +21,8 @@ pub struct Settings {
     /// DSP profile per output device id: headphones and speakers want different EQ.
     pub dsp: BTreeMap<String, DspSettings>,
     pub replay_gain: ReplayGainSettings,
+    /// Crossfade between tracks, in seconds (0: off).
+    pub crossfade_s: f64,
 }
 
 impl Settings {
@@ -44,6 +46,7 @@ impl Default for Settings {
             dop_devices: Vec::new(),
             dsp: BTreeMap::new(),
             replay_gain: ReplayGainSettings::default(),
+            crossfade_s: 0.0,
         }
     }
 }

@@ -200,6 +200,7 @@ pub(crate) enum Cmd {
     SetOutput(Box<dyn OutputBackend>),
     SetDsp(Box<DspSettings>),
     SetReplayGain(ReplayGainSettings),
+    SetCrossfade(f64),
     Quit,
 }
 
@@ -313,6 +314,11 @@ impl Engine {
     /// Replaces the ReplayGain settings; the current track restarts in place to apply them.
     pub fn set_replay_gain(&self, settings: ReplayGainSettings) {
         self.send(Cmd::SetReplayGain(settings));
+    }
+    /// Crossfades between tracks over `seconds` (0: off, the default). Tracks of one album stay
+    /// gapless; tracks whose rate or channel count differ change over without a fade.
+    pub fn set_crossfade(&self, seconds: f64) {
+        self.send(Cmd::SetCrossfade(seconds));
     }
     /// Switches outputs; playback continues on the new one from the same position.
     pub fn set_output(&self, backend: Box<dyn OutputBackend>) {
