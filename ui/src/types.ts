@@ -131,9 +131,17 @@ export interface StreamInfo {
   bitPerfect: boolean;
   /** DSP stages running on this stream, in order. */
   dsp: string[];
+  /** ReplayGain applied to this track, in dB. */
+  replayGainDb: number | null;
 }
 
-export type DeviceFormat = { kind: 'float' } | { kind: 'int'; bits: number };
+export type DeviceFormat =
+  | { kind: 'float' }
+  | { kind: 'int'; bits: number }
+  /** DSD over PCM in a container with this many significant bits. */
+  | { kind: 'dop'; bits: number }
+  /** Native DSD: bytes per word. */
+  | { kind: 'dsd'; bytes: number; bigEndian: boolean };
 
 export interface PlayerState {
   status: Status;
@@ -159,7 +167,8 @@ export type ApiEvent =
   | { kind: 'player'; event: PlayerEvent }
   | { kind: 'scanProgress'; progress: ScanProgress }
   | { kind: 'scanFinished'; report: ScanReport }
-  | { kind: 'libraryChanged' };
+  | { kind: 'libraryChanged' }
+  | { kind: 'loudness'; status: LoudnessStatus };
 
 export interface BuildInfo {
   name: string;
@@ -181,4 +190,54 @@ export interface Outputs {
   current: string;
   /** Devices with DSD over DoP turned on. */
   dop: string[];
+}
+
+export type FilterKind = 'peak' | 'lowShelf' | 'highShelf' | 'lowPass' | 'highPass';
+
+export interface EqBand {
+  kind: FilterKind;
+  freq: number;
+  gainDb: number;
+  q: number;
+}
+
+export type CrossfeedLevel = 'default' | 'chuMoy' | 'meier';
+
+export interface DspSettings {
+  preampDb: number;
+  eqEnabled: boolean;
+  eq: EqBand[];
+  crossfeedEnabled: boolean;
+  crossfeed: CrossfeedLevel;
+  convolutionEnabled: boolean;
+  convolutionPath: string | null;
+  limiter: boolean;
+}
+
+export type ReplayGainMode = 'off' | 'track' | 'album' | 'auto';
+
+export interface ReplayGainSettings {
+  mode: ReplayGainMode;
+  preampDb: number;
+  untaggedDb: number;
+  preventClipping: boolean;
+}
+
+export interface Settings {
+  outputDevice: string;
+  dopDevices: string[];
+  dsp: Record<string, DspSettings>;
+  replayGain: ReplayGainSettings;
+  crossfadeS: number;
+}
+
+export interface LoudnessStatus {
+  running: boolean;
+  done: number;
+  total: number;
+}
+
+export interface ImportedEq {
+  preampDb: number;
+  bands: EqBand[];
 }

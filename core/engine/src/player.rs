@@ -11,7 +11,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::convert::{Resampler, remix, to_f64};
-use crate::dsp::{Chain, DspSettings};
+use crate::dsp::{Chain, DspSettings, IrCache};
 use crate::output::{DeviceFormat, DsdPacker, Output, OutputBackend, StreamRequest};
 use crate::queue::{Queue, QueueItem, Repeat};
 use crate::{
@@ -276,12 +276,12 @@ impl Stream {
     }
 
     /// Builds the DSP chain for this stream and hands it to the output thread. Returns warnings.
-    fn install_dsp(&mut self, settings: &DspSettings) -> Vec<String> {
+    fn install_dsp(&mut self, settings: &DspSettings, irs: &mut IrCache) -> Vec<String> {
         // DSD reaches the device untouched.
         let (chain, warnings) = if self.format.is_dsd() {
             (None, Vec::new())
         } else {
-            Chain::build(settings, self.rate, self.channels)
+            Chain::build(settings, self.rate, self.channels, irs)
         };
         self.dsp = chain.as_ref().map(|c| c.stages.clone()).unwrap_or_default();
         if let Ok(mut slot) = self.shared.chain.lock() {
@@ -446,6 +446,7 @@ struct Player {
     /// stay gapless on it.
     dsd_unsupported: bool,
     dsp: DspSettings,
+    irs: IrCache,
     replay_gain: ReplayGainSettings,
     /// Crossfade length in seconds (0: off).
     crossfade_s: f64,
@@ -490,6 +491,7 @@ pub(crate) fn run(
         packer: None,
         dsd_unsupported: false,
         dsp: DspSettings::default(),
+        irs: IrCache::default(),
         replay_gain: ReplayGainSettings::default(),
         crossfade_s: 0.0,
         incoming: None,
@@ -775,7 +777,7 @@ impl Player {
         } else {
             self.stream = None;
             let mut stream = Stream::open(self.backend.as_ref(), request, self.volume)?;
-            let warnings = stream.install_dsp(&self.dsp);
+            let warnings = stream.install_dsp(&self.dsp, &mut self.irs);
             self.stream = Some(stream);
             self.warn(warnings);
         }
@@ -1405,8 +1407,8 @@ impl Player {
             }
             Cmd::SetDsp(settings) => {
                 self.dsp = *settings;
-                let dsp = self.dsp.clone();
-                if let Some(warnings) = self.stream.as_mut().map(|s| s.install_dsp(&dsp)) {
+                let (dsp, irs) = (&self.dsp, &mut self.irs);
+                if let Some(warnings) = self.stream.as_mut().map(|s| s.install_dsp(dsp, irs)) {
                     self.warn(warnings);
                 }
                 self.publish();

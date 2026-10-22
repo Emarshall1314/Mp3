@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Speaker } from 'lucide-react';
 import { api } from '../api';
-import { attempt } from '../store';
+import { attempt, useStore } from '../store';
 import type { Outputs } from '../types';
 
 /// Output device menu in the player bar. The list is fetched each time it opens, so devices
@@ -59,7 +59,10 @@ export function OutputPicker() {
                 className="output-item"
                 onClick={() => {
                   setOpen(false);
-                  if (!current) void attempt(api.setOutput(d.id));
+                  if (!current)
+                    void attempt(api.setOutput(d.id)).then(() =>
+                      useStore.getState().settingsChanged(),
+                    );
                 }}
               >
                 <span className="check">{current && <Check size={14} />}</span>

@@ -12,12 +12,14 @@ import { SongsView } from './views/SongsView';
 import { ArtistsView } from './views/ArtistsView';
 import { SearchView } from './views/SearchView';
 import { FoldersView } from './views/FoldersView';
+import { SoundView } from './views/SoundView';
 
 function useCoreEvents() {
   useEffect(() => {
     const s = useStore.getState();
     void api.player().then(s.setPlayer);
     void api.scanStatus().then((scan) => s.setScan(scan));
+    void api.loudnessStatus().then(s.setLoudness);
     const unlisten = onApiEvent((e) => {
       const st = useStore.getState();
       switch (e.kind) {
@@ -39,6 +41,9 @@ function useCoreEvents() {
           break;
         case 'libraryChanged':
           st.libraryChanged();
+          break;
+        case 'loudness':
+          st.setLoudness(e.status);
           break;
       }
     });
@@ -92,6 +97,8 @@ function Main() {
       return <SearchView query={route.query} />;
     case 'folders':
       return <FoldersView />;
+    case 'sound':
+      return <SoundView />;
   }
 }
 

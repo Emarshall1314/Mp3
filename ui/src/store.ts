@@ -1,7 +1,7 @@
 // App-wide UI state. The core is the source of truth for library and playback; this store only
 // mirrors what the UI needs to render and remembers navigation.
 import { create } from 'zustand';
-import type { PlayerState, ScanStatus } from './types';
+import type { LoudnessStatus, PlayerState, ScanStatus } from './types';
 
 export type Route =
   | { name: 'recent' }
@@ -11,7 +11,8 @@ export type Route =
   | { name: 'album'; id: number }
   | { name: 'songs' }
   | { name: 'search'; query: string }
-  | { name: 'folders' };
+  | { name: 'folders' }
+  | { name: 'sound' };
 
 export interface MenuItem {
   label: string;
@@ -38,6 +39,12 @@ interface Store {
 
   queueOpen: boolean;
   toggleQueue: () => void;
+
+  loudness: LoudnessStatus | null;
+  setLoudness: (s: LoudnessStatus) => void;
+  /// Bumped when output or sound settings change elsewhere (the output menu).
+  settingsVersion: number;
+  settingsChanged: () => void;
 
   menu: { x: number; y: number; items: MenuItem[] } | null;
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
@@ -82,6 +89,11 @@ export const useStore = create<Store>((set, get) => ({
 
   queueOpen: false,
   toggleQueue: () => set({ queueOpen: !get().queueOpen }),
+
+  loudness: null,
+  setLoudness: (s) => set({ loudness: s }),
+  settingsVersion: 0,
+  settingsChanged: () => set({ settingsVersion: get().settingsVersion + 1 }),
 
   menu: null,
   openMenu: (x, y, items) => set({ menu: { x, y, items } }),

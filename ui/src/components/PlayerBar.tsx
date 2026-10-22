@@ -13,12 +13,12 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { api } from '../api';
-import { duration, streamSpec, trackSpec } from '../format';
+import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
 import { OutputPicker } from './OutputPicker';
-import { QualityBadge } from './QualityBadge';
+import { SignalPath } from './SignalPath';
 
 /// Persistent bar: artwork, title/artist, transport, scrubber, volume, queue toggle.
 export function PlayerBar() {
@@ -67,19 +67,7 @@ export function PlayerBar() {
                 {shown.artist}
               </button>
             </div>
-            <QualityBadge
-              quality={shown.quality}
-              detail={
-                player?.stream
-                  ? `${streamSpec(player.stream)}\n→ ${player.stream.output}${player.stream.resampled ? ' (resampled)' : ''}`
-                  : trackSpec(shown)
-              }
-            />
-            {player?.stream?.bitPerfect && (
-              <span className="bit-perfect" title="The device receives exactly the file's samples">
-                Bit-perfect
-              </span>
-            )}
+            <SignalPath quality={shown.quality} fallback={trackSpec(shown)} />
           </>
         ) : (
           <div className="now-playing-empty">Not playing</div>

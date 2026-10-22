@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { duration, longDuration, qualityLabel, streamSpec, trackSpec } from './format';
+import { duration, longDuration, qualityLabel, signalPath, streamSpec, trackSpec } from './format';
 
 describe('format', () => {
   it('formats durations', () => {
@@ -65,8 +65,69 @@ describe('format', () => {
         exclusive: false,
         bitPerfect: false,
         dsp: [],
+        replayGainDb: null,
         resampled: false,
       }),
     ).toBe('PCM · 32-bit float/192 kHz');
+  });
+
+  it('explains the signal path', () => {
+    const base = {
+      codec: 'flac',
+      lossless: true,
+      sampleRate: 96000,
+      bits: 24,
+      float: false,
+      dsdRate: null,
+      channels: 2,
+      output: '',
+      outputRate: 96000,
+      outputChannels: 2,
+      outputFormat: { kind: 'int', bits: 24 } as const,
+      exclusive: true,
+      resampled: false,
+      bitPerfect: true,
+      dsp: [],
+      replayGainDb: null,
+    };
+    const perfect = signalPath(base, 1);
+    expect(perfect.bitPerfect).toBe(true);
+    expect(perfect.reasons).toEqual([]);
+    expect(perfect.steps.map((s) => s.label)).toEqual(['Source', 'Output']);
+
+    const shared = signalPath(
+      {
+        ...base,
+        exclusive: false,
+        bitPerfect: false,
+        resampled: true,
+        outputRate: 48000,
+        outputFormat: { kind: 'float' },
+        dsp: ['EQ · 3 bands'],
+        replayGainDb: -6.5,
+      },
+      0.5,
+    );
+    expect(shared.steps.map((s) => s.label)).toEqual([
+      'Source',
+      'ReplayGain',
+      'Resampled',
+      'DSP',
+      'Volume',
+      'Output',
+    ]);
+    expect(shared.reasons).toHaveLength(5);
+
+    const dop = signalPath(
+      {
+        ...base,
+        codec: 'dsf',
+        bits: null,
+        dsdRate: 2822400,
+        outputFormat: { kind: 'dop', bits: 24 },
+      },
+      1,
+    );
+    expect(dop.steps[0]?.detail).toBe('DSD64 · as DoP · 2 ch');
   });
 });

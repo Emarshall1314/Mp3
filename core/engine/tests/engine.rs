@@ -773,3 +773,66 @@ fn crossfade_overlaps_tracks_from_different_albums_only() {
     let out = &h.capture.snapshot()[0].samples;
     assert_eq!(out.len(), 2 * one.len());
 }
+
+/// Writes a mono 16-bit WAV.
+fn write_wav(path: &std::path::Path, rate: u32, samples: &[i16]) {
+    let data = samples.len() as u32 * 2;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&1u16.to_le_bytes()); // mono
+    b.extend_from_slice(&rate.to_le_bytes());
+    b.extend_from_slice(&(rate * 2).to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for s in samples {
+        b.extend_from_slice(&s.to_le_bytes());
+    }
+    std::fs::write(path, b).unwrap();
+}
+
+#[test]
+fn convolution_applies_an_impulse_response_file() {
+    use cadenza_engine::DspSettings;
+
+    let dir = tempfile::tempdir().unwrap();
+    let ir = dir.path().join("half.wav");
+    // A one-sample impulse at half amplitude, then silence: output = input / 2, delayed.
+    let mut taps = vec![0i16; 2000];
+    taps[0] = 16_384;
+    write_wav(&ir, 44_100, &taps);
+
+    let e = entry("formats/flac_s16_44100");
+    let h = harness(Capture::new());
+    h.engine.set_dsp(DspSettings {
+        convolution_enabled: true,
+        convolution_path: Some(ir.to_string_lossy().into_owned()),
+        ..DspSettings::default()
+    });
+    h.engine.set_queue(vec![item(e)], 0, true);
+    h.wait("queued", Duration::from_secs(5), |s| s.queue_length > 0);
+    h.wait("end", Duration::from_secs(20), |s| {
+        s.status == Status::Stopped
+    });
+    assert!(h.errors().is_empty(), "{:?}", h.errors());
+    let input = reference(e);
+    let out = &h.capture.snapshot()[0].samples;
+    let latency = 1024 * 2;
+    assert_eq!(
+        out.len(),
+        input.len() + latency,
+        "the convolver's tail is flushed"
+    );
+    assert!(out[..latency].iter().all(|v| *v == 0.0));
+    let max_err = out[latency..]
+        .iter()
+        .zip(&input)
+        .map(|(o, i)| (o - i * 0.5).abs())
+        .fold(0.0f64, f64::max);
+    assert!(max_err < 1e-9, "max error {max_err}");
+}

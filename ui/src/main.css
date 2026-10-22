@@ -1069,3 +1069,259 @@ input[type='range']::-webkit-slider-thumb {
   box-shadow: var(--shadow-menu);
   z-index: 110;
 }
+
+/* ---------- sound ---------- */
+
+.sound-view > .settings-group,
+.sound-view > .dsp-heading {
+  max-width: 720px;
+  margin-left: var(--space-6);
+  margin-right: var(--space-6);
+}
+
+.settings-group {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.settings-group h2,
+.dsp-heading h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-group > p,
+.dsp-heading p {
+  margin: 0 0 var(--space-3);
+}
+
+.dsp-heading {
+  margin: var(--space-5) 0 var(--space-3);
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-s);
+  background: var(--color-badge);
+}
+
+.segmented button {
+  padding: 4px 14px;
+  border-radius: calc(var(--radius-s) - 2px);
+  font-weight: 500;
+}
+
+.segmented button.on {
+  background: var(--color-bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 15%);
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 72px;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+}
+
+.slider-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.check-row.heading h2 {
+  margin: 0;
+}
+
+.loudness-status {
+  margin-top: var(--space-3);
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.file-row .path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.eq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.eq-curve {
+  margin: 0;
+}
+
+.eq-curve svg {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-s);
+  background: var(--color-bg);
+}
+
+.eq-curve line.grid {
+  stroke: var(--color-separator);
+}
+
+.eq-curve line.zero {
+  stroke: var(--color-text-secondary);
+  stroke-dasharray: 3 3;
+}
+
+.eq-curve text {
+  fill: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.eq-curve polyline {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.graphic-eq {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.graphic-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Vertical sliders: a horizontal range rotated, which every engine renders and drags correctly. */
+.vertical-slot {
+  position: relative;
+  width: 24px;
+  height: 140px;
+}
+
+.vertical-slot input[type='range'] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 140px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+.peq {
+  width: 100%;
+  margin-top: var(--space-3);
+  border-collapse: collapse;
+}
+
+.peq th {
+  padding: var(--space-1);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.peq td {
+  padding: 2px var(--space-1);
+}
+
+.peq input[type='number'] {
+  width: 100%;
+  max-width: 110px;
+}
+
+/* ---------- signal path ---------- */
+
+.signal-path {
+  position: relative;
+  flex: none;
+}
+
+.signal-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px;
+  border-radius: var(--radius-s);
+}
+
+.signal-button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.popover.left {
+  right: auto;
+  left: 0;
+}
+
+.signal-popover .steps {
+  margin: 0;
+  padding: 0 var(--space-2);
+  list-style: none;
+}
+
+.signal-popover .steps li {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.step-label {
+  color: var(--color-text-secondary);
+}
+
+.verdict {
+  margin: var(--space-2);
+}
+
+.verdict p {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-weight: 600;
+}
+
+.verdict.good {
+  color: var(--color-accent);
+}
+
+.verdict ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-secondary);
+}
+
+.signal-popover {
+  width: 380px;
+}

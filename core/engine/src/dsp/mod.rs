@@ -79,6 +79,40 @@ impl FilterKind {
     }
 }
 
+/// The last impulse response loaded (or the reason it could not be), so EQ tweaks neither
+/// reload and re-transform it nor repeat its error.
+pub(crate) struct IrCache {
+    key: Option<(String, u32, u16)>,
+    loaded: std::result::Result<Vec<Arc<Kernel>>, String>,
+}
+
+impl Default for IrCache {
+    fn default() -> Self {
+        Self {
+            key: None,
+            loaded: Ok(Vec::new()),
+        }
+    }
+}
+
+impl IrCache {
+    /// The kernels, or `Err(Some(reason))` the first time loading fails and `Err(None)` after.
+    fn get(
+        &mut self,
+        path: &str,
+        rate: u32,
+        channels: u16,
+    ) -> std::result::Result<Vec<Arc<Kernel>>, Option<String>> {
+        let key = (path.to_owned(), rate, channels);
+        if self.key.as_ref() == Some(&key) {
+            return self.loaded.clone().map_err(|_| None);
+        }
+        self.key = Some(key);
+        self.loaded = load_ir(Path::new(path), rate, channels).map_err(|e| e.to_string());
+        self.loaded.clone().map_err(Some)
+    }
+}
+
 /// The chain for one output stream (rate and channel count fixed).
 pub(crate) struct Chain {
     preamp: f64,
@@ -107,6 +141,7 @@ impl Chain {
         settings: &DspSettings,
         rate: u32,
         channels: u16,
+        irs: &mut IrCache,
     ) -> (Option<Self>, Vec<String>) {
         let mut warnings = Vec::new();
         if !settings.is_active() {
@@ -144,7 +179,7 @@ impl Chain {
             warnings.push("Crossfeed needs a stereo output".into());
         }
         let convolver = match (&settings.convolution_path, settings.convolution_enabled) {
-            (Some(path), true) => match load_ir(Path::new(path), rate, channels) {
+            (Some(path), true) => match irs.get(path, rate, channels) {
                 Ok(kernels) => {
                     let name = Path::new(path)
                         .file_name()
@@ -153,8 +188,10 @@ impl Chain {
                     stages.push(format!("Convolution · {name}"));
                     Some(Convolver::new(kernels))
                 }
-                Err(e) => {
-                    warnings.push(format!("Convolution off: {e}"));
+                Err(reason) => {
+                    if let Some(e) = reason {
+                        warnings.push(format!("Convolution off: {e}"));
+                    }
                     None
                 }
             },
@@ -378,7 +415,11 @@ mod tests {
     #[test]
     fn an_inactive_chain_is_absent() {
         let mut s = DspSettings::default();
-        assert!(Chain::build(&s, 44_100, 2).0.is_none());
+        assert!(
+            Chain::build(&s, 44_100, 2, &mut IrCache::default())
+                .0
+                .is_none()
+        );
         s.eq_enabled = true;
         s.eq = vec![EqBand {
             kind: FilterKind::Peak,
@@ -388,7 +429,7 @@ mod tests {
         }];
         assert!(!s.is_active(), "a flat EQ changes nothing");
         s.eq[0].gain_db = 3.0;
-        let (chain, warnings) = Chain::build(&s, 44_100, 2);
+        let (chain, warnings) = Chain::build(&s, 44_100, 2, &mut IrCache::default());
         assert!(warnings.is_empty());
         assert_eq!(chain.unwrap().stages, ["EQ · 1 band"]);
     }

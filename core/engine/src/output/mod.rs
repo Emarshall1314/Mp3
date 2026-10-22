@@ -83,7 +83,11 @@ pub struct StreamRequest {
 
 /// The sample format a device takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum DeviceFormat {
     Float,
     /// Signed integers with this many significant bits (16, 24 or 32).

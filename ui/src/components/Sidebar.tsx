@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Clock, Disc3, FolderOpen, ListMusic, Mic2, Search, Sparkles, X } from 'lucide-react';
+import {
+  Clock,
+  Disc3,
+  FolderOpen,
+  ListMusic,
+  Mic2,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore, type Route } from '../store';
 import type { SavedSearch } from '../types';
@@ -95,6 +105,13 @@ export function Sidebar() {
       )}
 
       <div className="sidebar-footer">
+        <button
+          className={`nav-item ${route.name === 'sound' ? 'active' : ''}`}
+          onClick={() => navigate({ name: 'sound' })}
+        >
+          <SlidersHorizontal size={16} aria-hidden />
+          Sound
+        </button>
         <button
           className={`nav-item ${route.name === 'folders' ? 'active' : ''}`}
           onClick={() => navigate({ name: 'folders' })}
