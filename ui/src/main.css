@@ -1770,3 +1770,305 @@ kbd {
   background: var(--color-badge);
   white-space: nowrap;
 }
+
+/* ---------- sheets (Song Info) ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 35%);
+  animation: fade-in var(--duration-normal) ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
+  border-radius: var(--radius-l);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-menu);
+  border: 1px solid var(--color-separator);
+  animation: pop-in var(--duration-slow) var(--ease-spring);
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+}
+
+.sheet-header .artwork {
+  border-radius: var(--radius-s);
+  flex: none;
+}
+
+.sheet-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-title h2 {
+  margin: 0;
+  font-size: var(--font-size-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-title p {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-100);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.tabs button {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+}
+
+.tabs button.on {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-6);
+  margin: 0;
+}
+
+.sheet-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--color-separator);
+}
+
+.sheet-footer > span {
+  flex: 1;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+.form-row {
+  display: contents;
+}
+
+.form-row > label {
+  justify-self: end;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-100);
+}
+
+.form-inputs {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.form-input {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 1;
+}
+
+.form-input:has(input[size]) {
+  flex: none;
+}
+
+.sheet input[type='text'],
+.sheet textarea {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-s);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.sheet input[size] {
+  width: 5em;
+}
+
+.sheet textarea {
+  resize: vertical;
+}
+
+.sheet input.changed,
+.sheet textarea.changed {
+  border-color: var(--color-accent);
+}
+
+.sheet input.clearing::placeholder {
+  color: var(--color-accent);
+}
+
+.all-tags table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.all-tags th {
+  text-align: left;
+  font-weight: normal;
+  padding-right: var(--space-3);
+  white-space: nowrap;
+  vertical-align: top;
+  padding-top: var(--space-2);
+}
+
+.all-tags td {
+  padding: var(--space-1) 0;
+}
+
+.all-tags tr.removed code {
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+.add-tag {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.file-info .file-row,
+.failure-list li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.file-info code,
+.failure-list code {
+  word-break: break-all;
+  font-size: var(--font-size-100);
+}
+
+.failure-list {
+  list-style: none;
+}
+
+.warn {
+  color: var(--color-accent);
+}
+
+.toast {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.toast-action {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.history-list li > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-changes .check-row {
+  margin-bottom: var(--space-3);
+}
+
+.sheet.song-info:has(.table-editor) {
+  width: min(1100px, calc(100vw - 48px));
+}
+
+.table-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-editor table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-editor th {
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--font-size-100);
+  color: var(--color-text-secondary);
+  padding: 0 var(--space-1) var(--space-1);
+}
+
+.table-editor th.narrow {
+  width: 4.5em;
+}
+
+.table-editor td {
+  padding: 1px;
+}
+
+.table-editor input[type='text'] {
+  border-radius: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.table-editor input[type='text']:focus {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.table-editor input.changed {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.table-editor tr.read-only input {
+  color: var(--color-text-secondary);
+}

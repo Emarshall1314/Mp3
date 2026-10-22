@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ListMusic,
@@ -13,6 +13,7 @@ import { useCurrentTrack } from '../hooks/useCurrentTrack';
 import { attempt, useStore } from '../store';
 import { Artwork } from './Artwork';
 import { LyricsView } from './LyricsView';
+import { useModal } from '../hooks/useModal';
 import { Scrubber } from './PlayerBar';
 import { QueuePanel } from './QueuePanel';
 
@@ -51,37 +52,8 @@ export function NowPlaying() {
   }, [open, hash]);
 
   const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const opener = document.activeElement;
-    dialog.current?.querySelector<HTMLElement>('.np-top button')?.focus();
-    // Modal: Esc closes, Tab cycles within the view.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !useStore.getState().menu) setOpen(false);
-      if (e.key !== 'Tab' || !dialog.current) return;
-      const focusable = [
-        ...dialog.current.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
-        ),
-      ];
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      const inside = dialog.current.contains(document.activeElement);
-      if (e.shiftKey && (document.activeElement === first || !inside)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    };
-  }, [open, setOpen]);
+  const close = useCallback(() => setOpen(false), [setOpen]);
+  useModal(open, dialog, close);
 
   if (!open) return null;
   const found = palette && palette.hash === hash ? palette.colors : [];

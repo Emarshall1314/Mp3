@@ -3,7 +3,7 @@ import { FolderPlus, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { longDuration } from '../format';
 import { attempt, useStore } from '../store';
-import type { LibraryStats, Root } from '../types';
+import type { EditBatch, LibraryStats, Root } from '../types';
 import { addFolder } from './EmptyLibrary';
 
 /// Music folders: add, remove, rescan, and what the last scan found.
@@ -37,7 +37,8 @@ export function FoldersView() {
         </div>
       </header>
       <p className="muted">
-        Cadenza only reads these folders. Changes on disk are picked up automatically.
+        Cadenza reads these folders, and changes a file only when you edit its tags. Changes on disk
+        are picked up automatically.
       </p>
       <ul className="folder-list">
         {roots.map((r) => (
@@ -90,6 +91,66 @@ export function FoldersView() {
           )}
         </div>
       )}
+      <TagChanges />
     </section>
+  );
+}
+
+/// Recent tag edits, each with Undo, and the backup setting.
+function TagChanges() {
+  const libraryVersion = useStore((s) => s.libraryVersion);
+  const editing = useStore((s) => s.edit?.running ?? false);
+  const [batches, setBatches] = useState<EditBatch[]>([]);
+  const [backups, setBackups] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void api.editHistory(20).then(setBatches);
+  }, [libraryVersion, editing]);
+  useEffect(() => {
+    void api.settings().then((s) => setBackups(s.tagBackups));
+  }, []);
+
+  return (
+    <div className="tag-changes">
+      <h2 className="section-title">Tag Changes</h2>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={backups ?? false}
+          disabled={backups === null}
+          onChange={(e) => {
+            setBackups(e.target.checked);
+            void attempt(api.setTagBackups(e.target.checked));
+          }}
+        />
+        Keep a copy of each file before changing its tags (in Cadenza’s data folder)
+      </label>
+      {batches.length === 0 ? (
+        <p className="muted">Tag edits appear here, with a way to undo them.</p>
+      ) : (
+        <ul className="history-list">
+          {batches.map((b) => (
+            <li key={b.id}>
+              <div>
+                <span>{b.description}</span>
+                <span className="muted small">
+                  {new Date(b.at * 1000).toLocaleString()} · {b.tracks}{' '}
+                  {b.tracks === 1 ? 'song' : 'songs'}
+                  {b.failed > 0 && ` · ${b.failed} not changed`}
+                  {b.undone && ' · undone'}
+                </span>
+              </div>
+              <button
+                className="pill"
+                disabled={b.undone || b.tracks === 0 || !b.finished || editing}
+                onClick={() => void attempt(api.undoEdit(b.id))}
+              >
+                Undo
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

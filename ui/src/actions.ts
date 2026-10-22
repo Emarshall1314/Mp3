@@ -28,6 +28,7 @@ export function trackMenu(t: TrackRow): MenuItem[] {
       label: 'Go to Artist',
       run: () => nav()({ name: 'artist', artist: t.albumartist }),
     });
+  items.push({ label: 'Get Info…', run: () => useStore.getState().openSongInfo([t.id]) });
   return items;
 }
 
@@ -58,6 +59,11 @@ export function albumMenu(a: AlbumRow): MenuItem[] {
         ),
     },
     { label: 'Go to Artist', run: () => nav()({ name: 'artist', artist: a.albumartist }) },
+    {
+      label: 'Get Info…',
+      run: () =>
+        void attempt(albumTrackIds(a.id).then((ids) => useStore.getState().openSongInfo(ids))),
+    },
   ];
 }
 

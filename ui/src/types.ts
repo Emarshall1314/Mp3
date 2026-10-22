@@ -187,7 +187,53 @@ export type ApiEvent =
   | { kind: 'scanProgress'; progress: ScanProgress }
   | { kind: 'scanFinished'; report: ScanReport }
   | { kind: 'libraryChanged' }
-  | { kind: 'loudness'; status: LoudnessStatus };
+  | { kind: 'loudness'; status: LoudnessStatus }
+  | { kind: 'editProgress'; status: EditStatus }
+  | { kind: 'editFinished'; report: EditReport };
+
+/** Field values by canonical name ("title", "performer:violin", "custom:NAME"). */
+export type Fields = Record<string, string[]>;
+
+export interface TrackTags {
+  trackId: number;
+  path: string;
+  format: string;
+  fields: Fields;
+  pictures: { pictureType: number; mime: string; description: string; bytes: number }[];
+  /** Why this song's tags can't be changed, if so. */
+  readOnly: string | null;
+}
+
+export interface TrackEdit {
+  trackId: number;
+  fields: Fields;
+}
+
+export interface EditStatus {
+  running: boolean;
+  batch: number | null;
+  done: number;
+  total: number;
+}
+
+export interface EditReport {
+  batch: number;
+  written: number;
+  failed: { trackId: number; path: string; error: string }[];
+  cancelled: boolean;
+}
+
+export interface EditBatch {
+  id: number;
+  at: number;
+  description: string;
+  tracks: number;
+  written: number;
+  failed: number;
+  undoOf: number | null;
+  undone: boolean;
+  finished: boolean;
+}
 
 export interface BuildInfo {
   name: string;
@@ -249,6 +295,7 @@ export interface Settings {
   replayGain: ReplayGainSettings;
   crossfadeS: number;
   appearance: Appearance;
+  tagBackups: boolean;
 }
 
 export type Theme = 'auto' | 'light' | 'dark';

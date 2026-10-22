@@ -96,6 +96,15 @@ export const SHORTCUTS: Shortcut[] = [
         },
       ]),
   {
+    keys: 'Ctrl+I',
+    action: 'Song Info for the playing song',
+    match: (e) => ctrl(e) && e.key === 'i',
+    run: () => {
+      const id = useStore.getState().player?.trackId;
+      if (id != null) useStore.getState().openSongInfo([id]);
+    },
+  },
+  {
     keys: 'Ctrl+,',
     action: 'Settings',
     match: (e) => ctrl(e) && e.key === ',',
@@ -104,7 +113,7 @@ export const SHORTCUTS: Shortcut[] = [
   // Handled where they apply; listed so they can be found.
   { keys: '↑ / ↓, Enter', action: 'Move through songs; play the selected one' },
   { keys: 'Arrow keys', action: 'Move between albums in a grid' },
-  { keys: 'Shift+F10 or Menu', action: 'Actions for the focused song or album' },
+  { keys: 'Shift+F10 or Menu', action: 'Actions for the focused song or album (Get Info…)' },
   { keys: 'Esc', action: 'Close a menu or Now Playing' },
 ];
 

@@ -29,6 +29,7 @@ export function Sidebar() {
   const navigate = useStore((s) => s.navigate);
   const libraryVersion = useStore((s) => s.libraryVersion);
   const scan = useStore((s) => s.scan);
+  const edit = useStore((s) => s.edit);
   const query = route.name === 'search' ? route.query : '';
   const [saved, setSaved] = useState<SavedSearch[]>([]);
 
@@ -129,6 +130,15 @@ export function Sidebar() {
           <Settings size={16} aria-hidden />
           Settings
         </button>
+        {edit?.running && (
+          <p className="scan-status" role="status">
+            Saving tags {Math.min(edit.done + 1, edit.total).toLocaleString()} of{' '}
+            {edit.total.toLocaleString()}
+            <button className="link" onClick={() => void attempt(api.cancelEdit())}>
+              Stop
+            </button>
+          </p>
+        )}
         {scan.running && scan.progress && (
           <p className="scan-status" role="status">
             {scan.progress.phase === 'reading'

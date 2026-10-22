@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, onApiEvent } from './api';
-import { useStore } from './store';
+import { attempt, useStore } from './store';
 import { useAppearance } from './hooks/useAppearance';
 import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
@@ -9,6 +9,7 @@ import { PlayerBar } from './components/PlayerBar';
 import { QueuePanel } from './components/QueuePanel';
 import { ContextMenu } from './components/ContextMenu';
 import { NowPlaying } from './components/NowPlaying';
+import { EditFailures, SongInfo } from './components/SongInfo';
 import { AlbumsView } from './views/AlbumsView';
 import { AlbumView } from './views/AlbumView';
 import { SongsView } from './views/SongsView';
@@ -47,6 +48,22 @@ function useCoreEvents() {
         case 'libraryChanged':
           st.libraryChanged();
           break;
+        case 'editProgress':
+          st.setEdit(e.status);
+          break;
+        case 'editFinished': {
+          const { report } = e;
+          st.setEdit({ running: false, batch: report.batch, done: 0, total: 0 });
+          if (report.failed.length) st.setEditFailures(report);
+          if (report.written > 0) {
+            const songs = report.written === 1 ? '1 song' : `${report.written} songs`;
+            st.showToast(report.cancelled ? `Stopped after ${songs}` : `Saved ${songs}`, {
+              label: 'Undo',
+              run: () => void attempt(api.undoEdit(report.batch)),
+            });
+          }
+          break;
+        }
         case 'loudness':
           st.setLoudness(e.status);
           break;
@@ -130,9 +147,22 @@ export function App() {
       <PlayerBar />
       <NowPlaying />
       <ContextMenu />
+      <SongInfo />
+      <EditFailures />
       {toast && (
         <div className="toast" role="status">
-          {toast}
+          <span>{toast.message}</span>
+          {toast.action && (
+            <button
+              className="link toast-action"
+              onClick={() => {
+                useStore.setState({ toast: null });
+                toast.action?.run();
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
     </div>

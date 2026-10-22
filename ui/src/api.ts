@@ -9,6 +9,8 @@ import type {
   Appearance,
   ArtistPage,
   ArtistRow,
+  EditBatch,
+  EditStatus,
   BuildInfo,
   DspSettings,
   EqBand,
@@ -27,7 +29,9 @@ import type {
   SearchResults,
   Settings,
   SongSort,
+  TrackEdit,
   TrackRow,
+  TrackTags,
 } from './types';
 
 export const api = {
@@ -83,6 +87,14 @@ export const api = {
   requestStorageAccess: () => invoke<boolean>('request_storage_access'),
   pickMusicFolder: () => invoke<string | null>('pick_music_folder'),
   toggleMiniPlayer: () => invoke<null>('toggle_mini_player'),
+  trackTags: (ids: number[]) => invoke<TrackTags[]>('track_tags', { ids }),
+  editTracks: (edits: TrackEdit[], description: string) =>
+    invoke<number>('edit_tracks', { edits, description }),
+  editStatus: () => invoke<EditStatus>('edit_status'),
+  cancelEdit: () => invoke<null>('cancel_edit'),
+  editHistory: (limit: number) => invoke<EditBatch[]>('edit_history', { limit }),
+  undoEdit: (batch: number) => invoke<number>('undo_edit', { batch }),
+  setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   loudnessStatus: () => invoke<LoudnessStatus>('loudness_status'),
   analyzeLoudness: () => invoke<null>('analyze_loudness'),

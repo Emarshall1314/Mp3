@@ -211,7 +211,7 @@ impl Editor {
                 "that edit changed nothing".into()
             }));
         }
-        let description = format!("Undo {}", original.description);
+        let description = format!("Undo “{}”", original.description);
         self.run(
             jobs.into_values().collect(),
             &description,

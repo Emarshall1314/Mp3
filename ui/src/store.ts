@@ -1,7 +1,7 @@
 // App-wide UI state. The core is the source of truth for library and playback; this store only
 // mirrors what the UI needs to render and remembers navigation.
 import { create } from 'zustand';
-import type { LoudnessStatus, PlayerState, ScanStatus } from './types';
+import type { EditReport, EditStatus, LoudnessStatus, PlayerState, ScanStatus } from './types';
 
 export type Route =
   | { name: 'home' }
@@ -58,8 +58,19 @@ interface Store {
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
   closeMenu: () => void;
 
-  toast: string | null;
-  showToast: (msg: string) => void;
+  toast: { message: string; action?: MenuItem } | null;
+  /// A short message at the bottom; `action` adds a button (Undo).
+  showToast: (msg: string, action?: MenuItem) => void;
+
+  /// The Song Info editor, for these tracks.
+  songInfo: number[] | null;
+  openSongInfo: (ids: number[]) => void;
+  closeSongInfo: () => void;
+  /// Tag writing in progress, and the last finished batch with failures (shown until dismissed).
+  edit: EditStatus | null;
+  setEdit: (s: EditStatus) => void;
+  editFailures: EditReport | null;
+  setEditFailures: (r: EditReport | null) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -113,12 +124,24 @@ export const useStore = create<Store>((set, get) => ({
   closeMenu: () => set({ menu: null }),
 
   toast: null,
-  showToast: (msg) => {
-    set({ toast: msg });
-    setTimeout(() => {
-      if (get().toast === msg) set({ toast: null });
-    }, 4000);
+  showToast: (message, action) => {
+    const toast = { message, action };
+    set({ toast });
+    setTimeout(
+      () => {
+        if (get().toast === toast) set({ toast: null });
+      },
+      action ? 8000 : 4000,
+    );
   },
+
+  songInfo: null,
+  openSongInfo: (ids) => set({ songInfo: ids.length ? ids : null, menu: null }),
+  closeSongInfo: () => set({ songInfo: null }),
+  edit: null,
+  setEdit: (edit) => set({ edit }),
+  editFailures: null,
+  setEditFailures: (editFailures) => set({ editFailures }),
 }));
 
 /// Runs a core call; failures surface as a toast instead of vanishing.
