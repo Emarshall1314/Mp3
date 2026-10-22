@@ -44,6 +44,25 @@ export interface AlbumRow {
   addedAt: number;
 }
 
+export interface ReleaseSection {
+  kind: 'albums' | 'eps' | 'singles' | 'live' | 'compilations' | 'soundtracks' | 'other';
+  albums: AlbumRow[];
+}
+
+export interface ArtistPage {
+  name: string;
+  artHash: string | null;
+  topSongs: TrackRow[];
+  sections: ReleaseSection[];
+  appearsOn: AlbumRow[];
+}
+
+export interface Home {
+  recentlyPlayed: AlbumRow[];
+  recentlyAdded: AlbumRow[];
+  mostPlayed: AlbumRow[];
+}
+
 export interface AlbumDetail {
   album: AlbumRow;
   date: string | null;

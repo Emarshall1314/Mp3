@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Bookmark } from 'lucide-react';
 import { api } from '../api';
-import { menuHandler, trackMenu } from '../actions';
-import { duration } from '../format';
 import { attempt, useStore } from '../store';
 import type { SearchResults } from '../types';
 import { Artwork } from '../components/Artwork';
+import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
 
 const HELP =
@@ -109,46 +108,7 @@ export function SearchView({ query }: { query: string }) {
               {results.songCountCapped ? '+' : ''}
             </span>
           </h2>
-          <div className="result-songs" role="list">
-            {results.songs.map((t, i) => (
-              <div
-                key={t.id}
-                role="listitem"
-                className="result-song"
-                onDoubleClick={() =>
-                  void attempt(
-                    api.playTracks(
-                      results.songs.map((s) => s.id),
-                      i,
-                    ),
-                  )
-                }
-                onContextMenu={menuHandler(() => trackMenu(t))}
-              >
-                <button
-                  className="art-button"
-                  aria-label={`Play ${t.title}`}
-                  onClick={() =>
-                    void attempt(
-                      api.playTracks(
-                        results.songs.map((s) => s.id),
-                        i,
-                      ),
-                    )
-                  }
-                >
-                  <Artwork hash={t.artHash} size={40} alt="" />
-                </button>
-                <div className="queue-text">
-                  <span className="title">{t.title}</span>
-                  <span className="subtitle">
-                    {t.artist} — {t.album}
-                  </span>
-                </div>
-                <span className="time">{duration(t.durationMs)}</span>
-              </div>
-            ))}
-          </div>
+          <CompactTracks tracks={results.songs} />
           {results.songCount > results.songs.length && (
             <p className="muted">
               Showing the first {results.songs.length}. Narrow the search to see the rest.

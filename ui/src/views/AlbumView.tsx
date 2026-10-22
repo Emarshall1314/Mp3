@@ -4,7 +4,7 @@ import { api } from '../api';
 import { menuHandler, trackMenu } from '../actions';
 import { duration, longDuration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
-import type { AlbumDetail } from '../types';
+import type { AlbumDetail, AlbumRow } from '../types';
 import { Artwork } from '../components/Artwork';
 import { QualityBadge } from '../components/QualityBadge';
 import { AlbumCard } from './AlbumGrid';
@@ -16,6 +16,7 @@ export function AlbumView({ id }: { id: number }) {
   const playingId = useStore((s) => s.player?.trackId);
   const [detail, setDetail] = useState<AlbumDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [moreBy, setMoreBy] = useState<AlbumRow[]>([]);
 
   useEffect(() => {
     let live = true;
@@ -27,6 +28,16 @@ export function AlbumView({ id }: { id: number }) {
       live = false;
     };
   }, [id, libraryVersion]);
+
+  const albumartist = detail?.album.albumartist;
+  useEffect(() => {
+    if (albumartist === undefined) return;
+    let live = true;
+    void api.artistAlbums(albumartist).then((all) => live && setMoreBy(all));
+    return () => {
+      live = false;
+    };
+  }, [albumartist, libraryVersion]);
 
   const discs = useMemo(() => {
     const groups = new Map<number, AlbumDetail['tracks']>();
@@ -141,7 +152,7 @@ export function AlbumView({ id }: { id: number }) {
 
       {detail.otherVersions.length > 0 && (
         <section className="other-versions">
-          <h2>Other Versions</h2>
+          <h2 className="section-title">Other Versions</h2>
           <div className="card-row">
             {detail.otherVersions.map((a) => (
               <AlbumCard key={a.id} album={a} size={160} />
@@ -149,6 +160,25 @@ export function AlbumView({ id }: { id: number }) {
           </div>
         </section>
       )}
+
+      {(() => {
+        const versions = new Set(detail.otherVersions.map((a) => a.id));
+        const more = moreBy.filter((a) => a.id !== album.id && !versions.has(a.id));
+        return (
+          more.length > 0 &&
+          !album.compilation &&
+          album.albumartist && (
+            <section className="other-versions">
+              <h2 className="section-title">More by {album.albumartist}</h2>
+              <div className="card-row">
+                {more.map((a) => (
+                  <AlbumCard key={a.id} album={a} size={160} />
+                ))}
+              </div>
+            </section>
+          )
+        );
+      })()}
     </section>
   );
 }

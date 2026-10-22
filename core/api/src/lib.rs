@@ -22,8 +22,9 @@ pub use cadenza_engine::{
     ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
 pub use cadenza_library::{
-    AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, LyricLine, Lyrics, Root,
-    SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Home, LibraryStats, LyricLine, Lyrics,
+    ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults,
+    SongSort, TrackRow,
 };
 pub use loudness::LoudnessStatus;
 pub use settings::Settings;
@@ -476,6 +477,16 @@ impl Cadenza {
     }
     pub fn set_volume(&self, volume: f32) {
         self.engine.set_volume(volume);
+    }
+
+    /// An artist's page: releases by type, top songs by plays, albums they appear on.
+    pub fn artist_page(&self, name: &str) -> Result<ArtistPage> {
+        Ok(self.library.artist_page(name)?)
+    }
+
+    /// Home shelves: recently played, recently added, most played.
+    pub fn home(&self) -> Result<Home> {
+        Ok(self.library.home()?)
     }
 
     /// The track's lyrics (sidecar `.lrc`, else embedded), if any.

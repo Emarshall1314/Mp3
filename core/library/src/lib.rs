@@ -7,6 +7,7 @@ mod cue;
 mod db;
 mod hash;
 mod lyrics;
+mod pages;
 mod scan;
 mod search;
 mod text;
@@ -18,6 +19,7 @@ use serde::Serialize;
 
 pub use art::THUMB_SIZES;
 pub use lyrics::{LyricLine, Lyrics};
+pub use pages::{ArtistPage, Home, ReleaseSection};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};
 
 use art::ArtCache;

@@ -13,6 +13,7 @@ import { SongsView } from './views/SongsView';
 import { ArtistsView } from './views/ArtistsView';
 import { SearchView } from './views/SearchView';
 import { FoldersView } from './views/FoldersView';
+import { HomeView } from './views/HomeView';
 import { SoundView } from './views/SoundView';
 
 function useCoreEvents() {
@@ -82,6 +83,8 @@ function useShortcuts() {
 function Main() {
   const route = useStore((s) => s.route);
   switch (route.name) {
+    case 'home':
+      return <HomeView />;
     case 'recent':
       return <AlbumsView recent />;
     case 'albums':

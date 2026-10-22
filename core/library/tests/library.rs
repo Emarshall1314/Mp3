@@ -418,3 +418,41 @@ fn artwork_palettes_find_distinct_dominant_colours() {
         }
     }
 }
+
+#[test]
+fn artist_pages_and_home_reflect_releases_and_plays() {
+    use cadenza_library::AlbumSort;
+
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let gamma = s.lib.artist_page("gamma").unwrap();
+    assert_eq!(gamma.sections.len(), 1);
+    assert_eq!(gamma.sections[0].kind, "albums");
+    assert_eq!(gamma.sections[0].albums.len(), 2, "both editions");
+    assert_eq!(gamma.sections[0].albums[0].year, Some(2020), "newest first");
+    assert!(gamma.top_songs.is_empty(), "nothing played yet");
+
+    // Delta appears only on the Various Artists compilation.
+    let delta = s.lib.artist_page("Delta").unwrap();
+    assert!(delta.sections.is_empty());
+    assert_eq!(delta.appears_on.len(), 1);
+    assert_eq!(delta.appears_on[0].title, "Summer Mix");
+
+    // Plays drive top songs and the Home shelves.
+    let night = &gamma.sections[0].albums[1];
+    let tracks = s.lib.album(night.id).unwrap().tracks;
+    s.lib.record_play(tracks[1].id, 1000, true).unwrap();
+    s.lib.record_play(tracks[1].id, 1000, true).unwrap();
+    s.lib.record_play(tracks[0].id, 1000, true).unwrap();
+    s.lib.record_play(tracks[0].id, 500, false).unwrap();
+    let gamma = s.lib.artist_page("Gamma").unwrap();
+    let top: Vec<i64> = gamma.top_songs.iter().map(|t| t.id).collect();
+    assert_eq!(top, [tracks[1].id, tracks[0].id]);
+
+    let home = s.lib.home().unwrap();
+    assert_eq!(home.recently_played.len(), 1);
+    assert_eq!(home.recently_played[0].id, night.id);
+    assert_eq!(home.most_played[0].id, night.id);
+    let added = s.lib.albums(AlbumSort::Added, 0, 12).unwrap();
+    assert_eq!(home.recently_added, added);
+}

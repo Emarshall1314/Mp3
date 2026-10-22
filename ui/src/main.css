@@ -655,7 +655,7 @@ input[type='range']::-webkit-slider-thumb {
   flex-direction: row;
 }
 
-.artist-list {
+.view > .artist-list {
   width: 260px;
   flex: none;
   margin: 0;
@@ -712,7 +712,7 @@ input[type='range']::-webkit-slider-thumb {
 
 .result-song {
   display: grid;
-  grid-template-columns: 40px 1fr 60px;
+  grid-template-columns: 40px 1fr auto;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-1) 0;
@@ -1621,4 +1621,53 @@ input[type='range']::-webkit-slider-thumb {
   .np-art {
     transition: none;
   }
+}
+
+/* ---------- home and artist pages ---------- */
+
+.shelf-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-right: var(--space-6);
+}
+
+.see-all {
+  color: var(--color-accent);
+  font-size: var(--font-size-100);
+}
+
+.home-hint {
+  padding: 0 var(--space-6);
+}
+
+.artist-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+}
+
+.artist-hero h1 {
+  font-size: var(--font-size-700, 2rem);
+  margin: 0 0 var(--space-1);
+}
+
+.artist-hero .hero-buttons {
+  margin-top: var(--space-4);
+}
+
+.result-song.playing .title {
+  color: var(--color-accent);
+}
+
+.result-song .time {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.result-song .plays {
+  color: var(--color-text-secondary);
 }

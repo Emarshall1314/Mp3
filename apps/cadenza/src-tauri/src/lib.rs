@@ -7,9 +7,10 @@
 use std::sync::Arc;
 
 use cadenza_api::{
-    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, DspSettings, EqBand,
-    ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Repeat,
-    ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistPage, ArtistRow, BuildInfo, Cadenza,
+    DspSettings, EqBand, Home, ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs,
+    PlayerState, Repeat, ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults,
+    Settings, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -217,6 +218,16 @@ fn analyze_loudness(app: App<'_>) {
 }
 
 #[tauri::command(async)]
+fn artist_page(app: App<'_>, name: String) -> Res<ArtistPage> {
+    app.artist_page(&name).map_err(e)
+}
+
+#[tauri::command(async)]
+fn home(app: App<'_>) -> Res<Home> {
+    app.home().map_err(e)
+}
+
+#[tauri::command(async)]
 fn lyrics(app: App<'_>, track_id: i64) -> Res<Option<Lyrics>> {
     app.lyrics(track_id).map_err(e)
 }
@@ -418,6 +429,8 @@ pub fn run() {
             outputs,
             set_output,
             set_dop,
+            artist_page,
+            home,
             lyrics,
             artwork_palette,
             toggle_mini_player,

@@ -3,6 +3,7 @@ import {
   Clock,
   Disc3,
   FolderOpen,
+  House,
   ListMusic,
   Mic2,
   Search,
@@ -15,6 +16,7 @@ import { attempt, useStore, type Route } from '../store';
 import type { SavedSearch } from '../types';
 
 const LIBRARY: { route: Route; label: string; icon: typeof Clock }[] = [
+  { route: { name: 'home' }, label: 'Home', icon: House },
   { route: { name: 'recent' }, label: 'Recently Added', icon: Clock },
   { route: { name: 'artists' }, label: 'Artists', icon: Mic2 },
   { route: { name: 'albums' }, label: 'Albums', icon: Disc3 },

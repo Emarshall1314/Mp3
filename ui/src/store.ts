@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import type { LoudnessStatus, PlayerState, ScanStatus } from './types';
 
 export type Route =
+  | { name: 'home' }
   | { name: 'recent' }
   | { name: 'artists' }
   | { name: 'artist'; artist: string }
@@ -61,7 +62,7 @@ interface Store {
 }
 
 export const useStore = create<Store>((set, get) => ({
-  route: { name: 'albums' },
+  route: { name: 'home' },
   back: [],
   forward: [],
   navigate: (r) => {
