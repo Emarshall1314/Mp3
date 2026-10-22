@@ -134,6 +134,7 @@ h1 {
   backdrop-filter: blur(var(--blur-glass)) saturate(180%);
   border-right: 1px solid var(--color-separator);
   overflow-y: auto;
+  position: relative;
 }
 
 .sidebar h3 {
@@ -579,7 +580,7 @@ input[type='range']::-webkit-slider-thumb {
 .song-head,
 .song-row {
   display: grid;
-  grid-template-columns: 3fr 2fr 2fr 56px 1fr 112px 52px 60px;
+  grid-template-columns: var(--song-cols);
   gap: var(--space-3);
   align-items: center;
   padding: 0 var(--space-6);
@@ -590,6 +591,29 @@ input[type='range']::-webkit-slider-thumb {
   border-bottom: 1px solid var(--color-separator);
   color: var(--color-text-secondary);
   font-size: var(--font-size-100);
+}
+
+.song-head > div {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.column-resize {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: calc(var(--space-3) / -2 - 3px);
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 3px;
+}
+
+.song-head > div:hover .column-resize {
+  background: var(--color-separator);
 }
 
 .column-button {
@@ -636,9 +660,14 @@ input[type='range']::-webkit-slider-thumb {
 
 .c-time,
 .c-plays,
-.c-year {
+.c-year,
+.c-track {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.song-head > :is(.c-time, .c-plays, .c-year, .c-track) {
+  justify-content: flex-end;
 }
 
 .loading-cell {
@@ -2410,4 +2439,223 @@ kbd {
     inset 0 1px 0 var(--glass-rim),
     inset 0 -1px 0 rgb(255 255 255 / 8%),
     var(--shadow-menu);
+}
+
+/* ---------- layout (theme/layout.ts) ---------- */
+
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize:hover,
+.sidebar-resize:focus-visible {
+  background: var(--color-accent);
+  opacity: 0.5;
+}
+
+:root[data-sidebar='collapsed'] .sidebar {
+  padding-inline: var(--space-2);
+  align-items: center;
+}
+
+:root[data-sidebar='collapsed'] :is(.sidebar h3, .nav-label, .nav-row .remove, .scan-status) {
+  display: none;
+}
+
+:root[data-sidebar='collapsed'] .search-field input {
+  display: none;
+}
+
+:root[data-sidebar='collapsed'] :is(.nav-item, .search-field) {
+  justify-content: center;
+  width: 40px;
+  height: 36px;
+  padding: 0;
+}
+
+:root[data-sidebar='collapsed'] .search-field {
+  cursor: pointer;
+}
+
+:root[data-sidebar='collapsed'] .sidebar ul,
+:root[data-sidebar='collapsed'] .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Player bar at the top. */
+:root[data-player^='top'] .app {
+  grid-template-rows: var(--player-height) 1fr;
+}
+
+:root[data-player^='top'] .player-bar {
+  grid-row: 1;
+  border-top: none;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+:root[data-player^='top'] :is(.sidebar, .main, .queue-panel) {
+  grid-row: 2;
+}
+
+:root[data-player$='compact'] .player-bar .scrubber .time {
+  font-size: 11px;
+}
+
+:root[data-player$='compact'] .player-bar .icon-button.play svg {
+  width: 20px;
+  height: 20px;
+}
+
+:root[data-player$='large'] .player-bar .icon-button.play svg {
+  width: 30px;
+  height: 30px;
+}
+
+.segmented.icons button {
+  display: grid;
+  place-items: center;
+  padding: 4px 10px;
+}
+
+.album-list {
+  flex: 1;
+  padding: 0 var(--space-6);
+}
+
+.album-list-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.album-list-row > button {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 3fr) 56px minmax(0, 1fr) 150px 110px;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-s);
+  text-align: left;
+}
+
+.album-list-row > button:hover {
+  background: var(--color-hover);
+}
+
+.album-list-row .artwork {
+  border-radius: var(--radius-s);
+}
+
+.album-list-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.album-list-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist-list-controls {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.artist-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-6) var(--space-4);
+  align-content: start;
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-6);
+  list-style: none;
+}
+
+.artist-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: center;
+}
+
+.artist-card > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist-card .artwork {
+  margin-bottom: var(--space-1);
+}
+
+/* Now Playing styles (layout.nowPlaying). */
+.now-playing-view[data-style='lyrics'] .np-body.with-panel .np-art {
+  width: min(32vh, calc(300px * var(--np-art-scale, 1)), 60%);
+}
+
+.now-playing-view[data-style='minimal'] .np-blob {
+  animation: none;
+}
+
+.now-playing-view[data-style='minimal'] .np-bg::after {
+  background: rgb(0 0 0 / 55%);
+}
+
+.now-playing-view[data-style='minimal'] .np-art {
+  width: min(calc(40vh * var(--np-art-scale, 1)), calc(380px * var(--np-art-scale, 1)), 70%);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.order-list {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+  max-width: 360px;
+}
+
+.order-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.order-list .check-row {
+  flex: 1;
+  margin: 2px 0;
+}
+
+.preset {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* With the player bar on top, its popovers open downwards and toasts sit at the bottom. */
+:root[data-player^='top'] .player-bar .popover {
+  top: calc(100% + var(--space-2));
+  bottom: auto;
+}
+
+:root[data-player^='top'] .toast {
+  bottom: var(--space-6);
 }

@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { api, onApiEvent } from './api';
 import { attempt, useStore } from './store';
 import { useAppearance } from './hooks/useAppearance';
 import { useCurrentTrack } from './hooks/useCurrentTrack';
+import { presetMenu } from './components/LayoutSettings';
 import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
@@ -141,6 +142,18 @@ export function App() {
             onClick={() => useStore.getState().goForward()}
           >
             <ChevronRight size={18} />
+          </button>
+          <span className="toolbar-spacer" />
+          <button
+            className="icon-button small"
+            aria-label="Layouts"
+            title="Layouts (Ctrl+Shift+L)"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              useStore.getState().openMenu(r.left, r.bottom + 4, presetMenu());
+            }}
+          >
+            <LayoutTemplate size={16} />
           </button>
         </div>
         <Main />

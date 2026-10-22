@@ -11,6 +11,8 @@ import {
   themeFor,
 } from '../theme/look';
 import { ensureLiquidFilter, refracts } from '../theme/liquid';
+import type { Layout } from '../theme/layout';
+import { attempt } from '../store';
 import type { Appearance, SavedTheme } from '../types';
 
 const motionQuery = '(prefers-reduced-motion: reduce)';
@@ -85,6 +87,26 @@ function apply() {
 export function applyAppearance(a: Appearance) {
   useLook.setState({ appearance: a, look: normaliseLook(a.look) });
   apply();
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/// Shows an appearance at once and saves it shortly after (sliders and drags change it many
+/// times a second).
+export function changeAppearance(next: Appearance) {
+  applyAppearance(next);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => void attempt(api.setAppearance(next)), 300);
+}
+
+/// Changes part of the look, from the latest state (not a render's copy).
+export function updateLook(patch: Partial<Look>) {
+  const { appearance, look } = useLook.getState();
+  changeAppearance({ ...appearance, look: { ...look, ...patch } });
+}
+
+export function updateLayout(patch: Partial<Layout>) {
+  updateLook({ layout: { ...useLook.getState().look.layout, ...patch } });
 }
 
 /// Shows a theme in place of the chosen one while it's edited; `null` ends the preview.

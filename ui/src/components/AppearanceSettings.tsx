@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { Copy, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { api, isAndroid } from '../api';
-import { applyAppearance, reloadThemes, useLook } from '../hooks/useAppearance';
+import { changeAppearance, reloadThemes, useLook } from '../hooks/useAppearance';
 import { attempt, useStore } from '../store';
 import {
   ACCENT_PRESETS,
@@ -22,16 +22,6 @@ const MODES: { theme: Theme; label: string }[] = [
   { theme: 'light', label: 'Light' },
   { theme: 'dark', label: 'Dark' },
 ];
-
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-/// Shows an appearance at once and saves it shortly after (sliders change it many times a
-/// second).
-export function changeAppearance(next: Appearance) {
-  applyAppearance(next);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void attempt(api.setAppearance(next)), 300);
-}
 
 function Segmented<T extends string>({
   label,

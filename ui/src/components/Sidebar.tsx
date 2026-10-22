@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Clock,
   Disc3,
@@ -15,14 +15,62 @@ import {
 import { api } from '../api';
 import { attempt, useStore, type Route } from '../store';
 import type { SavedSearch } from '../types';
+import { updateLayout, useLook } from '../hooks/useAppearance';
+import { NAV_LABELS, type NavId } from '../theme/layout';
 
-const LIBRARY: { route: Route; label: string; icon: typeof Clock }[] = [
-  { route: { name: 'home' }, label: 'Home', icon: House },
-  { route: { name: 'recent' }, label: 'Recently Added', icon: Clock },
-  { route: { name: 'artists' }, label: 'Artists', icon: Mic2 },
-  { route: { name: 'albums' }, label: 'Albums', icon: Disc3 },
-  { route: { name: 'songs' }, label: 'Songs', icon: ListMusic },
-];
+export const NAV_ICONS: Record<NavId, typeof Clock> = {
+  home: House,
+  recent: Clock,
+  artists: Mic2,
+  albums: Disc3,
+  songs: ListMusic,
+};
+
+/// The sidebar's right edge: drag (or arrow keys) to resize, double-click to collapse.
+function ResizeHandle() {
+  const layout = useLook((s) => s.look.layout);
+  const drag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => {
+      const width = Math.round(Math.min(400, Math.max(180, m.clientX)));
+      updateLayout({ sidebarWidth: width, sidebarCollapsed: m.clientX < 120 });
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      className="sidebar-resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Sidebar width"
+      aria-valuemin={180}
+      aria-valuemax={400}
+      aria-valuenow={layout.sidebarCollapsed ? 64 : layout.sidebarWidth}
+      tabIndex={0}
+      title="Drag to resize; double-click to collapse"
+      onPointerDown={drag}
+      onDoubleClick={() => updateLayout({ sidebarCollapsed: !layout.sidebarCollapsed })}
+      onKeyDown={(e) => {
+        const by = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+        if (e.key === 'Enter') updateLayout({ sidebarCollapsed: !layout.sidebarCollapsed });
+        else if (by)
+          updateLayout({
+            sidebarCollapsed: false,
+            sidebarWidth: Math.min(400, Math.max(180, layout.sidebarWidth + by)),
+          });
+        else return;
+        e.preventDefault();
+      }}
+    />
+  );
+}
 
 export function Sidebar() {
   const route = useStore((s) => s.route);
@@ -32,6 +80,9 @@ export function Sidebar() {
   const edit = useStore((s) => s.edit);
   const query = route.name === 'search' ? route.query : '';
   const [saved, setSaved] = useState<SavedSearch[]>([]);
+  const layout = useLook((s) => s.look.layout);
+  const collapsed = layout.sidebarCollapsed;
+  const searchInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void api.savedSearches().then(setSaved);
@@ -50,9 +101,18 @@ export function Sidebar() {
 
   return (
     <nav className="sidebar" aria-label="Library">
-      <label className="search-field">
+      <label
+        className="search-field"
+        title={collapsed ? 'Search' : undefined}
+        onClick={() => {
+          if (!collapsed) return;
+          updateLayout({ sidebarCollapsed: false });
+          setTimeout(() => searchInput.current?.focus());
+        }}
+      >
         <Search size={14} aria-hidden />
         <input
+          ref={searchInput}
           type="search"
           placeholder="Search"
           aria-label="Search"
@@ -64,17 +124,26 @@ export function Sidebar() {
 
       <h3>Library</h3>
       <ul>
-        {LIBRARY.map(({ route: r, label, icon: Icon }) => (
-          <li key={label}>
-            <button
-              className={`nav-item ${route.name === r.name || (route.name === 'album' && r.name === 'albums') || (route.name === 'artist' && r.name === 'artists') ? 'active' : ''}`}
-              onClick={() => navigate(r)}
-            >
-              <Icon size={16} aria-hidden />
-              {label}
-            </button>
-          </li>
-        ))}
+        {layout.nav.map((id) => {
+          const Icon = NAV_ICONS[id];
+          const active =
+            route.name === id ||
+            (route.name === 'album' && id === 'albums') ||
+            (route.name === 'artist' && id === 'artists');
+          return (
+            <li key={id}>
+              <button
+                className={`nav-item ${active ? 'active' : ''}`}
+                title={collapsed ? NAV_LABELS[id] : undefined}
+                aria-label={collapsed ? NAV_LABELS[id] : undefined}
+                onClick={() => navigate({ name: id })}
+              >
+                <Icon size={16} aria-hidden />
+                <span className="nav-label">{NAV_LABELS[id]}</span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
       {saved.length > 0 && (
@@ -89,7 +158,7 @@ export function Sidebar() {
                   title={s.query}
                 >
                   <Sparkles size={16} aria-hidden />
-                  {s.name}
+                  <span className="nav-label">{s.name}</span>
                 </button>
                 <button
                   className="icon-button small remove"
@@ -111,24 +180,30 @@ export function Sidebar() {
       <div className="sidebar-footer">
         <button
           className={`nav-item ${route.name === 'sound' ? 'active' : ''}`}
+          title={collapsed ? 'Sound' : undefined}
+          aria-label={collapsed ? 'Sound' : undefined}
           onClick={() => navigate({ name: 'sound' })}
         >
           <SlidersHorizontal size={16} aria-hidden />
-          Sound
+          <span className="nav-label">Sound</span>
         </button>
         <button
           className={`nav-item ${route.name === 'folders' ? 'active' : ''}`}
+          title={collapsed ? 'Music Folders' : undefined}
+          aria-label={collapsed ? 'Music Folders' : undefined}
           onClick={() => navigate({ name: 'folders' })}
         >
           <FolderOpen size={16} aria-hidden />
-          Music Folders
+          <span className="nav-label">Music Folders</span>
         </button>
         <button
           className={`nav-item ${route.name === 'settings' ? 'active' : ''}`}
+          title={collapsed ? 'Settings' : undefined}
+          aria-label={collapsed ? 'Settings' : undefined}
           onClick={() => navigate({ name: 'settings' })}
         >
           <Settings size={16} aria-hidden />
-          Settings
+          <span className="nav-label">Settings</span>
         </button>
         {edit?.running && (
           <p className="scan-status" role="status">
@@ -149,6 +224,7 @@ export function Sidebar() {
           </p>
         )}
       </div>
+      <ResizeHandle />
     </nav>
   );
 }

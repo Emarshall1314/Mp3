@@ -4,6 +4,9 @@ import { useStore } from '../store';
 import type { AlbumSort } from '../types';
 import { AlbumGrid } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
+import { AlbumList } from './AlbumList';
+import { ViewToggle } from '../components/ViewToggle';
+import { updateLayout, useLook } from '../hooks/useAppearance';
 
 function stored<T extends string>(key: string, fallback: T): T {
   try {
@@ -29,6 +32,8 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
     recent ? 'added' : stored('albums.sort', 'artist'),
   );
   const [size, setSize] = useState(() => Number(stored('albums.size', '180')) || 180);
+  const section = recent ? 'recent' : 'albums';
+  const view = useLook((s) => s.look.layout.views[section]);
 
   useEffect(() => {
     void api.stats().then((s) => setCount(s.albums));
@@ -62,21 +67,36 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
               </select>
             </label>
           )}
-          <input
-            type="range"
-            aria-label="Artwork size"
-            min={120}
-            max={300}
-            step={10}
-            value={size}
-            onChange={(e) => {
-              setSize(Number(e.target.value));
-              remember('albums.size', e.target.value);
-            }}
+          <ViewToggle
+            value={view}
+            onChange={(v) =>
+              updateLayout({ views: { ...useLook.getState().look.layout.views, [section]: v } })
+            }
           />
+          {view === 'grid' && (
+            <input
+              type="range"
+              aria-label="Artwork size"
+              min={120}
+              max={300}
+              step={10}
+              value={size}
+              onChange={(e) => {
+                setSize(Number(e.target.value));
+                remember('albums.size', e.target.value);
+              }}
+            />
+          )}
         </div>
       </header>
-      {count !== null && (
+      {count !== null && view === 'list' && (
+        <AlbumList
+          count={recent ? Math.min(count, 300) : count}
+          load={load}
+          resetKey={`${sort}-${recent}-${libraryVersion}`}
+        />
+      )}
+      {count !== null && view === 'grid' && (
         <AlbumGrid
           count={recent ? Math.min(count, 300) : count}
           load={load}

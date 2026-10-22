@@ -7,6 +7,9 @@ import { Artwork } from '../components/Artwork';
 import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
+import { ViewToggle } from '../components/ViewToggle';
+import { updateLayout, useLook } from '../hooks/useAppearance';
+import type { GridOrList } from '../theme/layout';
 
 /// Artists: list on the left, the selected artist's albums on the right.
 export function ArtistsView({ selected }: { selected?: string }) {
@@ -18,12 +21,54 @@ export function ArtistsView({ selected }: { selected?: string }) {
     void api.artists().then(setArtists);
   }, [libraryVersion]);
 
-  if (artists && artists.length === 0) return <EmptyLibrary />;
-  const current = selected ?? artists?.[0]?.name;
+  const view = useLook((s) => s.look.layout.views.artists);
+  const setView = (artists: GridOrList) =>
+    updateLayout({ views: { ...useLook.getState().look.layout.views, artists } });
 
+  if (artists && artists.length === 0) return <EmptyLibrary />;
+
+  if (view === 'grid') {
+    if (selected !== undefined)
+      return (
+        <section className="view artists-view">
+          <ArtistDetail name={selected} />
+        </section>
+      );
+    return (
+      <section className="view">
+        <header className="view-header">
+          <h1>Artists</h1>
+          <div className="view-controls">
+            <ViewToggle value={view} onChange={setView} />
+          </div>
+        </header>
+        <ul className="artist-grid scroll" aria-label="Artists">
+          {artists?.map((a) => (
+            <li key={a.name}>
+              <button
+                className="artist-card"
+                onClick={() => navigate({ name: 'artist', artist: a.name })}
+              >
+                <Artwork hash={a.artHash} size={140} alt="" className="round" />
+                <span>{a.name || 'Unknown Artist'}</span>
+                <span className="subtitle">
+                  {a.albumCount} {a.albumCount === 1 ? 'album' : 'albums'}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
+  const current = selected ?? artists?.[0]?.name;
   return (
     <section className="view artists-view">
       <ul className="artist-list scroll" aria-label="Artists">
+        <li className="artist-list-controls">
+          <ViewToggle value={view} onChange={setView} />
+        </li>
         {artists?.map((a) => (
           <li key={a.name}>
             <button

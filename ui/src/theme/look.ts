@@ -1,3 +1,12 @@
+import {
+  type Layout,
+  type Preset,
+  DEFAULT_LAYOUT,
+  PLAYER_HEIGHTS,
+  normaliseLayout,
+  normalisePresets,
+} from './layout';
+
 // The theme engine: built-in themes, the owner's look settings, and the CSS custom properties
 // they produce. Pure functions; useAppearance puts the result on <html>.
 
@@ -41,6 +50,9 @@ export interface Look {
   /// Text size, % of normal.
   fontSize: number;
   artworkSize: ArtworkSize;
+  layout: Layout;
+  /// The owner's named layouts (built-in ones are in theme/layout).
+  presets: Preset[];
 }
 
 export const DEFAULT_LOOK: Look = {
@@ -58,6 +70,8 @@ export const DEFAULT_LOOK: Look = {
   customFont: '',
   fontSize: 100,
   artworkSize: 'medium',
+  layout: DEFAULT_LAYOUT,
+  presets: [],
 };
 
 export const ACCENT_PRESETS = [
@@ -272,6 +286,8 @@ export function normaliseLook(value: unknown): Look {
     customFont: safeFontName(str(v.customFont, '')),
     fontSize: num(v.fontSize, 80, 140, d.fontSize),
     artworkSize: pick(v.artworkSize, ['small', 'medium', 'large'], d.artworkSize),
+    layout: normaliseLayout(v.layout),
+    presets: normalisePresets(v.presets),
   };
 }
 
@@ -288,7 +304,7 @@ export const FONT_STACKS: Record<Exclude<FontChoice, 'custom'>, string> = {
 
 export const ARTWORK_SIZES: Record<ArtworkSize, number> = { small: 200, medium: 260, large: 340 };
 
-const DENSITY: Record<Density, { space: number; row: number }> = {
+export const DENSITY: Record<Density, { space: number; row: number }> = {
   compact: { space: 0.75, row: 28 },
   comfortable: { space: 1, row: 34 },
   spacious: { space: 1.25, row: 42 },
@@ -513,6 +529,11 @@ export function buildLook(
     vars['--font-sans'] = FONT_STACKS[look.font];
   vars['--np-art-scale'] = String(ARTWORK_SIZES[look.artworkSize] / ARTWORK_SIZES.medium);
 
+  // Layout sizes.
+  const layout = look.layout;
+  vars['--sidebar-width'] = layout.sidebarCollapsed ? '64px' : `${layout.sidebarWidth}px`;
+  vars['--player-height'] = `${PLAYER_HEIGHTS[layout.playerSize]}px`;
+
   return {
     vars,
     attrs: {
@@ -520,6 +541,8 @@ export function buildLook(
       'data-background': backgroundStyle,
       'data-panels': panels,
       'data-density': look.density,
+      'data-sidebar': layout.sidebarCollapsed ? 'collapsed' : 'open',
+      'data-player': `${layout.playerPosition} ${layout.playerSize}`,
     },
   };
 }

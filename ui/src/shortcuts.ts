@@ -1,6 +1,7 @@
 // Keyboard shortcuts: the handler and the list shown in Settings come from this one table.
 import { api, isAndroid } from './api';
 import { attempt, useStore } from './store';
+import { cyclePreset } from './components/LayoutSettings';
 
 interface Shortcut {
   keys: string;
@@ -109,6 +110,12 @@ export const SHORTCUTS: Shortcut[] = [
     action: 'Settings',
     match: (e) => ctrl(e) && e.key === ',',
     run: () => useStore.getState().navigate({ name: 'settings' }),
+  },
+  {
+    keys: 'Ctrl+Shift+L',
+    action: 'Next layout preset',
+    match: (e) => ctrl(e) && e.shiftKey && e.key.toLowerCase() === 'l',
+    run: cyclePreset,
   },
   // Handled where they apply; listed so they can be found.
   { keys: '↑ / ↓, Enter', action: 'Move through songs; play the selected one' },

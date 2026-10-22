@@ -1,7 +1,8 @@
 import { AppearanceSettings } from '../components/AppearanceSettings';
+import { LayoutSettings } from '../components/LayoutSettings';
 import { SHORTCUTS } from '../shortcuts';
 
-/// Settings: appearance, themes and the keyboard shortcut reference. Sound settings live in Sound.
+/// Settings: appearance, themes, layout and the keyboard shortcut reference. Sound settings live in Sound.
 export function SettingsView() {
   return (
     <section className="view scroll sound-view">
@@ -10,6 +11,7 @@ export function SettingsView() {
       </header>
 
       <AppearanceSettings />
+      <LayoutSettings />
 
       <div className="settings-group">
         <h2>Keyboard Shortcuts</h2>

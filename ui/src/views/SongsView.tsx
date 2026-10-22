@@ -7,21 +7,116 @@ import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { SongSort, TrackRow } from '../types';
 import { EmptyLibrary } from './EmptyLibrary';
+import { updateLayout, useLook } from '../hooks/useAppearance';
+import { COLUMN_SPECS, type Column, type ColumnId, columnTemplate, moveTo } from '../theme/layout';
+import { DENSITY } from '../theme/look';
 import { QualityBadge } from '../components/QualityBadge';
 
-const ROW = 34;
 const PAGE = 200;
 
-const COLUMNS: { sort: SongSort | null; label: string; className: string }[] = [
-  { sort: 'title', label: 'Title', className: 'c-title' },
-  { sort: 'artist', label: 'Artist', className: 'c-artist' },
-  { sort: 'album', label: 'Album', className: 'c-album' },
-  { sort: 'year', label: 'Year', className: 'c-year' },
-  { sort: 'genre', label: 'Genre', className: 'c-genre' },
-  { sort: null, label: 'Quality', className: 'c-quality' },
-  { sort: 'plays', label: 'Plays', className: 'c-plays' },
-  { sort: 'duration', label: 'Time', className: 'c-time' },
-];
+/// One cell's content for a column.
+function cell(id: ColumnId, t: TrackRow) {
+  switch (id) {
+    case 'title':
+      return t.title;
+    case 'artist':
+      return t.artist;
+    case 'album':
+      return t.album;
+    case 'albumartist':
+      return t.albumartist;
+    case 'track':
+      return t.trackNo ?? '';
+    case 'year':
+      return t.year ?? '';
+    case 'genre':
+      return t.genre;
+    case 'format':
+      return t.codec.toUpperCase();
+    case 'quality':
+      return <QualityBadge quality={t.quality} detail={trackSpec(t)} />;
+    case 'plays':
+      return t.playCount || '';
+    case 'time':
+      return duration(t.durationMs);
+  }
+}
+
+/// A column header: sorts on click, reorders by dragging, resizes from its right edge.
+function ColumnHeader({
+  column,
+  index,
+  sort,
+  desc,
+  onSort,
+}: {
+  column: Column;
+  index: number;
+  sort: SongSort;
+  desc: boolean;
+  onSort: (s: SongSort) => void;
+}) {
+  const spec = COLUMN_SPECS[column.id];
+  const resize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startWidth = column.width;
+    const move = (m: PointerEvent) => {
+      const columns = useLook.getState().look.layout.columns.map((c) =>
+        c.id === column.id
+          ? {
+              ...c,
+              width: Math.round(Math.min(600, Math.max(40, startWidth + m.clientX - startX))),
+            }
+          : c,
+      );
+      updateLayout({ columns });
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      role="columnheader"
+      className={`c-${column.id}`}
+      aria-sort={spec.sort && spec.sort === sort ? (desc ? 'descending' : 'ascending') : undefined}
+      draggable
+      onDragStart={(e) => e.dataTransfer.setData('text/x-cadenza-column', String(index))}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('text/x-cadenza-column')) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const from = Number(e.dataTransfer.getData('text/x-cadenza-column'));
+        const columns = useLook.getState().look.layout.columns;
+        if (Number.isInteger(from)) updateLayout({ columns: moveTo(columns, from, index) });
+      }}
+    >
+      {spec.sort ? (
+        <button className="column-button" onClick={() => spec.sort && onSort(spec.sort)}>
+          {spec.label}
+          {spec.sort === sort && (desc ? <ChevronDown size={12} /> : <ChevronUp size={12} />)}
+        </button>
+      ) : (
+        <span className="column-label">{spec.label}</span>
+      )}
+      {column.id !== 'title' && (
+        <span
+          className="column-resize"
+          aria-hidden
+          onPointerDown={resize}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
+    </div>
+  );
+}
 
 /// Every song, virtualised: only the visible rows exist in the DOM, fetched in pages.
 export function SongsView() {
@@ -34,6 +129,8 @@ export function SongsView() {
   const [selected, setSelected] = useState<number | null>(null);
   const pending = useRef(new Set<number>());
   const scroller = useRef<HTMLDivElement>(null);
+  const columns = useLook((s) => s.look.layout.columns);
+  const ROW = DENSITY[useLook((s) => s.look.density)].row;
 
   useEffect(() => {
     void api.stats().then((s) => setCount(s.tracks));
@@ -119,33 +216,28 @@ export function SongsView() {
           </button>
         </div>
       </header>
-      <div className="song-table" role="grid" aria-rowcount={count ?? 0}>
+      <div
+        className="song-table"
+        role="grid"
+        aria-rowcount={count ?? 0}
+        style={{ '--song-cols': columnTemplate(columns) } as React.CSSProperties}
+      >
         <div className="song-head" role="row">
-          {COLUMNS.map((c) => (
-            <div
-              key={c.label}
-              role="columnheader"
-              className={c.className}
-              aria-sort={c.sort === sort ? (desc ? 'descending' : 'ascending') : undefined}
-            >
-              {c.sort ? (
-                <button
-                  className="column-button"
-                  onClick={() => {
-                    if (c.sort === sort) setDesc(!desc);
-                    else {
-                      setSort(c.sort as SongSort);
-                      setDesc(false);
-                    }
-                  }}
-                >
-                  {c.label}
-                  {c.sort === sort && (desc ? <ChevronDown size={12} /> : <ChevronUp size={12} />)}
-                </button>
-              ) : (
-                c.label
-              )}
-            </div>
+          {columns.map((c, i) => (
+            <ColumnHeader
+              key={c.id}
+              column={c}
+              index={i}
+              sort={sort}
+              desc={desc}
+              onSort={(by) => {
+                if (by === sort) setDesc(!desc);
+                else {
+                  setSort(by);
+                  setDesc(false);
+                }
+              }}
+            />
           ))}
         </div>
         <div className="scroll" ref={scroller}>
@@ -167,32 +259,11 @@ export function SongsView() {
                   onContextMenu={t ? menuHandler(() => trackMenu(t)) : undefined}
                 >
                   {t ? (
-                    <>
-                      <div role="gridcell" className="c-title">
-                        {t.title}
+                    columns.map((c) => (
+                      <div key={c.id} role="gridcell" className={`c-${c.id}`}>
+                        {cell(c.id, t)}
                       </div>
-                      <div role="gridcell" className="c-artist">
-                        {t.artist}
-                      </div>
-                      <div role="gridcell" className="c-album">
-                        {t.album}
-                      </div>
-                      <div role="gridcell" className="c-year">
-                        {t.year ?? ''}
-                      </div>
-                      <div role="gridcell" className="c-genre">
-                        {t.genre}
-                      </div>
-                      <div role="gridcell" className="c-quality">
-                        <QualityBadge quality={t.quality} detail={trackSpec(t)} />
-                      </div>
-                      <div role="gridcell" className="c-plays">
-                        {t.playCount || ''}
-                      </div>
-                      <div role="gridcell" className="c-time">
-                        {duration(t.durationMs)}
-                      </div>
-                    </>
+                    ))
                   ) : (
                     <div role="gridcell" className="loading-cell" />
                   )}

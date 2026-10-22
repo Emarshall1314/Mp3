@@ -18,16 +18,22 @@ import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
+import { useLook } from '../hooks/useAppearance';
+import type { PlayerControl } from '../theme/layout';
 import { usePosition } from '../hooks/usePosition';
 import { OutputPicker } from './OutputPicker';
 import { SignalPath } from './SignalPath';
 
 /// Persistent bar: artwork, title/artist, transport, scrubber, volume, queue toggle.
+const PLAYER_ART = { compact: 40, standard: 48, large: 64 } as const;
+
 export function PlayerBar() {
   const player = useStore((s) => s.player);
   const navigate = useStore((s) => s.navigate);
   const toggleQueue = useStore((s) => s.toggleQueue);
   const queueOpen = useStore((s) => s.queueOpen);
+  const layout = useLook((s) => s.look.layout);
+  const shows = (c: PlayerControl) => layout.playerControls.includes(c);
   const [track, setTrack] = useState<TrackRow | null>(null);
 
   const trackId = player?.trackId ?? null;
@@ -58,7 +64,7 @@ export function PlayerBar() {
               title="Now Playing"
               onClick={() => useStore.getState().setNowPlaying(true)}
             >
-              <Artwork hash={shown.artHash} size={48} alt="" />
+              <Artwork hash={shown.artHash} size={PLAYER_ART[layout.playerSize]} alt="" />
             </button>
             <div className="now-playing-text">
               <button
@@ -85,16 +91,18 @@ export function PlayerBar() {
 
       <div className="transport">
         <div className="transport-buttons">
-          <button
-            className={`icon-button small ${player?.shuffle ? 'active' : ''}`}
-            aria-pressed={player?.shuffle ?? false}
-            aria-label="Shuffle"
-            title="Shuffle"
-            disabled={!hasTrack}
-            onClick={() => void attempt(api.setShuffle(!player?.shuffle))}
-          >
-            <Shuffle size={16} />
-          </button>
+          {shows('shuffle') && (
+            <button
+              className={`icon-button small ${player?.shuffle ? 'active' : ''}`}
+              aria-pressed={player?.shuffle ?? false}
+              aria-label="Shuffle"
+              title="Shuffle"
+              disabled={!hasTrack}
+              onClick={() => void attempt(api.setShuffle(!player?.shuffle))}
+            >
+              <Shuffle size={16} />
+            </button>
+          )}
           <button
             className="icon-button"
             aria-label="Previous"
@@ -126,33 +134,47 @@ export function PlayerBar() {
           >
             <SkipForward size={20} fill="currentColor" />
           </button>
-          <RepeatButton />
+          {shows('repeat') && <RepeatButton />}
         </div>
         <Scrubber />
       </div>
 
       <div className="player-extras">
-        <VolumeControl />
-        <OutputPicker />
-        {!isAndroid && (
-          <button
-            className="icon-button"
-            aria-label="Mini player"
-            title="Mini player (Ctrl+M)"
-            onClick={() => void attempt(api.toggleMiniPlayer())}
-          >
-            <PictureInPicture2 size={18} />
-          </button>
-        )}
-        <button
-          className={`icon-button ${queueOpen ? 'active' : ''}`}
-          aria-pressed={queueOpen}
-          aria-label="Queue"
-          title="Queue"
-          onClick={toggleQueue}
-        >
-          <ListMusic size={18} />
-        </button>
+        {layout.playerControls.map((c) => {
+          switch (c) {
+            case 'volume':
+              return <VolumeControl key={c} />;
+            case 'output':
+              return <OutputPicker key={c} />;
+            case 'miniPlayer':
+              return isAndroid ? null : (
+                <button
+                  key={c}
+                  className="icon-button"
+                  aria-label="Mini player"
+                  title="Mini player (Ctrl+M)"
+                  onClick={() => void attempt(api.toggleMiniPlayer())}
+                >
+                  <PictureInPicture2 size={18} />
+                </button>
+              );
+            case 'queue':
+              return (
+                <button
+                  key={c}
+                  className={`icon-button ${queueOpen ? 'active' : ''}`}
+                  aria-pressed={queueOpen}
+                  aria-label="Queue"
+                  title="Queue"
+                  onClick={toggleQueue}
+                >
+                  <ListMusic size={18} />
+                </button>
+              );
+            default:
+              return null;
+          }
+        })}
       </div>
     </footer>
   );

@@ -14,6 +14,7 @@ import { attempt, useStore } from '../store';
 import { Artwork } from './Artwork';
 import { LyricsView } from './LyricsView';
 import { useModal } from '../hooks/useModal';
+import { useLook } from '../hooks/useAppearance';
 import { Scrubber } from './PlayerBar';
 import { QueuePanel } from './QueuePanel';
 
@@ -38,6 +39,12 @@ export function NowPlaying() {
   const track = useCurrentTrack();
   const [palette, setPalette] = useState<{ hash: string; colors: Rgb[] } | null>(null);
   const hash = track?.artHash ?? null;
+  const style = useLook((s) => s.look.layout.nowPlaying);
+
+  // Lyrics-first opens on the lyrics.
+  useEffect(() => {
+    if (open && style === 'lyrics') setPanel('lyrics');
+  }, [open, style, setPanel]);
 
   useEffect(() => {
     if (!open || !hash) return;
@@ -64,6 +71,7 @@ export function NowPlaying() {
     <div
       ref={dialog}
       className="now-playing-view"
+      data-style={style}
       role="dialog"
       aria-modal="true"
       aria-label="Now Playing"
@@ -82,29 +90,31 @@ export function NowPlaying() {
         >
           <ChevronDown size={22} />
         </button>
-        <div className="np-panel-toggles">
-          <button
-            className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`}
-            aria-pressed={panel === 'lyrics'}
-            aria-label="Lyrics"
-            title="Lyrics"
-            onClick={() => setPanel(panel === 'lyrics' ? null : 'lyrics')}
-          >
-            <MessageSquareQuote size={18} />
-          </button>
-          <button
-            className={`icon-button ${panel === 'queue' ? 'active' : ''}`}
-            aria-pressed={panel === 'queue'}
-            aria-label="Queue"
-            title="Queue"
-            onClick={() => setPanel(panel === 'queue' ? null : 'queue')}
-          >
-            <ListMusic size={18} />
-          </button>
-        </div>
+        {style !== 'minimal' && (
+          <div className="np-panel-toggles">
+            <button
+              className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`}
+              aria-pressed={panel === 'lyrics'}
+              aria-label="Lyrics"
+              title="Lyrics"
+              onClick={() => setPanel(panel === 'lyrics' ? null : 'lyrics')}
+            >
+              <MessageSquareQuote size={18} />
+            </button>
+            <button
+              className={`icon-button ${panel === 'queue' ? 'active' : ''}`}
+              aria-pressed={panel === 'queue'}
+              aria-label="Queue"
+              title="Queue"
+              onClick={() => setPanel(panel === 'queue' ? null : 'queue')}
+            >
+              <ListMusic size={18} />
+            </button>
+          </div>
+        )}
       </header>
 
-      <div className={`np-body ${panel ? 'with-panel' : ''}`}>
+      <div className={`np-body ${panel && style !== 'minimal' ? 'with-panel' : ''}`}>
         <div className="np-main">
           <div className={`np-art ${playing ? 'playing' : 'paused'}`}>
             <Artwork hash={hash} size={1024} alt={track ? `${track.album} artwork` : ''} />
@@ -145,7 +155,7 @@ export function NowPlaying() {
             </button>
           </div>
         </div>
-        {panel && (
+        {panel && style !== 'minimal' && (
           <div className="np-panel">
             {panel === 'lyrics' ? <LyricsView trackId={player?.trackId ?? null} /> : <QueuePanel />}
           </div>
