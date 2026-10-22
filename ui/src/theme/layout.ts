@@ -22,7 +22,7 @@ export type GridOrList = 'grid' | 'list';
 export type AlbumsView = GridOrList | 'columns';
 export type Grouping = 'none' | 'album' | 'artist' | 'genre';
 export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
-export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal';
+export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal' | 'visualizer';
 
 export interface Column {
   id: ColumnId;
@@ -217,7 +217,7 @@ export function normaliseLayout(value: unknown): Layout {
     },
     // The title column is always there: a list without it can't be read.
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
-    nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal'], d.nowPlaying),
+    nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal', 'visualizer'], d.nowPlaying),
     dock: normaliseDock(v.dock),
     grouping: pick(v.grouping, ['none', 'album', 'artist', 'genre'], d.grouping),
     shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),

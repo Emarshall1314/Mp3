@@ -348,6 +348,7 @@ export function LayoutSettings() {
               ['artwork', 'Artwork'],
               ['lyrics', 'Lyrics First'],
               ['minimal', 'Minimal'],
+              ['visualizer', 'Visualizer'],
             ]}
             onChange={(nowPlaying) => updateLayout({ nowPlaying })}
           />

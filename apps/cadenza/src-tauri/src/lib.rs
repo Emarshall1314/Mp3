@@ -218,6 +218,16 @@ fn settings(app: App<'_>) -> Settings {
     app.settings()
 }
 
+#[tauri::command]
+fn set_visualizer(app: App<'_>, on: bool) {
+    app.set_visualizer(on);
+}
+
+#[tauri::command]
+fn spectrum(app: App<'_>, bands: usize) -> Vec<f32> {
+    app.spectrum(bands)
+}
+
 #[tauri::command(async)]
 fn set_crossfade(app: App<'_>, seconds: f64) -> Res<()> {
     app.set_crossfade(seconds).map_err(e)
@@ -631,6 +641,8 @@ pub fn run() {
             loudness_status,
             settings,
             set_crossfade,
+            set_visualizer,
+            spectrum,
             set_appearance,
             safe_mode,
             themes,

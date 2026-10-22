@@ -626,6 +626,16 @@ impl Cadenza {
         Ok(())
     }
 
+    /// Starts or stops feeding the visualizer.
+    pub fn set_visualizer(&self, on: bool) {
+        self.engine.set_visualizer(on);
+    }
+
+    /// The playing audio's levels in `bands` bands, 0 to 1 (empty when there is nothing).
+    pub fn spectrum(&self, bands: usize) -> Vec<f32> {
+        self.engine.spectrum(bands)
+    }
+
     /// Crossfade length in seconds (0: off).
     pub fn set_crossfade(&self, seconds: f64) -> Result<()> {
         let seconds = seconds.clamp(0.0, 12.0);

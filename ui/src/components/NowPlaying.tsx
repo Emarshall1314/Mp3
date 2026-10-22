@@ -15,6 +15,7 @@ import { Artwork } from './Artwork';
 import { LyricsView } from './LyricsView';
 import { useModal } from '../hooks/useModal';
 import { useLook } from '../hooks/useAppearance';
+import { Visualizer } from './Visualizer';
 import { Scrubber } from './PlayerBar';
 import { QueuePanel } from './QueuePanel';
 
@@ -123,6 +124,7 @@ export function NowPlaying() {
             <h1>{track?.title ?? 'Not Playing'}</h1>
             <p>{track ? [track.artist, track.album].filter(Boolean).join(' — ') : ''}</p>
           </div>
+          {style === 'visualizer' && <Visualizer color="#ffffff" />}
           <Scrubber />
           <div className="np-transport">
             <button

@@ -109,6 +109,8 @@ export const api = {
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   themes: () => invoke<SavedTheme[]>('themes'),
   safeMode: () => invoke<boolean>('safe_mode'),
+  setVisualizer: (on: boolean) => invoke<null>('set_visualizer', { on }),
+  spectrum: (bands: number) => invoke<number[]>('spectrum', { bands }),
   saveTheme: (
     id: string | null,
     theme: SavedTheme['theme'] | Omit<SavedTheme['theme'], 'format' | 'version'>,

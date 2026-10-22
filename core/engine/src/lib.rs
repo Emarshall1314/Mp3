@@ -14,6 +14,7 @@ pub mod dsp;
 pub mod output;
 mod player;
 mod queue;
+mod tap;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -209,6 +210,7 @@ pub struct Engine {
     state: Arc<Mutex<PlayerState>>,
     queue_ids: Arc<Mutex<Vec<i64>>>,
     thread: Option<thread::JoinHandle<()>>,
+    tap: Arc<tap::Tap>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -226,16 +228,39 @@ impl Engine {
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let queue_ids = Arc::new(Mutex::new(Vec::new()));
         let shared = (Arc::clone(&state), Arc::clone(&queue_ids));
+        let tap = Arc::new(tap::Tap::default());
+        let player_tap = Arc::clone(&tap);
         let thread = thread::Builder::new()
             .name("cadenza-player".into())
-            .spawn(move || player::run(rx, backend, shared.0, shared.1, Box::new(on_event)))
+            .spawn(move || {
+                player::run(
+                    rx,
+                    backend,
+                    shared.0,
+                    shared.1,
+                    Box::new(on_event),
+                    player_tap,
+                )
+            })
             .ok();
         Self {
             tx,
             state,
             queue_ids,
             thread,
+            tap,
         }
+    }
+
+    /// Starts or stops copying what plays for the visualizer (off costs nothing).
+    pub fn set_visualizer(&self, on: bool) {
+        self.tap.set_on(on);
+    }
+
+    /// The playing audio's levels in `bands` log-spaced bands from 40 Hz to 16 kHz, each 0 to 1;
+    /// empty while the visualizer is off, before audio arrives, or for DSD sent as DSD.
+    pub fn spectrum(&self, bands: usize) -> Vec<f32> {
+        self.tap.spectrum(bands.min(256))
     }
 
     fn send(&self, cmd: Cmd) {

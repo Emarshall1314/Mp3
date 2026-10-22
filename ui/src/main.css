@@ -2988,3 +2988,17 @@ kbd {
 .browser-songs {
   padding: var(--space-2) var(--space-6);
 }
+
+.now-playing-view[data-style='visualizer'] .np-art {
+  width: min(calc(34vh * var(--np-art-scale, 1)), calc(320px * var(--np-art-scale, 1)), 60%);
+}
+
+.visualizer {
+  width: min(720px, 90%);
+  height: min(22vh, 180px);
+}
+
+.visualizer-still {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-100);
+}

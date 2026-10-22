@@ -1,5 +1,6 @@
 //! The player thread and the output thread.
 
+use crate::tap::Tap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -45,7 +46,12 @@ fn gain(volume: f32) -> f64 {
     f64::from(volume.clamp(0.0, 1.0)).powi(3)
 }
 
-fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutShared>) {
+fn output_thread(
+    mut out: Box<dyn Output>,
+    mut ring: Consumer<f64>,
+    sh: Arc<OutShared>,
+    tap: Arc<Tap>,
+) {
     let ch = out.channels().max(1) as usize;
     let period = (out.rate() as usize / 100).max(64) * ch; // ~10 ms per write
     let mut buf: Vec<f64> = Vec::with_capacity(period);
@@ -149,6 +155,10 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
             }
             current_gain = target;
         }
+        // DSD words aren't samples: the visualizer gets nothing from them.
+        if !fixed && tap.is_on() {
+            tap.push(&buf, ch);
+        }
         if let Err(e) = out.write(&buf) {
             set_error(&sh, e);
             thread::sleep(Duration::from_millis(50));
@@ -186,7 +196,12 @@ struct Stream {
 }
 
 impl Stream {
-    fn open(backend: &dyn OutputBackend, request: StreamRequest, volume: f32) -> Result<Self> {
+    fn open(
+        backend: &dyn OutputBackend,
+        request: StreamRequest,
+        volume: f32,
+        tap: &Arc<Tap>,
+    ) -> Result<Self> {
         let out = backend.open(request)?;
         let (granted_rate, granted_channels, format, exclusive, describe) = (
             out.rate(),
@@ -203,9 +218,11 @@ impl Stream {
             .volume_bits
             .store(volume.to_bits(), Ordering::Relaxed);
         let sh = Arc::clone(&shared);
+        tap.set_rate(granted_rate);
+        let tap = Arc::clone(tap);
         let thread = thread::Builder::new()
             .name("cadenza-output".into())
-            .spawn(move || output_thread(out, consumer, sh))
+            .spawn(move || output_thread(out, consumer, sh, tap))
             .map_err(|e| Error::Output(e.to_string()))?;
         Ok(Self {
             ring: producer,
@@ -457,6 +474,8 @@ struct Player {
     /// Frames into the fade, and its length.
     xf_pos: u64,
     xf_len: u64,
+    /// What the visualizer sees.
+    tap: Arc<Tap>,
 }
 
 pub(crate) fn run(
@@ -465,6 +484,7 @@ pub(crate) fn run(
     state: Arc<Mutex<PlayerState>>,
     queue_ids: Arc<Mutex<Vec<i64>>>,
     emit: Box<dyn Fn(Event) + Send + Sync>,
+    tap: Arc<Tap>,
 ) {
     let mut p = Player {
         backend,
@@ -498,6 +518,7 @@ pub(crate) fn run(
         xf_buf: Vec::new(),
         xf_pos: 0,
         xf_len: 0,
+        tap,
     };
     loop {
         let busy = p.status == Status::Playing && p.stream.is_some();
@@ -776,7 +797,7 @@ impl Player {
             }
         } else {
             self.stream = None;
-            let mut stream = Stream::open(self.backend.as_ref(), request, self.volume)?;
+            let mut stream = Stream::open(self.backend.as_ref(), request, self.volume, &self.tap)?;
             let warnings = stream.install_dsp(&self.dsp, &mut self.irs);
             self.stream = Some(stream);
             self.warn(warnings);
