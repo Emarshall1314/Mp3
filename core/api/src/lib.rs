@@ -170,19 +170,23 @@ impl std::fmt::Debug for Cadenza {
 pub struct Outputs {
     pub devices: Vec<OutputDevice>,
     pub current: String,
+    /// Devices with DSD over DoP turned on.
+    pub dop: Vec<String>,
 }
 
 /// The backend for a saved device id. On Linux, `CADENZA_ALSA_DEVICE` overrides it (for running
 /// the app against ALSA's `null` device in tests and demos).
-fn backend_for(id: &str) -> Box<dyn OutputBackend> {
+fn backend_for(settings: &Settings) -> Box<dyn OutputBackend> {
+    let id = settings.output_device.as_str();
     #[cfg(target_os = "linux")]
     if let Ok(device) = std::env::var("CADENZA_ALSA_DEVICE") {
         return Box::new(cadenza_engine::output::alsa::Alsa {
             device,
             exclusive: false,
+            dop: false,
         });
     }
-    cadenza_engine::output::backend(id)
+    cadenza_engine::output::backend(id, settings.dop(id))
 }
 
 impl Cadenza {
@@ -196,7 +200,7 @@ impl Cadenza {
         let library = Arc::new(Library::open(data_dir)?);
         let store = settings::Store::new(data_dir);
         let saved = store.load();
-        let output = output.unwrap_or_else(|| backend_for(&saved.output_device));
+        let output = output.unwrap_or_else(|| backend_for(&saved));
         let emit: Emit = Arc::new(on_event);
         let player_emit = Arc::clone(&emit);
         let counting = Arc::clone(&library);
@@ -440,21 +444,37 @@ impl Cadenza {
 
     /// Lists outputs afresh (devices come and go).
     pub fn outputs(&self) -> Outputs {
+        let settings = self.settings();
         Outputs {
             devices: cadenza_engine::output::devices(),
-            current: self.settings().output_device,
+            current: settings.output_device,
+            dop: settings.dop_devices,
         }
     }
 
     /// Switches to output `id` (playback continues there) and remembers the choice.
     pub fn set_output(&self, id: &str) -> Result<()> {
+        self.change_output(|s| s.output_device = id.to_owned())
+    }
+
+    /// Turns DSD over DoP on or off for device `id`.
+    pub fn set_dop(&self, id: &str, on: bool) -> Result<()> {
+        self.change_output(|s| {
+            s.dop_devices.retain(|d| d != id);
+            if on {
+                s.dop_devices.push(id.to_owned());
+            }
+        })
+    }
+
+    fn change_output(&self, change: impl FnOnce(&mut Settings)) -> Result<()> {
         let mut settings = self.settings();
-        settings.output_device = id.to_owned();
+        change(&mut settings);
         self.settings.save(&settings)?;
+        self.engine.set_output(backend_for(&settings));
         if let Ok(mut s) = self.current.lock() {
             *s = settings;
         }
-        self.engine.set_output(backend_for(id));
         Ok(())
     }
 

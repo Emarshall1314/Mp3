@@ -34,6 +34,9 @@ pub enum Error {
     Decode(#[from] cadenza_decode::Error),
     #[error("the engine has stopped")]
     Stopped,
+    /// The output cannot take DSD as DSD; the player converts to PCM instead.
+    #[error("the output does not take DSD")]
+    DsdUnsupported,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

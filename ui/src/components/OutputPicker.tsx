@@ -30,6 +30,8 @@ export function OutputPicker() {
 
   const missing =
     outputs && !outputs.devices.some((d) => d.id === outputs.current) ? outputs.current : null;
+  const current = outputs?.devices.find((d) => d.id === outputs.current);
+  const dop = current ? (outputs?.dop.includes(current.id) ?? false) : false;
 
   return (
     <div className="output-picker" ref={ref}>
@@ -72,6 +74,27 @@ export function OutputPicker() {
               </button>
             );
           })}
+          {current?.exclusive && (
+            <label className="output-option">
+              <input
+                type="checkbox"
+                checked={dop}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void attempt(
+                    api.setDop(current.id, on).then(() => api.outputs().then(setOutputs)),
+                  );
+                }}
+              />
+              <span className="output-text">
+                <span>Send DSD as DoP</span>
+                <span className="muted small wrap">
+                  Only if this DAC decodes DoP; others play it as loud noise. Native DSD is used
+                  automatically when the driver offers it.
+                </span>
+              </span>
+            </label>
+          )}
           {missing && (
             <p className="muted small" role="status">
               The selected device ({missing}) is not connected.

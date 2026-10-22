@@ -177,4 +177,6 @@ export interface OutputDevice {
 export interface Outputs {
   devices: OutputDevice[];
   current: string;
+  /** Devices with DSD over DoP turned on. */
+  dop: string[];
 }

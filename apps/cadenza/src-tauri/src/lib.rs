@@ -175,6 +175,11 @@ fn set_output(app: App<'_>, id: String) -> Res<()> {
     app.set_output(&id).map_err(e)
 }
 
+#[tauri::command(async)]
+fn set_dop(app: App<'_>, id: String, on: bool) -> Res<()> {
+    app.set_dop(&id, on).map_err(e)
+}
+
 #[tauri::command]
 fn play_index(app: App<'_>, index: usize) {
     app.play_index(index);
@@ -300,6 +305,7 @@ pub fn run() {
             set_shuffle,
             outputs,
             set_output,
+            set_dop,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {

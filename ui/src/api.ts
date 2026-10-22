@@ -58,6 +58,7 @@ export const api = {
   setVolume: (volume: number) => invoke<null>('set_volume', { volume }),
   outputs: () => invoke<Outputs>('outputs'),
   setOutput: (id: string) => invoke<null>('set_output', { id }),
+  setDop: (id: string, on: boolean) => invoke<null>('set_dop', { id, on }),
   playIndex: (index: number) => invoke<null>('play_index', { index }),
   removeFromQueue: (index: number) => invoke<null>('remove_from_queue', { index }),
   moveInQueue: (from: number, to: number) => invoke<null>('move_in_queue', { from, to }),

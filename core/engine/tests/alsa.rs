@@ -23,6 +23,7 @@ fn plays_through_alsa_null_device() {
         Box::new(Alsa {
             device: "null".into(),
             exclusive: false,
+            dop: false,
         }),
         move |ev| {
             if let Event::Error { message, .. } = ev {
@@ -76,6 +77,7 @@ fn exclusive_mode_writes_the_files_samples_byte_for_byte() {
             Box::new(Alsa {
                 device: format!("file:'{}',raw", raw.display()),
                 exclusive: true,
+                dop: false,
             }),
             |_| {},
         );
@@ -129,4 +131,94 @@ fn exclusive_mode_writes_the_files_samples_byte_for_byte() {
             "{id}: trailing data"
         );
     }
+}
+
+/// DSD through ALSA's `file` plugin: the device bytes must be the file's DSD bytes, in the native
+/// DSD format if ALSA offers one, else DoP.
+#[test]
+fn exclusive_mode_passes_dsd_through_unchanged() {
+    use cadenza_decode::Chunk;
+    use cadenza_engine::DeviceFormat;
+
+    let dir = tempfile::tempdir().unwrap();
+    let e = manifest()
+        .entries
+        .iter()
+        .find(|e| e.id == "formats/dsf_dsd64")
+        .unwrap();
+    let raw = dir.path().join("dsd.raw");
+    let engine = Engine::new(
+        Box::new(Alsa {
+            device: format!("file:'{}',raw", raw.display()),
+            exclusive: true,
+            dop: true,
+        }),
+        |_| {},
+    );
+    engine.set_queue(
+        vec![QueueItem {
+            track_id: 1,
+            path: e.file(),
+            start_frame: None,
+            end_frame: None,
+        }],
+        0,
+        true,
+    );
+    let start = Instant::now();
+    let mut info = None;
+    while engine.state().status != Status::Stopped || start.elapsed() < Duration::from_millis(200) {
+        info = info.or(engine.state().stream);
+        assert!(start.elapsed() < Duration::from_secs(20), "still playing");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let info = info.expect("stream info");
+    assert!(info.bit_perfect, "{info:?}");
+    drop(engine);
+
+    let mut dec = cadenza_decode::open(&e.file()).unwrap();
+    let mut channels = [Vec::new(), Vec::new()];
+    while let Some(Chunk::Dsd(bytes)) = dec.next_chunk().unwrap() {
+        for frame in bytes.chunks_exact(2) {
+            channels[0].push(frame[0]);
+            channels[1].push(frame[1]);
+        }
+    }
+    let mut want = Vec::new();
+    match info.output_format {
+        DeviceFormat::Dsd { bytes, big_endian } => {
+            let n = usize::from(bytes);
+            for w in 0..channels[0].len() / n {
+                for c in &channels {
+                    let word = &c[w * n..(w + 1) * n];
+                    if big_endian {
+                        want.extend_from_slice(word);
+                    } else {
+                        want.extend(word.iter().rev());
+                    }
+                }
+            }
+        }
+        DeviceFormat::Dop { bits: 24 } => {
+            for w in 0..channels[0].len() / 2 {
+                let marker = if w % 2 == 0 { 0x05 } else { 0xFA };
+                for c in &channels {
+                    want.extend_from_slice(&[c[2 * w + 1], c[2 * w], marker]);
+                }
+            }
+        }
+        other => panic!("unexpected format {other:?}"),
+    }
+    let got = std::fs::read(&raw).unwrap();
+    assert!(
+        got.len() >= want.len(),
+        "{} of {} bytes",
+        got.len(),
+        want.len()
+    );
+    assert!(
+        got[..want.len()] == want[..],
+        "bytes differ ({:?})",
+        info.output_format
+    );
 }

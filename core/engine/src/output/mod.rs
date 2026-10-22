@@ -5,6 +5,7 @@
 pub mod aaudio;
 #[cfg(target_os = "linux")]
 pub mod alsa;
+mod dsd;
 #[cfg(target_os = "linux")]
 mod reserve;
 
@@ -13,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 
 use crate::Result;
+
+pub(crate) use dsd::DsdPacker;
 
 /// An output the user can choose.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -40,24 +43,26 @@ pub fn devices() -> Vec<OutputDevice> {
     list
 }
 
-/// The backend for a device id from [`devices`]. Unknown ids fall back to the default.
-pub fn backend(id: &str) -> Box<dyn OutputBackend> {
+/// The backend for a device id from [`devices`]. `dop`: send DSD to it as DoP (see
+/// [`alsa::Alsa::dop`]).
+pub fn backend(id: &str, dop: bool) -> Box<dyn OutputBackend> {
     #[cfg(target_os = "linux")]
     {
         Box::new(alsa::Alsa {
             device: id.to_owned(),
             exclusive: id != DEFAULT_DEVICE,
+            dop,
         })
     }
     #[cfg(target_os = "android")]
     {
-        let _ = id;
+        let _ = (id, dop);
         Box::new(aaudio::AAudio)
     }
     // Linux and Android are the only platforms (D11); elsewhere the core builds for tests only.
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
-        let _ = id;
+        let _ = (id, dop);
         Box::new(Capture::new())
     }
 }
@@ -65,11 +70,15 @@ pub fn backend(id: &str) -> Box<dyn OutputBackend> {
 /// What the player asks an output for: the source's format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamRequest {
+    /// Frames per second; for DSD, the DSD bit rate (2 822 400 for DSD64).
     pub rate: u32,
     pub channels: u16,
     /// The source's integer bit depth, so an exclusive device can pick a sample format that carries
-    /// it unchanged. `None` for float and lossy sources.
+    /// it unchanged. `None` for float, lossy and DSD sources.
     pub bits: Option<u8>,
+    /// A DSD stream to pass through as DSD (native or DoP). Outputs that cannot answer
+    /// [`Error::DsdUnsupported`](crate::Error::DsdUnsupported) and the player converts to PCM.
+    pub dsd: bool,
 }
 
 /// The sample format a device takes.
@@ -81,6 +90,16 @@ pub enum DeviceFormat {
     Int {
         bits: u8,
     },
+    /// DSD over PCM (DoP v1.1): 16 DSD bits and a marker byte per 24-bit word, in a container with
+    /// this many significant bits (24 or 32), at the DSD rate / 16.
+    Dop {
+        bits: u8,
+    },
+    /// Native DSD: `bytes` DSD bytes per word (1, 2 or 4), oldest in the most significant byte.
+    Dsd {
+        bytes: u8,
+        big_endian: bool,
+    },
 }
 
 impl DeviceFormat {
@@ -90,6 +109,21 @@ impl DeviceFormat {
             // f32 has a 24-bit mantissa.
             Self::Float => bits <= 24,
             Self::Int { bits: b } => bits <= b,
+            Self::Dop { .. } | Self::Dsd { .. } => false,
+        }
+    }
+
+    /// The stream carries DSD bits rather than PCM.
+    pub fn is_dsd(self) -> bool {
+        matches!(self, Self::Dop { .. } | Self::Dsd { .. })
+    }
+
+    /// Output frames per second for a DSD bit rate.
+    pub fn dsd_frame_rate(self, dsd_rate: u32) -> u32 {
+        match self {
+            Self::Dop { .. } => dsd_rate / 16,
+            Self::Dsd { bytes, .. } => dsd_rate / (8 * u32::from(bytes.max(1))),
+            _ => dsd_rate,
         }
     }
 }
@@ -183,6 +217,8 @@ pub struct Capture {
     pub force_rate: Option<u32>,
     /// Behave like an exclusive device taking this format (default: shared, float).
     pub exclusive: Option<DeviceFormat>,
+    /// Accept DSD requests in this format (DoP or native); otherwise refuse them.
+    pub dsd: Option<DeviceFormat>,
 }
 
 #[derive(Debug, Clone)]
@@ -226,9 +262,15 @@ struct CaptureOutput {
 
 impl OutputBackend for Capture {
     fn open(&self, request: StreamRequest) -> Result<Box<dyn Output>> {
-        let rate = self.force_rate.unwrap_or(request.rate);
+        let (rate, format) = match (request.dsd, self.dsd) {
+            (true, Some(f)) => (f.dsd_frame_rate(request.rate), f),
+            (true, None) => return Err(crate::Error::DsdUnsupported),
+            (false, _) => (
+                self.force_rate.unwrap_or(request.rate),
+                self.exclusive.unwrap_or(DeviceFormat::Float),
+            ),
+        };
         let channels = request.channels;
-        let format = self.exclusive.unwrap_or(DeviceFormat::Float);
         let mut s = self
             .streams
             .lock()
@@ -246,7 +288,7 @@ impl OutputBackend for Capture {
             rate,
             channels,
             format,
-            exclusive: self.exclusive.is_some(),
+            exclusive: self.exclusive.is_some() || format.is_dsd(),
             speed: self.speed,
         }))
     }

@@ -480,3 +480,103 @@ fn switching_outputs_continues_from_the_same_position() {
     assert!((0.25..2.0).contains(&heard), "resumed at {heard:.2} s");
     assert!(h.errors().is_empty(), "{:?}", h.errors());
 }
+
+/// The file's raw DSD bytes, per channel.
+fn dsd_bytes(e: &Entry) -> Vec<Vec<u8>> {
+    let mut dec = cadenza_decode::open(&e.file()).unwrap();
+    let ch = dec.spec().channels as usize;
+    let mut out = vec![Vec::new(); ch];
+    while let Some(c) = dec.next_chunk().unwrap() {
+        let Chunk::Dsd(bytes) = c else { panic!() };
+        for frame in bytes.chunks_exact(ch) {
+            for (c, &b) in frame.iter().enumerate() {
+                out[c].push(b);
+            }
+        }
+    }
+    out
+}
+
+/// Captured samples as unsigned `bits`-bit words.
+fn words(samples: &[f64], bits: u8) -> Vec<u32> {
+    let scale = (1u64 << (bits - 1)) as f64;
+    samples
+        .iter()
+        .map(|&v| {
+            let x = v * scale;
+            assert_eq!(x.fract(), 0.0);
+            (x as i64 & ((1i64 << bits) - 1)) as u32
+        })
+        .collect()
+}
+
+#[test]
+fn dsd_reaches_a_dop_device_as_dop() {
+    let e = entry("formats/dsf_dsd64");
+    let mut cap = Capture::new();
+    cap.exclusive = Some(DeviceFormat::Int { bits: 24 });
+    cap.dsd = Some(DeviceFormat::Dop { bits: 24 });
+    let (h, info) = playback(cap, &[e]);
+    assert!(info.bit_perfect, "{info:?}");
+    assert_eq!(info.output_format, DeviceFormat::Dop { bits: 24 });
+    let s = &h.capture.snapshot()[0];
+    assert_eq!(s.rate, 2_822_400 / 16);
+    let raw = dsd_bytes(e);
+    let w = words(&s.samples, 24);
+    assert_eq!(
+        w.len() / 2,
+        raw[0].len() / 2,
+        "every DSD byte, nothing more"
+    );
+    for (f, frame) in w.chunks_exact(2).enumerate() {
+        let marker = if f % 2 == 0 { 0x05 } else { 0xFA };
+        for (c, &word) in frame.iter().enumerate() {
+            let want =
+                (marker << 16) | u32::from(raw[c][2 * f]) << 8 | u32::from(raw[c][2 * f + 1]);
+            assert_eq!(word, want, "frame {f} channel {c}");
+        }
+    }
+}
+
+#[test]
+fn dsd_reaches_a_native_dsd_device_untouched_even_with_volume() {
+    let e = entry("formats/dsf_dsd128");
+    let mut cap = Capture::new();
+    cap.dsd = Some(DeviceFormat::Dsd {
+        bytes: 4,
+        big_endian: true,
+    });
+    let h = harness(cap);
+    h.engine.set_volume(0.3);
+    h.engine.set_queue(vec![item(e)], 0, true);
+    h.wait("end", Duration::from_secs(30), |s| {
+        s.status == Status::Stopped && s.volume < 0.5
+    });
+    let s = &h.capture.snapshot()[0];
+    assert_eq!(s.rate, 5_644_800 / 32);
+    let raw = dsd_bytes(e);
+    let w = words(&s.samples, 32);
+    for (f, frame) in w.chunks_exact(2).enumerate() {
+        for (c, &word) in frame.iter().enumerate() {
+            let want = u32::from_be_bytes(raw[c][4 * f..4 * f + 4].try_into().unwrap());
+            assert_eq!(word, want, "frame {f} channel {c}");
+        }
+    }
+}
+
+#[test]
+fn dsd_albums_stay_gapless_on_devices_without_dsd() {
+    // The first DSD track discovers the device takes no DSD; the second is converted up front,
+    // so both share one PCM stream.
+    let e = entry("formats/dsf_dsd64");
+    let (h, info) = playback(Capture::new(), &[e, e]);
+    assert!(!info.bit_perfect);
+    let streams = h.capture.snapshot();
+    assert_eq!(
+        streams.len(),
+        1,
+        "{:?}",
+        streams.iter().map(|s| s.rate).collect::<Vec<_>>()
+    );
+    assert_eq!(streams[0].samples.len() / 2, 2 * 176_400);
+}

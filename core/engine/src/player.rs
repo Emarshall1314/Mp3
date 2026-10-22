@@ -6,12 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use cadenza_decode::{Bounded, Decoder, DsdToPcm, SampleFormat};
+use cadenza_decode::{Bounded, Chunk, Decoder, DsdToPcm, SampleFormat};
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::convert::{Resampler, remix, to_f64};
-use crate::output::{DeviceFormat, Output, OutputBackend, StreamRequest};
+use crate::output::{DeviceFormat, DsdPacker, Output, OutputBackend, StreamRequest};
 use crate::queue::{Queue, QueueItem, Repeat};
 use crate::{Cmd, Error, Event, PlayerState, Result, Status, StreamInfo};
 
@@ -45,7 +45,16 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
     let mut consumed: u64 = 0;
     let mut seen_epoch = 0;
     let mut paused = false;
-    let mut current_gain = gain(f32::from_bits(sh.volume_bits.load(Ordering::Relaxed)));
+    // DSD words must reach the device untouched: no volume.
+    let fixed = out.format().is_dsd();
+    let volume = || {
+        if fixed {
+            1.0
+        } else {
+            gain(f32::from_bits(sh.volume_bits.load(Ordering::Relaxed)))
+        }
+    };
+    let mut current_gain = volume();
     loop {
         if sh.quit.load(Ordering::Acquire) {
             break;
@@ -94,7 +103,7 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
             chunk.commit_all();
         }
         // Volume with a per-buffer linear ramp, so changes never click.
-        let target = gain(f32::from_bits(sh.volume_bits.load(Ordering::Relaxed)));
+        let target = volume();
         if target != 1.0 || current_gain != 1.0 {
             let frames = buf.len() / ch;
             for (f, frame) in buf.chunks_exact_mut(ch).enumerate() {
@@ -177,6 +186,7 @@ impl Stream {
     /// stream must also carry the new source's bit depth unchanged.
     fn fits(&self, request: StreamRequest) -> bool {
         (self.requested.rate, self.requested.channels) == (request.rate, request.channels)
+            && self.requested.dsd == request.dsd
             && (!self.exclusive
                 || request
                     .bits
@@ -266,11 +276,13 @@ impl Source {
                 SampleFormat::Int(b) if self.info.lossless => Some(b),
                 _ => None,
             },
+            dsd: self.format == SampleFormat::Dsd,
         }
     }
 }
 
-fn open_source(item: &QueueItem, index: usize) -> Result<Source> {
+/// Opens a queue entry for decoding. DSD stays DSD (for DoP or native output) unless `pcm_only`.
+fn open_source(item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source> {
     let mut dec = cadenza_decode::open(&item.path)?;
     if item.start_frame.is_some() || item.end_frame.is_some() {
         dec = Box::new(Bounded::new(
@@ -280,7 +292,7 @@ fn open_source(item: &QueueItem, index: usize) -> Result<Source> {
         )?);
     }
     let original = dec.spec().clone();
-    if original.format == SampleFormat::Dsd {
+    if original.format == SampleFormat::Dsd && pcm_only {
         dec = Box::new(DsdToPcm::new(dec)?);
     }
     let spec = dec.spec().clone();
@@ -356,6 +368,11 @@ struct Player {
     last_position: Instant,
     f64_buf: Vec<f64>,
     remix_buf: Vec<f64>,
+    /// Packs DSD into DoP or native words while the output takes DSD.
+    packer: Option<DsdPacker>,
+    /// The current output refused DSD: convert DSD sources to PCM from the start, so DSD albums
+    /// stay gapless on it.
+    dsd_unsupported: bool,
 }
 
 pub(crate) fn run(
@@ -386,6 +403,8 @@ pub(crate) fn run(
         last_position: Instant::now(),
         f64_buf: Vec::new(),
         remix_buf: Vec::new(),
+        packer: None,
+        dsd_unsupported: false,
     };
     loop {
         let busy = p.status == Status::Playing && p.stream.is_some();
@@ -453,6 +472,11 @@ impl Player {
         info.output_format = stream.format;
         info.exclusive = stream.exclusive;
         info.resampled = stream.rate != info.sample_rate && info.dsd_rate.is_none();
+        if info.dsd_rate.is_some() {
+            // DSD is bit-perfect only when it reaches the device as DSD (DoP or native).
+            info.bit_perfect = stream.exclusive && stream.format.is_dsd();
+            return Some(info);
+        }
         // Unchanged from file to device: exclusive, same rate and channels, a format that carries
         // the source's integers, and nothing (volume included) touching the samples.
         info.bit_perfect = stream.exclusive
@@ -515,8 +539,19 @@ impl Player {
                 self.stop_output();
                 return;
             };
-            match open_source(&item, index) {
-                Ok(mut src) => {
+            match open_source(&item, index, self.dsd_unsupported) {
+                Ok(src) => {
+                    let mut src = match self.prepare_output(src, true) {
+                        Ok(src) => src,
+                        Err(e) => {
+                            (self.emit)(Event::Error {
+                                track_id: Some(item.track_id),
+                                message: e.to_string(),
+                            });
+                            self.stop_output();
+                            return;
+                        }
+                    };
                     let frame = offset_ms * src.rate as u64 / 1000;
                     if frame > 0
                         && let Err(e) = src.dec.seek(frame)
@@ -525,14 +560,6 @@ impl Player {
                             track_id: Some(item.track_id),
                             message: e.to_string(),
                         });
-                    }
-                    if let Err(e) = self.ensure_stream(src.request(), true) {
-                        (self.emit)(Event::Error {
-                            track_id: Some(item.track_id),
-                            message: e.to_string(),
-                        });
-                        self.stop_output();
-                        return;
                     }
                     self.queue.current = Some(index);
                     let stream = self
@@ -584,6 +611,23 @@ impl Player {
         }
     }
 
+    /// Opens (or reuses) an output for `src`. A DSD source the output cannot take as DSD is
+    /// reopened as PCM (converted), and the output opened for that.
+    fn prepare_output(&mut self, src: Source, flush: bool) -> Result<Source> {
+        if src.format != SampleFormat::Dsd {
+            self.ensure_stream(src.request(), flush)?;
+            return Ok(src);
+        }
+        match self.ensure_stream(src.request(), flush) {
+            Ok(()) if self.packer.is_some() => return Ok(src),
+            Ok(()) | Err(Error::DsdUnsupported) => self.dsd_unsupported = true,
+            Err(e) => return Err(e),
+        }
+        let pcm = open_source(&src.item, src.index, true)?;
+        self.ensure_stream(pcm.request(), flush)?;
+        Ok(pcm)
+    }
+
     /// Makes sure an output fitting `request` is open and empty.
     fn ensure_stream(&mut self, request: StreamRequest, flush: bool) -> Result<()> {
         let rate = request.rate;
@@ -599,7 +643,12 @@ impl Player {
         self.pending.clear();
         self.resampled_out = 0;
         let stream = self.stream.as_ref().ok_or(Error::Stopped)?;
-        self.resampler = if stream.rate != rate {
+        self.packer = if request.dsd {
+            DsdPacker::new(stream.format, stream.channels)
+        } else {
+            None
+        };
+        self.resampler = if stream.rate != rate && !request.dsd {
             Some(Resampler::new(rate, stream.rate, stream.channels)?)
         } else {
             None
@@ -647,7 +696,13 @@ impl Player {
             let (out_rate, out_ch) = (stream.rate, stream.channels);
             match src.dec.next_chunk() {
                 Ok(Some(chunk)) => {
-                    to_f64(chunk, src.format, &mut self.f64_buf);
+                    match (chunk, self.packer.as_mut()) {
+                        (Chunk::Dsd(bytes), Some(packer)) => {
+                            self.f64_buf.clear();
+                            packer.pack(bytes, &mut self.f64_buf);
+                        }
+                        (chunk, _) => to_f64(chunk, src.format, &mut self.f64_buf),
+                    }
                     remix(&self.f64_buf, src.channels, out_ch, &mut self.remix_buf);
                     match self.resampler.as_mut() {
                         Some(r) => {
@@ -689,7 +744,7 @@ impl Player {
                 let Some(item) = self.queue.items.get(n).cloned() else {
                     break;
                 };
-                match open_source(&item, n) {
+                match open_source(&item, n, self.dsd_unsupported) {
                     Ok(s) => {
                         next_src = Some(s);
                         break;
@@ -770,8 +825,9 @@ impl Player {
             let next = self.reopen_with.take();
             if let Some(n) = next {
                 self.stream = None;
-                match self.ensure_stream(n.request(), false) {
-                    Ok(()) => {
+                let track_id = n.item.track_id;
+                match self.prepare_output(n, false) {
+                    Ok(n) => {
                         let rate = self.stream.as_ref().map(|s| s.rate).unwrap_or(n.rate);
                         self.segments.clear();
                         self.segments.push_back(Segment {
@@ -791,7 +847,7 @@ impl Player {
                     }
                     Err(e) => {
                         (self.emit)(Event::Error {
-                            track_id: Some(n.item.track_id),
+                            track_id: Some(track_id),
                             message: e.to_string(),
                         });
                         self.stop_output();
@@ -1025,6 +1081,7 @@ impl Player {
                     .map(|seg| (seg.index, self.position_ms()));
                 self.stream = None;
                 self.backend = backend;
+                self.dsd_unsupported = false;
                 match (resume, self.status) {
                     (Some((index, ms)), Status::Playing | Status::Paused) => {
                         self.start_at(index, ms);

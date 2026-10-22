@@ -67,19 +67,12 @@ fn card_index(device: &str) -> Option<i32> {
         .map(|c| c.get_index())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Alsa {
     pub device: String,
     pub exclusive: bool,
-}
-
-impl Default for Alsa {
-    fn default() -> Self {
-        Self {
-            device: "default".into(),
-            exclusive: false,
-        }
-    }
+    /// Send DSD as DoP when the device has no native DSD format. Only for DACs that decode DoP.
+    pub dop: bool,
 }
 
 /// Linux's EBUSY.
@@ -108,15 +101,66 @@ fn exclusive_formats(bits: Option<u8>) -> [Format; 4] {
     }
 }
 
-/// Bytes per sample and significant bits.
-fn layout(format: Format) -> Option<(usize, u8)> {
+/// Bytes per word in memory and their order, for the integer and DSD formats Cadenza writes.
+fn layout(format: Format) -> Option<(usize, bool)> {
     match format {
-        Format::S16LE => Some((2, 16)),
-        Format::S243LE => Some((3, 24)),
-        Format::S24LE => Some((4, 24)),
-        Format::S32LE => Some((4, 32)),
+        Format::S16LE | Format::DSDU16LE => Some((2, false)),
+        Format::S243LE => Some((3, false)),
+        Format::S24LE | Format::S32LE | Format::DSDU32LE => Some((4, false)),
+        Format::DSDU32BE => Some((4, true)),
+        Format::DSDU16BE => Some((2, true)),
+        Format::DSDU8 => Some((1, false)),
         _ => None,
     }
+}
+
+/// The format as the player sees it; `dop` marks a PCM format carrying DoP.
+fn device_format(format: Format, dop: bool) -> DeviceFormat {
+    let pcm = |bits| {
+        if dop {
+            DeviceFormat::Dop { bits }
+        } else {
+            DeviceFormat::Int { bits }
+        }
+    };
+    match format {
+        Format::S16LE => pcm(16),
+        Format::S243LE | Format::S24LE => pcm(24),
+        Format::S32LE => pcm(32),
+        Format::DSDU32BE
+        | Format::DSDU32LE
+        | Format::DSDU16BE
+        | Format::DSDU16LE
+        | Format::DSDU8 => {
+            let (bytes, big_endian) = layout(format).unwrap_or((1, false));
+            DeviceFormat::Dsd {
+                bytes: bytes as u8,
+                big_endian,
+            }
+        }
+        _ => DeviceFormat::Float,
+    }
+}
+
+/// Native DSD formats first (a driver offers them only for DACs that take DSD), then DoP if the
+/// owner enabled it for this device (a DAC without DoP would play it as loud noise).
+fn dsd_format(hwp: &HwParams<'_>, dsd_rate: u32, dop: bool) -> Option<(Format, DeviceFormat)> {
+    const NATIVE: [Format; 5] = [
+        Format::DSDU32BE,
+        Format::DSDU32LE,
+        Format::DSDU16BE,
+        Format::DSDU16LE,
+        Format::DSDU8,
+    ];
+    const DOP: [Format; 3] = [Format::S243LE, Format::S32LE, Format::S24LE];
+    let native = NATIVE.into_iter().map(|f| (f, device_format(f, false)));
+    let dop = DOP
+        .into_iter()
+        .filter(|_| dop)
+        .map(|f| (f, device_format(f, true)));
+    native.chain(dop).find(|(f, kind)| {
+        hwp.test_format(*f).is_ok() && hwp.test_rate(kind.dsd_frame_rate(dsd_rate)).is_ok()
+    })
 }
 
 pub struct AlsaOutput {
@@ -127,6 +171,7 @@ pub struct AlsaOutput {
     rate: u32,
     channels: u16,
     format: Format,
+    kind: DeviceFormat,
     exclusive: bool,
     quantizer: Option<Quantizer>,
     ints: Vec<i32>,
@@ -151,6 +196,9 @@ unsafe impl Send for AlsaOutput {}
 
 impl OutputBackend for Alsa {
     fn open(&self, request: StreamRequest) -> Result<Box<dyn Output>> {
+        if request.dsd && !self.exclusive {
+            return Err(Error::DsdUnsupported);
+        }
         let reservation = match (self.exclusive, card_index(&self.device)) {
             (true, Some(card)) => Reservation::acquire(card)?,
             _ => None,
@@ -168,50 +216,75 @@ impl OutputBackend for Alsa {
                 Err(e) => return Err(err(e)),
             }
         };
-        let (rate, channels, format, can_pause) = {
+        let (rate, channels, format, kind, can_pause) = {
             let hwp = HwParams::any(&pcm).map_err(err)?;
             hwp.set_access(Access::RWInterleaved).map_err(err)?;
-            let format = if self.exclusive {
-                // Never let ALSA's plug layer resample behind our back.
+            if request.dsd {
+                // DSD must arrive exactly as asked: format, rate and channel count.
                 hwp.set_rate_resample(false).map_err(err)?;
-                exclusive_formats(request.bits)
-                    .into_iter()
-                    .find(|f| hwp.test_format(*f).is_ok())
-                    .ok_or_else(|| {
-                        Error::Output(format!(
-                            "{} takes no 16/24/32-bit integer format",
-                            self.device
-                        ))
-                    })?
-            } else {
-                Format::float()
-            };
-            hwp.set_format(format).map_err(err)?;
-            if hwp.set_channels(u32::from(request.channels)).is_err() {
-                hwp.set_channels(2).map_err(err)?;
-            }
-            // The source's rate if the device has it; otherwise the nearest, and the player
-            // resamples.
-            if hwp.test_rate(request.rate).is_ok() {
-                hwp.set_rate(request.rate, ValueOr::Nearest).map_err(err)?;
-            } else {
-                hwp.set_rate_near(request.rate, ValueOr::Nearest)
+                let (format, kind) =
+                    dsd_format(&hwp, request.rate, self.dop).ok_or(Error::DsdUnsupported)?;
+                let rate = kind.dsd_frame_rate(request.rate);
+                hwp.set_format(format).map_err(err)?;
+                hwp.set_channels(u32::from(request.channels))
+                    .map_err(|_| Error::DsdUnsupported)?;
+                hwp.set_rate(rate, ValueOr::Nearest)
+                    .map_err(|_| Error::DsdUnsupported)?;
+                hwp.set_buffer_time_near(200_000, ValueOr::Nearest)
                     .map_err(err)?;
+                hwp.set_period_time_near(20_000, ValueOr::Nearest)
+                    .map_err(err)?;
+                pcm.hw_params(&hwp).map_err(err)?;
+                let h = pcm.hw_params_current().map_err(err)?;
+                if h.get_rate().map_err(err)? != rate {
+                    return Err(Error::DsdUnsupported);
+                }
+                (rate, request.channels, format, kind, h.can_pause())
+            } else {
+                let format = if self.exclusive {
+                    // Never let ALSA's plug layer resample behind our back.
+                    hwp.set_rate_resample(false).map_err(err)?;
+                    exclusive_formats(request.bits)
+                        .into_iter()
+                        .find(|f| hwp.test_format(*f).is_ok())
+                        .ok_or_else(|| {
+                            Error::Output(format!(
+                                "{} takes no 16/24/32-bit integer format",
+                                self.device
+                            ))
+                        })?
+                } else {
+                    Format::float()
+                };
+                hwp.set_format(format).map_err(err)?;
+                if hwp.set_channels(u32::from(request.channels)).is_err() {
+                    hwp.set_channels(2).map_err(err)?;
+                }
+                // The source's rate if the device has it; otherwise the nearest, and the player
+                // resamples.
+                if hwp.test_rate(request.rate).is_ok() {
+                    hwp.set_rate(request.rate, ValueOr::Nearest).map_err(err)?;
+                } else {
+                    hwp.set_rate_near(request.rate, ValueOr::Nearest)
+                        .map_err(err)?;
+                }
+                // 200 ms buffer in 20 ms periods: robust against scheduling hiccups, still
+                // responsive for pause and seek (which drop the buffer).
+                hwp.set_buffer_time_near(200_000, ValueOr::Nearest)
+                    .map_err(err)?;
+                hwp.set_period_time_near(20_000, ValueOr::Nearest)
+                    .map_err(err)?;
+                pcm.hw_params(&hwp).map_err(err)?;
+                let h = pcm.hw_params_current().map_err(err)?;
+                let format = h.get_format().map_err(err)?;
+                (
+                    h.get_rate().map_err(err)?,
+                    h.get_channels().map_err(err)? as u16,
+                    format,
+                    device_format(format, false),
+                    h.can_pause(),
+                )
             }
-            // 200 ms buffer in 20 ms periods: robust against scheduling hiccups, still
-            // responsive for pause and seek (which drop the buffer).
-            hwp.set_buffer_time_near(200_000, ValueOr::Nearest)
-                .map_err(err)?;
-            hwp.set_period_time_near(20_000, ValueOr::Nearest)
-                .map_err(err)?;
-            pcm.hw_params(&hwp).map_err(err)?;
-            let h = pcm.hw_params_current().map_err(err)?;
-            (
-                h.get_rate().map_err(err)?,
-                h.get_channels().map_err(err)? as u16,
-                h.get_format().map_err(err)?,
-                h.can_pause(),
-            )
         };
         Ok(Box::new(AlsaOutput {
             pcm,
@@ -220,8 +293,15 @@ impl OutputBackend for Alsa {
             rate,
             channels,
             format,
+            kind,
             exclusive: self.exclusive,
-            quantizer: layout(format).map(|(_, bits)| Quantizer::new(bits)),
+            quantizer: match kind {
+                DeviceFormat::Float => None,
+                DeviceFormat::Int { bits } | DeviceFormat::Dop { bits } => {
+                    Some(Quantizer::new(bits))
+                }
+                DeviceFormat::Dsd { bytes, .. } => Some(Quantizer::new(bytes * 8)),
+            },
             ints: Vec::new(),
             bytes: Vec::new(),
             floats: Vec::new(),
@@ -269,10 +349,7 @@ impl Output for AlsaOutput {
     }
 
     fn format(&self) -> DeviceFormat {
-        match layout(self.format) {
-            Some((_, bits)) => DeviceFormat::Int { bits },
-            None => DeviceFormat::Float,
-        }
+        self.kind
     }
 
     fn exclusive(&self) -> bool {
@@ -280,7 +357,8 @@ impl Output for AlsaOutput {
     }
 
     fn write(&mut self, interleaved: &[f64]) -> Result<()> {
-        let (Some(q), Some((width, _))) = (self.quantizer.as_mut(), layout(self.format)) else {
+        let (Some(q), Some((width, big_endian))) = (self.quantizer.as_mut(), layout(self.format))
+        else {
             self.floats.clear();
             self.floats.extend(interleaved.iter().map(|&v| v as f32));
             return self.write_floats();
@@ -288,12 +366,13 @@ impl Output for AlsaOutput {
         self.ints.clear();
         q.convert(interleaved, &mut self.ints);
         self.bytes.clear();
+        // Right-aligned values: S24_LE keeps the 24-bit value in the low bytes of its word, and a
+        // DSD word's oldest byte is its most significant.
         for &v in &self.ints {
-            match width {
-                // S32_LE, and S24_LE: the 24-bit value in the low bytes of a 32-bit word.
-                4 => self.bytes.extend_from_slice(&v.to_le_bytes()),
-                3 => self.bytes.extend_from_slice(&v.to_le_bytes()[..3]),
-                _ => self.bytes.extend_from_slice(&(v as i16).to_le_bytes()),
+            if big_endian {
+                self.bytes.extend_from_slice(&v.to_be_bytes()[4 - width..]);
+            } else {
+                self.bytes.extend_from_slice(&v.to_le_bytes()[..width]);
             }
         }
         self.write_bytes(width * self.channels.max(1) as usize)

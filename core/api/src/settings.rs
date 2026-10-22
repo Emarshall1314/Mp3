@@ -12,12 +12,22 @@ use crate::{Error, Result};
 pub struct Settings {
     /// Output device id (see `cadenza_engine::output::devices`).
     pub output_device: String,
+    /// Devices that get DSD as DoP. Off unless the owner turns it on: a DAC without DoP support
+    /// would play it as full-scale noise.
+    pub dop_devices: Vec<String>,
+}
+
+impl Settings {
+    pub fn dop(&self, device: &str) -> bool {
+        self.dop_devices.iter().any(|d| d == device)
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             output_device: cadenza_engine::output::DEFAULT_DEVICE.to_owned(),
+            dop_devices: Vec::new(),
         }
     }
 }
