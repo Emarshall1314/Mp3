@@ -38,11 +38,17 @@ export function EmptyLibrary() {
   );
 }
 
-export async function addFolder() {
+/// A folder chosen by the owner, or null.
+export async function pickFolder(title: string): Promise<string | null> {
   const picked = isAndroid
     ? await pickOnAndroid()
-    : await open({ directory: true, multiple: false, title: 'Add Music Folder' });
-  if (typeof picked === 'string') {
+    : await open({ directory: true, multiple: false, title });
+  return typeof picked === 'string' ? picked : null;
+}
+
+export async function addFolder() {
+  const picked = await pickFolder('Add Music Folder');
+  if (picked) {
     await attempt(api.addRoot(picked));
     useStore.getState().libraryChanged();
   }

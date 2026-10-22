@@ -1,7 +1,14 @@
 // App-wide UI state. The core is the source of truth for library and playback; this store only
 // mirrors what the UI needs to render and remembers navigation.
 import { create } from 'zustand';
-import type { EditReport, EditStatus, LoudnessStatus, PlayerState, ScanStatus } from './types';
+import type {
+  EditReport,
+  EditStatus,
+  LoudnessStatus,
+  PlayerState,
+  ScanStatus,
+  SyncStatus,
+} from './types';
 
 export type Route =
   | { name: 'home' }
@@ -14,7 +21,9 @@ export type Route =
   | { name: 'search'; query: string }
   | { name: 'folders' }
   | { name: 'sound' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'sync' }
+  | { name: 'trash' };
 
 export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 
@@ -56,6 +65,8 @@ interface Store {
 
   loudness: LoudnessStatus | null;
   setLoudness: (s: LoudnessStatus) => void;
+  sync: SyncStatus | null;
+  setSync: (s: SyncStatus) => void;
   /// Bumped when output or sound settings change elsewhere (the output menu).
   settingsVersion: number;
   settingsChanged: () => void;
@@ -124,6 +135,8 @@ export const useStore = create<Store>((set, get) => ({
 
   loudness: null,
   setLoudness: (s) => set({ loudness: s }),
+  sync: null,
+  setSync: (s) => set({ sync: s }),
   settingsVersion: 0,
   settingsChanged: () => set({ settingsVersion: get().settingsVersion + 1 }),
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Heart,
   ListMusic,
   PictureInPicture2,
   Pause,
@@ -16,6 +17,7 @@ import {
 import { api, isAndroid } from '../api';
 import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
+import { setFavourite } from '../actions';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
 import { useLook } from '../hooks/useAppearance';
@@ -35,6 +37,7 @@ export function PlayerBar() {
   const layout = useLook((s) => s.look.layout);
   const shows = (c: PlayerControl) => layout.playerControls.includes(c);
   const [track, setTrack] = useState<TrackRow | null>(null);
+  const libraryVersion = useStore((s) => s.libraryVersion);
 
   const trackId = player?.trackId ?? null;
   useEffect(() => {
@@ -46,7 +49,7 @@ export function PlayerBar() {
     return () => {
       live = false;
     };
-  }, [trackId]);
+  }, [trackId, libraryVersion]);
 
   // Only show the fetched row while it is still the current track.
   const shown = track && track.id === trackId ? track : null;
@@ -82,6 +85,15 @@ export function PlayerBar() {
                 {shown.artist}
               </button>
             </div>
+            <button
+              className={`icon-button small favourite ${shown.favourite ? 'on' : ''}`}
+              aria-label="Favourite"
+              aria-pressed={shown.favourite}
+              title={shown.favourite ? 'Remove from Favourites' : 'Add to Favourites'}
+              onClick={() => void setFavourite([shown.id], !shown.favourite)}
+            >
+              <Heart size={15} fill={shown.favourite ? 'currentColor' : 'none'} />
+            </button>
             <SignalPath quality={shown.quality} fallback={trackSpec(shown)} />
           </>
         ) : (

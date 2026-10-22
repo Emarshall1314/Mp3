@@ -200,7 +200,74 @@ export type ApiEvent =
   | { kind: 'libraryChanged' }
   | { kind: 'loudness'; status: LoudnessStatus }
   | { kind: 'editProgress'; status: EditStatus }
-  | { kind: 'editFinished'; report: EditReport };
+  | { kind: 'editFinished'; report: EditReport }
+  | { kind: 'sync'; status: SyncStatus };
+
+export interface SyncSettings {
+  /** The shared folder; sync is off without one. */
+  folder: string | null;
+  deviceName: string;
+  /** Copy this device's songs into the folder for devices that don't have them. */
+  shareAudio: boolean;
+  /** Copy songs other devices shared into the first music folder. */
+  downloadAudio: boolean;
+  paused: boolean;
+}
+
+export interface SyncDevice {
+  id: string;
+  name: string;
+  platform: string;
+  lastPushMs: number;
+  thisDevice: boolean;
+}
+
+export interface SyncTransfer {
+  direction: 'upload' | 'download';
+  name: string;
+  done: number;
+  total: number;
+  remaining: number;
+}
+
+export interface SyncStatus {
+  settings: SyncSettings;
+  deviceId: string | null;
+  syncing: boolean;
+  lastSyncMs: number | null;
+  error: string | null;
+  /** Changes made here and not yet in the folder. */
+  pending: number;
+  devices: SyncDevice[];
+  conflicts: number;
+  transfer: SyncTransfer | null;
+  problems: string[];
+}
+
+export interface SyncConflict {
+  audioHash: string;
+  title: string | null;
+  artist: string | null;
+  /** A tag field, or "favourite" or "trash". */
+  field: string;
+  kept: string[];
+  keptDevice: string;
+  keptAtMs: number;
+  lost: string[];
+  lostDevice: string;
+  lostAtMs: number;
+}
+
+export interface TrashItem {
+  id: number;
+  audioHash: string;
+  title: string;
+  artist: string;
+  album: string;
+  originalPath: string;
+  /** Seconds since the Unix epoch. */
+  trashedAt: number;
+}
 
 /** Field values by canonical name ("title", "performer:violin", "custom:NAME"). */
 export type Fields = Record<string, string[]>;

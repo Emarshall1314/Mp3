@@ -117,6 +117,17 @@ struct Saved {
     scan_check: i64,
 }
 
+impl Saved {
+    fn new() -> Self {
+        Self {
+            replica: Replica::new(DeviceId::new()),
+            applied: BTreeMap::new(),
+            exported_favourites: false,
+            scan_check: 0,
+        }
+    }
+}
+
 struct Inner {
     settings: SyncSettings,
     saved: Option<Saved>,
@@ -200,9 +211,14 @@ impl Syncer {
         if settings.device_name.trim().is_empty() {
             settings.device_name = host_name();
         }
-        let saved = std::fs::read(dir.join("replica.cbor"))
+        let mut saved = std::fs::read(dir.join("replica.cbor"))
             .ok()
             .and_then(|b| ciborium::from_reader::<Saved, _>(b.as_slice()).ok());
+        // A folder but no state (the state file was lost): start again as a new device, which
+        // reads everything from the folder.
+        if settings.folder.is_some() && saved.is_none() {
+            saved = Some(Saved::new());
+        }
         let me = Arc::new(Self {
             library,
             editor,
@@ -314,12 +330,7 @@ impl Syncer {
         {
             let mut inner = self.inner();
             if settings.folder.is_some() && inner.saved.is_none() {
-                inner.saved = Some(Saved {
-                    replica: Replica::new(DeviceId::new()),
-                    applied: BTreeMap::new(),
-                    exported_favourites: false,
-                    scan_check: 0,
-                });
+                inner.saved = Some(Saved::new());
             }
             inner.settings = settings;
             self.save(&inner)?;

@@ -12,7 +12,8 @@ use cadenza_api::{
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
     LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
     ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
-    SongSort, StoredArt, TrackEdit, TrackRow, TrackTags,
+    SongSort, StoredArt, SyncConflict, SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags,
+    TrashItem,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -313,6 +314,66 @@ fn organise(app: App<'_>, ids: Vec<i64>, pattern: String) -> Res<i64> {
 #[tauri::command(async)]
 fn set_tag_backups(app: App<'_>, on: bool) -> Res<()> {
     app.set_tag_backups(on).map_err(e)
+}
+
+#[tauri::command(async)]
+fn set_favourite(app: App<'_>, ids: Vec<i64>, on: bool) -> Res<()> {
+    app.set_favourite(&ids, on).map_err(e)
+}
+
+#[tauri::command(async)]
+fn trash(app: App<'_>, ids: Vec<i64>) -> Res<Vec<TrashItem>> {
+    app.trash(&ids).map_err(e)
+}
+
+#[tauri::command(async)]
+fn trash_items(app: App<'_>) -> Res<Vec<TrashItem>> {
+    app.trash_items().map_err(e)
+}
+
+#[tauri::command(async)]
+fn restore(app: App<'_>, id: i64) -> Res<()> {
+    app.restore(id).map_err(e)
+}
+
+#[tauri::command(async)]
+fn purge(app: App<'_>, id: i64) -> Res<()> {
+    app.purge(id).map_err(e)
+}
+
+#[tauri::command(async)]
+fn empty_trash(app: App<'_>) -> Res<()> {
+    app.empty_trash().map_err(e)
+}
+
+#[tauri::command]
+fn sync_status(app: App<'_>) -> SyncStatus {
+    app.sync_status()
+}
+
+#[tauri::command(async)]
+fn set_sync_settings(app: App<'_>, settings: SyncSettings) -> Res<SyncStatus> {
+    app.set_sync_settings(settings).map_err(e)
+}
+
+#[tauri::command]
+fn sync_now(app: App<'_>) {
+    app.sync_now();
+}
+
+#[tauri::command(async)]
+fn sync_conflicts(app: App<'_>) -> Vec<SyncConflict> {
+    app.sync_conflicts()
+}
+
+#[tauri::command(async)]
+fn resolve_conflict(
+    app: App<'_>,
+    audio_hash: String,
+    field: String,
+    values: Vec<String>,
+) -> Res<()> {
+    app.resolve_conflict(&audio_hash, &field, values).map_err(e)
 }
 
 /// Saves the appearance and tells every window (main and mini player) to apply it.
@@ -689,6 +750,17 @@ pub fn run() {
             edit_changes,
             undo_edit,
             set_tag_backups,
+            set_favourite,
+            trash,
+            trash_items,
+            restore,
+            purge,
+            empty_trash,
+            sync_status,
+            set_sync_settings,
+            sync_now,
+            sync_conflicts,
+            resolve_conflict,
             preview_organise,
             organise,
             import_artwork,

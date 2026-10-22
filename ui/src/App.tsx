@@ -22,6 +22,8 @@ import { FoldersView } from './views/FoldersView';
 import { HomeView } from './views/HomeView';
 import { SoundView } from './views/SoundView';
 import { SettingsView } from './views/SettingsView';
+import { SyncView } from './views/SyncView';
+import { TrashView } from './views/TrashView';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -29,6 +31,7 @@ function useCoreEvents() {
     void api.player().then(s.setPlayer);
     void api.scanStatus().then((scan) => s.setScan(scan));
     void api.loudnessStatus().then(s.setLoudness);
+    void api.syncStatus().then(s.setSync);
     const unlisten = onApiEvent((e) => {
       const st = useStore.getState();
       switch (e.kind) {
@@ -70,6 +73,9 @@ function useCoreEvents() {
         case 'loudness':
           st.setLoudness(e.status);
           break;
+        case 'sync':
+          st.setSync(e.status);
+          break;
       }
     });
     return () => {
@@ -110,6 +116,10 @@ function Main() {
       return <SoundView />;
     case 'settings':
       return <SettingsView />;
+    case 'sync':
+      return <SyncView />;
+    case 'trash':
+      return <TrashView />;
   }
 }
 

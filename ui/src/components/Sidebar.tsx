@@ -3,6 +3,7 @@ import {
   Clock,
   Disc3,
   FolderOpen,
+  FolderSync,
   House,
   ListMusic,
   Mic2,
@@ -10,6 +11,7 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { api } from '../api';
@@ -78,6 +80,7 @@ export function Sidebar() {
   const libraryVersion = useStore((s) => s.libraryVersion);
   const scan = useStore((s) => s.scan);
   const edit = useStore((s) => s.edit);
+  const sync = useStore((s) => s.sync);
   const query = route.name === 'search' ? route.query : '';
   const [saved, setSaved] = useState<SavedSearch[]>([]);
   const layout = useLook((s) => s.look.layout);
@@ -197,6 +200,31 @@ export function Sidebar() {
           <span className="nav-label">Music Folders</span>
         </button>
         <button
+          className={`nav-item ${route.name === 'sync' ? 'active' : ''}`}
+          title={collapsed ? 'Sync' : undefined}
+          aria-label={
+            collapsed ? `Sync${sync?.conflicts ? `, ${sync.conflicts} conflicts` : ''}` : undefined
+          }
+          onClick={() => navigate({ name: 'sync' })}
+        >
+          <FolderSync size={16} aria-hidden />
+          <span className="nav-label">Sync</span>
+          {!!sync?.conflicts && (
+            <span className="nav-badge" aria-label={`${sync.conflicts} conflicts`}>
+              {sync.conflicts}
+            </span>
+          )}
+        </button>
+        <button
+          className={`nav-item ${route.name === 'trash' ? 'active' : ''}`}
+          title={collapsed ? 'Trash' : undefined}
+          aria-label={collapsed ? 'Trash' : undefined}
+          onClick={() => navigate({ name: 'trash' })}
+        >
+          <Trash2 size={16} aria-hidden />
+          <span className="nav-label">Trash</span>
+        </button>
+        <button
           className={`nav-item ${route.name === 'settings' ? 'active' : ''}`}
           title={collapsed ? 'Settings' : undefined}
           aria-label={collapsed ? 'Settings' : undefined}
@@ -212,6 +240,12 @@ export function Sidebar() {
             <button className="link" onClick={() => void attempt(api.cancelEdit())}>
               Stop
             </button>
+          </p>
+        )}
+        {sync?.transfer && (
+          <p className="scan-status" role="status">
+            Sync: {sync.transfer.direction === 'upload' ? 'copying' : 'getting'}{' '}
+            {sync.transfer.remaining + 1} {sync.transfer.remaining === 0 ? 'song' : 'songs'}
           </p>
         )}
         {scan.running && scan.progress && (
