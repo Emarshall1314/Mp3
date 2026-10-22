@@ -203,9 +203,7 @@ media keys need a real desktop session to see, so check them on the owner's mach
 - **Artwork**: add, retype, describe and remove pictures; one cover for many songs; save the cover
   to the folder. Undo restores old artwork from the artwork cache.
 - **File organiser** (D49): rename and move files from a tag pattern, previewed first; names safe
-  for Windows and Android SD cards; play counts and ratings follow the files; undoable.
-- **Ratings** (D50): stars on the album page, stored by Cadenza; optionally written into the
-  files.
+  for Windows and Android SD cards; play counts follow the files; undoable.
 - **Fixes found along the way**:
   - An MP3 with a date frame that isn't an ID3 timestamp ("Spring 1999") couldn't be read at all.
   - lofty drops ID3v2.4-only frames from v2.3 tags; those fields go to TXXX frames there.
@@ -216,7 +214,7 @@ media keys need a real desktop session to see, so check them on the owner's mach
   - Unknown data survives; pictures replace and clear.
   - Refused edits leave files byte-identical.
   - A process killed at each stage of a write leaves the old or the new file.
-  - API: edits, conflicts on undo, artwork, the organiser with play counts, ratings.
+  - API: edits, conflicts on undo, artwork, the organiser with play counts.
   - UI: every action.
 - Demo script: `docs/demos/M4.md`.
 
@@ -289,4 +287,4 @@ These are shown or absent in the UI, never faked:
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D50.
+D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D49.

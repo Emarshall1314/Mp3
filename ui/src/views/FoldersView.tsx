@@ -102,16 +102,12 @@ function TagChanges() {
   const editing = useStore((s) => s.edit?.running ?? false);
   const [batches, setBatches] = useState<EditBatch[]>([]);
   const [backups, setBackups] = useState<boolean | null>(null);
-  const [ratings, setRatings] = useState<boolean | null>(null);
 
   useEffect(() => {
     void api.editHistory(20).then(setBatches);
   }, [libraryVersion, editing]);
   useEffect(() => {
-    void api.settings().then((s) => {
-      setBackups(s.tagBackups);
-      setRatings(s.ratingsToFiles);
-    });
+    void api.settings().then((s) => setBackups(s.tagBackups));
   }, []);
 
   return (
@@ -128,18 +124,6 @@ function TagChanges() {
           }}
         />
         Keep a copy of each file before changing its tags (in Cadenza’s data folder)
-      </label>
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={ratings ?? false}
-          disabled={ratings === null}
-          onChange={(e) => {
-            setRatings(e.target.checked);
-            void attempt(api.setRatingsToFiles(e.target.checked));
-          }}
-        />
-        Write ratings into the files too, so other players see them (otherwise they stay in Cadenza)
       </label>
       {batches.length === 0 ? (
         <p className="muted">Tag edits appear here, with a way to undo them.</p>

@@ -101,8 +101,6 @@ export const api = {
   previewOrganise: (ids: number[], pattern: string) =>
     invoke<RenamePlan[]>('preview_organise', { ids, pattern }),
   organise: (ids: number[], pattern: string) => invoke<number>('organise', { ids, pattern }),
-  rate: (ids: number[], rating: number | null) => invoke<number | null>('rate', { ids, rating }),
-  setRatingsToFiles: (on: boolean) => invoke<null>('set_ratings_to_files', { on }),
   setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   loudnessStatus: () => invoke<LoudnessStatus>('loudness_status'),

@@ -118,7 +118,7 @@ export function Organiser({ ids, onDone }: { ids: number[]; onDone: () => void }
               {moves === 1 ? 'Move 1 File' : `Move ${moves} Files`}
             </button>
             <span className="muted small">
-              Play counts and ratings stay with the songs. A .lrc beside a song moves with it.
+              Play counts stay with the songs. A .lrc beside a song moves with it.
             </span>
           </div>
         </>
