@@ -2,6 +2,11 @@
 
 ## Status (2026-10-22)
 
+**M6 (Sync) has started**: the sync core (`cadenza-sync`) is built and tested on its own (D55).
+The next step connects it to the library: tag edits, favourites and plays become ops, and other
+devices' ops rewrite this device's tags. Then a folder store in Settings, and cloud providers once
+the network allows.
+
 **M5 (Customisation) is done for Linux**: themes, the theme editor, liquid glass, layouts and
 presets, the dockable panel (with the tag editor), the column browser, grouping, the visualizer,
 remappable and system-wide shortcuts, and custom CSS. The phone's own layout options wait for M7. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
@@ -269,6 +274,15 @@ glass.
   from artwork), theme file validation and storage (core), layout normalisation and presets,
   remapped shortcuts.
 - Demo script: `docs/demos/M5.md`.
+- **M6 sync core** (`cadenza-sync`, D55), not yet connected to the app:
+  - Hybrid logical clocks, which order changes across devices whose clocks disagree.
+  - Ops for tag fields, favourites, the trash and plays, keyed by audio hash.
+  - Log segments (CBOR, zstd), one immutable file per push.
+  - A folder store that ignores other sync tools' temporary files and writes atomically.
+  - Merging: last writer wins per field; edits lost to a concurrent edit are kept as conflicts;
+    plays only add up. A gap in another device's log waits for the missing segment.
+  - Tests: randomised offline edits on three devices with skewed clocks always converge (state,
+    conflicts, and what each device applied), plus restart and gap tests.
 
 ### Next
 1. **Owner tests**:
@@ -280,7 +294,8 @@ glass.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **M6: Sync**.
+3. **M6: Sync**: connect the core to the library, a sync folder in Settings, the conflicts view
+   and trash, then audio blobs, then cloud providers (once the network allows).
 4. **M7: the phone layout**, including reordering its tabs and the mini-player style (they will
    use the same layout settings as the sidebar).
 

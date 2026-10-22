@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 320c77fa3bbaca446a83ee5a4253d8b11fd635d97c59a8eb4d579aa3894faf98 # shrinks to steps = [(1, Edit { track: 1, field: 1, value: 1 }), (0, Edit { track: 1, field: 1, value: 0 })], skews = [0, 0, 0]

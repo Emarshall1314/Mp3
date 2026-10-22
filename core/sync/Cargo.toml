@@ -1,0 +1,23 @@
+[package]
+name = "cadenza-sync"
+description = "Sync between devices without a server: clock, op log, segments, stores and merge."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ciborium = "0.2"
+ruzstd = "0.9"
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2"
+uuid = { version = "1.28", features = ["v7"] }
+
+[dev-dependencies]
+proptest = "1.12"
+tempfile = "3"
+
+[lints]
+workspace = true
