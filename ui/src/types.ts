@@ -200,6 +200,8 @@ export interface TrackTags {
   format: string;
   fields: Fields;
   pictures: { pictureType: number; mime: string; description: string; bytes: number }[];
+  /** Text stored in a legacy encoding: values equal to `stored` read correctly as `decoded`. */
+  legacy: { stored: string; decoded: string; encoding: string }[];
   /** Why this song's tags can't be changed, if so. */
   readOnly: string | null;
 }

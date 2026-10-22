@@ -27,7 +27,7 @@ pub use cadenza_library::{
     LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
     ScanReport, SearchResults, SongSort, TrackRow,
 };
-pub use edit::{EditFailure, EditReport, EditStatus, PictureInfo, TrackEdit, TrackTags};
+pub use edit::{EditFailure, EditReport, EditStatus, LegacyFix, PictureInfo, TrackEdit, TrackTags};
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
 

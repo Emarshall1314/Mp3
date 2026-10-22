@@ -36,8 +36,20 @@ pub struct TrackTags {
     pub format: String,
     pub fields: cadenza_tags::Fields,
     pub pictures: Vec<PictureInfo>,
+    /// Text that looks like a legacy encoding (Shift-JIS, CP1251...) stored as Latin-1.
+    pub legacy: Vec<LegacyFix>,
     /// Why the tags can't be edited (a song from a cue sheet, a read-only file), if so.
     pub read_only: Option<String>,
+}
+
+/// A suggested repair: field values equal to `stored` read correctly as `decoded`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyFix {
+    pub stored: String,
+    pub decoded: String,
+    /// WHATWG encoding name, e.g. "Shift_JIS".
+    pub encoding: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -142,6 +154,15 @@ impl Editor {
                 track_id: t.id,
                 path: t.path.display().to_string(),
                 format: format_name(tags.format).to_owned(),
+                legacy: tags
+                    .legacy
+                    .iter()
+                    .map(|l| LegacyFix {
+                        stored: l.raw.iter().map(|&b| b as char).collect(),
+                        decoded: l.decoded.clone(),
+                        encoding: l.encoding.to_owned(),
+                    })
+                    .collect(),
                 fields: tags.fields,
                 pictures: tags
                     .pictures

@@ -5,6 +5,7 @@ import { attempt, useStore } from '../store';
 import type { Fields, TrackRow, TrackTags } from '../types';
 import { useModal } from '../hooks/useModal';
 import { Artwork } from './Artwork';
+import { TagActionsPanel } from './TagActionsPanel';
 
 type Kind = 'text' | 'long' | 'number' | 'check';
 interface FieldDef {
@@ -67,7 +68,17 @@ const SORTING: FieldDef[] = [
   { field: 'composersort', label: 'Sort Composer' },
 ];
 
-const TABS = ['Details', 'Credits', 'Sorting', 'Lyrics', 'All Tags', 'Table', 'File'] as const;
+const TABS = [
+  'Details',
+  'Credits',
+  'Sorting',
+  'Lyrics',
+  'All Tags',
+  'Table',
+  'Actions',
+  'Changes',
+  'File',
+] as const;
 type Tab = (typeof TABS)[number];
 
 /// Fields that hold several values, typed separated by ";".
@@ -174,6 +185,45 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
     Object.values(table).some((row) => Object.entries(row).some(bad));
   const editable = tags?.filter((t) => !t.readOnly) ?? [];
 
+  /// Every song's pending text: the form's changes (all songs) under the table's (one song).
+  const pending = useMemo(() => {
+    const out: Record<number, Record<string, string>> = {};
+    for (const t of tags ?? []) {
+      const merged = { ...draft, ...table[t.trackId] };
+      if (Object.keys(merged).length) out[t.trackId] = merged;
+    }
+    return out;
+  }, [tags, draft, table]);
+
+  /// An action's result: one song edits the form, several the table.
+  const applyChanges = (changes: Record<number, Record<string, string>>) => {
+    for (const [id, fields] of Object.entries(changes))
+      for (const [field, text] of Object.entries(fields)) {
+        if (ids.length === 1) set(field, text);
+        else setCell(Number(id), field, text);
+      }
+  };
+
+  const revert = (trackId: number, field: string) => {
+    const original = show(tags?.find((t) => t.trackId === trackId)?.fields[field]);
+    if (table[trackId]?.[field] !== undefined) setCell(trackId, field, original);
+    else if (draft[field] !== undefined) {
+      setDraft((d) => {
+        const { [field]: _gone, ...rest } = d;
+        return rest;
+      });
+    }
+  };
+  const changeCount = Object.entries(pending).reduce(
+    (n, [id, fields]) =>
+      n +
+      Object.entries(fields).filter(
+        ([f, text]) =>
+          show(parse(f, text)) !== show(tags?.find((t) => t.trackId === Number(id))?.fields[f]),
+      ).length,
+    0,
+  );
+
   const save = async () => {
     if (!dirty || invalid || !editable.length) return;
     const edits = editable
@@ -236,7 +286,7 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
               className={tab === t ? 'on' : ''}
               onClick={() => setTab(t)}
             >
-              {t}
+              {t === 'Changes' && changeCount > 0 ? `Changes (${changeCount})` : t}
             </button>
           ))}
         </div>
@@ -280,6 +330,17 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
             </>
           )}
           {tags && tab === 'Table' && <TableEditor tags={tags} table={table} setCell={setCell} />}
+          {tags && tab === 'Actions' && (
+            <TagActionsPanel
+              tags={tags}
+              pending={pending}
+              fieldOptions={[...DETAILS, ...CREDITS, ...SORTING].filter((d) => !d.joined)}
+              apply={applyChanges}
+            />
+          )}
+          {tags && tab === 'Changes' && (
+            <ChangesList tags={tags} pending={pending} revert={revert} many={ids.length > 1} />
+          )}
           {tags && tab === 'All Tags' && (
             <AllTags fields={allFields} shown={shown} draft={draft} set={set} />
           )}
@@ -582,6 +643,53 @@ function TableEditor({
         </table>
       </div>
     </div>
+  );
+}
+
+/// Every pending change, song by song: what is written now and what will be.
+function ChangesList({
+  tags,
+  pending,
+  revert,
+  many,
+}: {
+  tags: TrackTags[];
+  pending: Record<number, Record<string, string>>;
+  revert: (trackId: number, field: string) => void;
+  many: boolean;
+}) {
+  const rows = tags.flatMap((t) =>
+    Object.entries(pending[t.trackId] ?? {})
+      .map(([field, text]) => ({
+        t,
+        field,
+        before: show(t.fields[field]),
+        after: show(parse(field, text)),
+      }))
+      .filter((r) => r.before !== r.after),
+  );
+  if (rows.length === 0) return <p className="muted">No changes yet.</p>;
+  return (
+    <table className="changes-list">
+      <tbody>
+        {rows.map(({ t, field, before, after }) => (
+          <tr key={`${t.trackId}-${field}`} className={t.readOnly ? 'read-only' : ''}>
+            {many && <td className="song">{show(t.fields.title) || t.path.split('/').at(-1)}</td>}
+            <th scope="row">
+              <code>{field}</code>
+            </th>
+            <td className="before">{before || <span className="muted">(empty)</span>}</td>
+            <td aria-hidden>→</td>
+            <td className="after">{after || <span className="muted">(removed)</span>}</td>
+            <td>
+              <button className="link" onClick={() => revert(t.trackId, field)}>
+                Revert
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
