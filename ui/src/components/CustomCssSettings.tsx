@@ -13,7 +13,8 @@ export function CustomCssSettings() {
       <h2>Custom CSS</h2>
       {safeMode && (
         <p className="small safe-mode" role="status">
-          Safe mode: your CSS is off until Cadenza restarts (without --safe-mode). Fix or clear it here.
+          Safe mode: your CSS is off until Cadenza restarts (without --safe-mode). Fix or clear it
+          here.
         </p>
       )}
       <textarea
