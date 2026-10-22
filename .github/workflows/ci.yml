@@ -91,6 +91,31 @@ jobs:
           "$tools/apksigner" sign --ks "$RUNNER_TEMP/cadenza.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
             --out dist/cadenza-arm64.apk "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" verify dist/cadenza-arm64.apk
+      # The Android pieces live in a plugin and are found by name at run time (JNI, the manifest),
+      # so a build that silently left them out would still succeed. Check the APK itself.
+      - name: Check APK contents
+        run: |
+          apk=dist/cadenza-arm64.apk
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          manifest=$("$tools/aapt2" dump xmltree --file AndroidManifest.xml "$apk")
+          for want in app.cadenza.android.PlaybackService mediaPlayback \
+            android.permission.MANAGE_EXTERNAL_STORAGE \
+            android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK; do
+            echo "$manifest" | grep -q "$want" || { echo "::error::manifest lacks $want"; exit 1; }
+          done
+          dex=$(unzip -p "$apk" 'classes*.dex' | strings)
+          for class in PlaybackService CadenzaPlugin MediaBridge; do
+            echo "$dex" | grep -q "Lapp/cadenza/android/$class;" \
+              || { echo "::error::$class missing from the APK"; exit 1; }
+          done
+          unzip -p "$apk" lib/arm64-v8a/libcadenza_app_lib.so > "$RUNNER_TEMP/lib.so"
+          nm=$(ls "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-nm | head -1)
+          exports=$("$nm" -D --defined-only "$RUNNER_TEMP/lib.so")
+          for fn in command ready waitState; do
+            echo "$exports" | grep -q "Java_app_cadenza_android_MediaBridge_$fn" \
+              || { echo "::error::libcadenza_app_lib.so does not export MediaBridge.$fn"; exit 1; }
+          done
+          echo "APK has the playback service, the plugin classes and the JNI bridge."
       - uses: actions/upload-artifact@v7
         with:
           name: cadenza-android

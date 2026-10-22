@@ -315,6 +315,15 @@ the UI.
 
 The spike APK is built by CI (or locally once `dl.google.com` is reachable) and sideloaded.
 
+**As built** (`apps/cadenza/plugins/android`): a local Tauri plugin carries the Kotlin half, so the
+generated Android project stays generated.
+- `CadenzaPlugin`: file access (D43) and the music folder picker, called from Rust commands.
+- `PlaybackService`: a foreground service with a framework `MediaSession` (no AndroidX Media
+  dependency) and a MediaStyle notification. It holds audio focus while playing and pauses when
+  headphones are unplugged.
+- `MediaBridge`: JNI into the app library for state and commands (D44).
+- The test script is `docs/demos/Android.md`.
+
 ## 12. Testing strategy
 
 - **Fixtures** (`tools/fixtures`, run by `cargo xtask fixtures`) are generated with ffmpeg/sox plus our
@@ -381,3 +390,6 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D40 | Appearance (Auto/Light/Dark, Reduce Motion, Reduce Transparency) lives in `settings.json`; the reduce switches add to the desktop's preferences and never turn them off | Per machine, like the other display-adjacent settings. The main window and mini player apply changes from a `cadenza://appearance` event |
 | D41 | Artist sections come from the `releasetype` tag (MusicBrainz primary + secondary types; live, soundtrack and compilation win). Untagged releases count as Albums, or Compilations when flagged. Top Songs need at least one play | Tagged libraries sort themselves; untagged ones still read sensibly. An empty Top Songs is hidden rather than filled with unplayed songs |
 | D42 | Lists (Songs) and grids (Albums) are a single Tab stop with arrow keys inside; album cards are two stops (open, play), their title and artist links reachable by the context menu | Tabbing past a 200k-song list must not take 200k presses |
+| D43 | Android reads music folders as files with All files access (`MANAGE_EXTERNAL_STORAGE`; `READ_EXTERNAL_STORAGE` before Android 11) | Media-only access hides `.lrc`, `.cue` and folder artwork, and the Storage Access Framework would need a second, URI-based file layer in the core. The Play Store restricts this permission, but Cadenza is sideloaded (D12) |
+| D44 | The Android playback service talks to the core over JNI (`MediaBridge`: `waitState`, `command`), not Tauri plugin calls | Plugin calls run on the activity, which Android destroys while the service keeps playing. `waitState` blocks on a condition variable, so the service doesn't poll |
+| D45 | The playback service keeps its foreground notification while paused, until playback stops (the Stop button) | Android 12+ forbids restarting a foreground service from the background, which would break resuming from the lock screen or headphones after a pause |

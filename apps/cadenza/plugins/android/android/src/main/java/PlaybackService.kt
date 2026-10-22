@@ -5,12 +5,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -30,6 +35,9 @@ import kotlin.concurrent.thread
  * The core plays the audio; this service only mirrors its state, read with
  * [MediaBridge.waitState], and sends button presses back with [MediaBridge.command]. It starts
  * when playback starts and stops when playback stops.
+ *
+ * It also holds audio focus while playing: a call or another app's playback pauses Cadenza, a
+ * call ending resumes it, and unplugging headphones pauses it.
  */
 class PlaybackService : Service() {
     companion object {
@@ -76,6 +84,18 @@ class PlaybackService : Service() {
     private var alive = true
     private var artPath: String? = null
     private var art: Bitmap? = null
+
+    private var playing = false
+    private var focus: AudioFocusRequest? = null
+    private var resumeOnGain = false
+    private var noisyRegistered = false
+    private val noisy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                MediaBridge.command(MediaBridge.PAUSE, 0)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -144,6 +164,8 @@ class PlaybackService : Service() {
     override fun onDestroy() {
         alive = false
         running = false
+        holdFocus(false)
+        focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
         if (::session.isInitialized) session.release()
         super.onDestroy()
     }
@@ -156,6 +178,8 @@ class PlaybackService : Service() {
             return
         }
         val playing = status == "playing"
+        this.playing = playing
+        holdFocus(playing)
         val path = state.optString("artPath").ifEmpty { null }
         if (path != artPath) {
             artPath = path
@@ -189,6 +213,59 @@ class PlaybackService : Service() {
         )
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, notification(state, playing))
+    }
+
+    /** Asks for audio focus when playback starts, and listens for headphones being unplugged. */
+    private fun holdFocus(playing: Boolean) {
+        val audio = getSystemService(AudioManager::class.java)
+        if (playing && focus == null) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener({ onFocusChange(it) }, main)
+                .build()
+            if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                focus = request
+            }
+        }
+        if (playing && !noisyRegistered) {
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(noisy, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(noisy, filter)
+            }
+            noisyRegistered = true
+        } else if (!playing && noisyRegistered) {
+            unregisterReceiver(noisy)
+            noisyRegistered = false
+        }
+    }
+
+    private fun onFocusChange(change: Int) {
+        when (change) {
+            // Another app plays: stop for good, and give focus back.
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnGain = false
+                MediaBridge.command(MediaBridge.PAUSE, 0)
+                focus?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
+                focus = null
+            }
+            // A call or an alarm: pause, and resume when it ends if we were playing.
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                resumeOnGain = playing
+                MediaBridge.command(MediaBridge.PAUSE, 0)
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (resumeOnGain) MediaBridge.command(MediaBridge.PLAY, 0)
+                resumeOnGain = false
+            }
+            // Navigation prompts and the like: Android lowers our volume itself.
+        }
     }
 
     private fun notification(state: JSONObject?, playing: Boolean): Notification {

@@ -6,7 +6,8 @@
 `cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
 media keys need a real desktop session to see, so check them on the owner's machine with
 `docs/demos/M3.md`. None of the M2 output work has run on real audio hardware yet (see
-`docs/demos/M2.md`). The Android spike is still blocked; see Known issues.
+`docs/demos/M2.md`). The Android spike is built and waiting for the owner's phone: see
+`docs/demos/Android.md`.
 
 ### Done
 - **M0 bootstrap**:
@@ -161,18 +162,28 @@ media keys need a real desktop session to see, so check them on the owner's mach
   appearance saved across restarts (api), keyboard shortcuts (UI).
 - Demo script: `docs/demos/M3.md`.
 
+### Android spike
+- **Built by CI, not yet run on a phone.** This environment can't download the Android SDK, so the
+  Kotlin half is compiled only by CI; the Rust half is also type-checked here.
+- **File access and the music folder** (D43): adding a folder asks for All files access, then
+  opens the system folder picker. Files picked for Sound (impulse responses, AutoEq) are mapped
+  from Android's `content://` links to paths on the phone.
+- **Playback service** (D44, D45):
+  - Playback continues with the screen off.
+  - Lock screen, notification, Bluetooth and headset controls.
+  - Calls pause playback and it resumes afterwards; another app playing pauses it.
+  - Unplugging headphones pauses.
+- **Signed builds**: CI signs with the owner's key (`ANDROID_KEYSTORE` secrets set 2026-10-22), so
+  new builds install over old ones.
+- The mini player and tray are desktop only, and their buttons don't show on Android.
+- Phone test: `docs/demos/Android.md`.
+
 ### Next
-1. **Android spike**:
-   - Done: CI builds and signs an arm64 APK (`cadenza-android` artifact).
-     WavPack is vendored and libopus builds from source, so decoding cross-compiles.
-     An AAudio shared-mode output exists (D27, D28).
-   - Remaining:
-     - Storage access to the music folder: the folder picker and media permissions.
-     - A MediaSession foreground service, so playback continues with the screen off.
-     - Running the §11 criteria on the owner's phone.
-2. **M2 and M3 on real hardware**: run `docs/demos/M2.md` against a USB DAC and `docs/demos/M3.md`
-   on the owner's desktop (tray, media keys).
-3. **M4: Tags and metadata** (tag editing, artwork tools).
+1. **Owner tests**:
+   - `docs/demos/Android.md` on the phone (decides whether Tauri stays the Android approach).
+   - `docs/demos/M2.md` against a USB DAC.
+   - `docs/demos/M3.md` on the desktop (tray, media keys).
+2. **M4: Tags and metadata** (tag editing, artwork tools).
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
@@ -184,6 +195,11 @@ These are shown or absent in the UI, never faked:
 - **Mini player** opens at the window manager's chosen spot each time; its position isn't saved.
 - **Lyrics** are read only: no editing and no online lookup.
 - **Themes** are Light and Dark only; custom themes come in M5.
+- **Android**:
+  - USB DACs play through Android's mixer; the bit-perfect USB path (API 34) isn't built.
+  - If playback starts while Cadenza is in the background, Android 12+ may refuse the playback
+    service; playing continues, without the screen-off guarantee.
+  - Folders on cloud drives can't be added (they have no file path).
 - **Device list.** It is read when the output menu opens; plugging in a DAC while the menu is open
   doesn't update it. A device that disappears mid-playback stops playback with an error.
 - **Volume** is software only. Below 100% it ends bit-perfect playback, which the signal path says.
@@ -207,14 +223,13 @@ These are shown or absent in the UI, never faked:
 
 ## Known issues / blockers
 - **Android SDK/NDK cannot be downloaded in this environment.** The network policy denies
-  `dl.google.com`.
+  `dl.google.com`, so Android builds happen in CI only.
   - CI signs the APK with the `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` repository
-    secrets. If they are absent, it uses a throwaway key, and each new build must be installed after
-    uninstalling the old one.
-  - The spike also needs the owner's phone to run against the criteria in ARCHITECTURE §11.
+    secrets (now set). Without them it would use a throwaway key.
+  - The spike needs the owner's phone to run against the criteria in ARCHITECTURE §11.
 - Fixture warnings are expected: ffmpeg decodes AAC without applying the edit list's end trim
   (D18). They are warnings, not failures, because ffmpeg isn't the system under test.
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36. Added during M3: D37–D42.
+D29–D36. Added during M3: D37–D42. Added for Android: D43–D45.
