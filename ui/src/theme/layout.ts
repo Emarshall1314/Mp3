@@ -19,6 +19,7 @@ export type ColumnId =
   | 'plays'
   | 'time';
 export type GridOrList = 'grid' | 'list';
+export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal';
 
 export interface Column {
@@ -52,6 +53,8 @@ export interface Layout {
   nowPlaying: NowPlayingStyle;
   /// The panel holding the queue, lyrics, info and signal path.
   dock: Dock;
+  /// Home's shelves in order; ones not listed are hidden.
+  shelves: ShelfId[];
 }
 
 export interface Preset {
@@ -65,6 +68,12 @@ export const NAV_LABELS: Record<NavId, string> = {
   artists: 'Artists',
   albums: 'Albums',
   songs: 'Songs',
+};
+
+export const SHELF_LABELS: Record<ShelfId, string> = {
+  recentlyPlayed: 'Recently Played',
+  recentlyAdded: 'Recently Added',
+  mostPlayed: 'Most Played',
 };
 
 export const CONTROL_LABELS: Record<PlayerControl, string> = {
@@ -118,6 +127,7 @@ export const DEFAULT_LAYOUT: Layout = {
   ).map((id) => col(id)),
   nowPlaying: 'artwork',
   dock: { position: 'right', size: 320, x: 80, y: 80, w: 340, h: 420 },
+  shelves: ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
 };
 
 export const BUILT_IN_PRESETS: Preset[] = [
@@ -204,6 +214,7 @@ export function normaliseLayout(value: unknown): Layout {
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
     nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal'], d.nowPlaying),
     dock: normaliseDock(v.dock),
+    shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),
   };
 }
 

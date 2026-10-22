@@ -4,6 +4,8 @@ import { useStore } from '../store';
 import type { AlbumRow, Home } from '../types';
 import { AlbumCard } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
+import { useLook } from '../hooks/useAppearance';
+import { SHELF_LABELS } from '../theme/layout';
 
 /// Home: shelves of what you've been listening to and what's new. Shelves without albums are
 /// left out rather than shown empty.
@@ -12,6 +14,7 @@ export function HomeView() {
   // Plays change the shelves too; refetch when the track changes.
   const trackId = useStore((s) => s.player?.trackId);
   const [home, setHome] = useState<Home | null>(null);
+  const shelves = useLook((s) => s.look.layout.shelves);
 
   useEffect(() => {
     void api.home().then(setHome);
@@ -25,10 +28,18 @@ export function HomeView() {
       <header className="view-header">
         <h1>Home</h1>
       </header>
-      <Shelf title="Recently Played" albums={home.recentlyPlayed} />
-      <Shelf title="Recently Added" albums={home.recentlyAdded} more={{ name: 'recent' }} />
-      <Shelf title="Most Played" albums={home.mostPlayed} />
-      {home.recentlyPlayed.length === 0 && (
+      {shelves.map((id) => (
+        <Shelf
+          key={id}
+          title={SHELF_LABELS[id]}
+          albums={home[id]}
+          more={id === 'recentlyAdded' ? { name: 'recent' } : undefined}
+        />
+      ))}
+      {shelves.length === 0 && (
+        <p className="muted home-hint">All shelves are hidden. Choose them in Settings, Layout.</p>
+      )}
+      {shelves.includes('recentlyPlayed') && home.recentlyPlayed.length === 0 && (
         <p className="muted home-hint">
           Play something and your recently and most played albums appear here.
         </p>

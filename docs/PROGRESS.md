@@ -2,7 +2,9 @@
 
 ## Status (2026-10-22)
 
-**M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
+**M5 (Customisation) is mostly done for Linux**: themes, the theme editor, liquid glass, layouts and
+presets, the dockable panel, remappable shortcuts and custom CSS. What's left of M5 is listed
+under Next. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
 (MusicBrainz, Cover Art Archive, Discogs, AcoustID) waits for network access to those services
 from the development environment, so it can be built against the real services rather than
 guessed responses. `cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
@@ -218,16 +220,65 @@ media keys need a real desktop session to see, so check them on the owner's mach
   - UI: every action.
 - Demo script: `docs/demos/M4.md`.
 
+### M5: Customisation
+The owner's revised build prompt is in `docs/spec/build-prompt.pdf`: no ratings anywhere (D50),
+and M5 adds an accent colour picker, reorderable grid, tab and list options, gradients and liquid
+glass.
+- **Themes** (D52): eight built-in themes (Default Light and Dark, OLED Black, High Contrast,
+  Paper, Midnight, Forest, Sunset), all meeting WCAG AA. A theme for light and one for dark.
+  - Theme editor: every token, the whole app previewing as it changes, contrast warnings, and
+    colours that aren't colours refused.
+  - The owner's themes are JSON files the core checks (no `url()`, nothing that could escape its
+    declaration). Import and export; on Android exports go to the Download folder.
+- **Look**: accent colour (theme, ten presets, any colour, or from the playing artwork, kept
+  readable); background solid, gradient or tinted by the artwork; panels frosted, liquid or solid,
+  with blur and transparency; corner rounding; density (song rows follow it); font (theme, system,
+  serif, rounded, monospace or any installed font); text size; artwork size (album pages and Now
+  Playing).
+- **Liquid glass** (D51): rims, sheen and stronger saturation on Linux; on Android the panels also
+  bend what's behind them at their edges. WebKitGTK can't draw SVG filters in `backdrop-filter`
+  (WebKit bug 245510), which is why Linux has no bending. The bending was checked in Chromium,
+  the engine of Android's WebView, not yet on the phone.
+- **Layout** (D53): sidebar order, hidden items, width (drag its edge) and icons-only; player bar
+  at the top or bottom, three sizes, chosen controls in a chosen order; grid or list for Albums,
+  Recently Added and Artists; song list columns shown, hidden, reordered and resized (drag
+  headings and edges); Home shelves chosen and ordered; Now Playing styles (artwork, lyrics
+  first, minimal).
+- **Dockable panel**: Queue, Lyrics, Info (credits and file) and Signal Path in one panel docked
+  right, left or at the bottom, resizable, or floating, moved by its header.
+- **Layout presets**: Listening, Tagging and Minimal, plus saved ones, from the toolbar's layout
+  button or Ctrl+Shift+L.
+- **Shortcuts**: every shortcut can be remapped; a combination used elsewhere moves to the new
+  action. New optional actions: shuffle, repeat, Now Playing, info and signal path panels.
+- **Custom CSS** (desktop): applied after the theme, so it can override any token or style.
+  `cadenza --safe-mode` starts without it, and Ctrl+Alt+Shift+S turns it off at once. Images
+  and fonts can't come from the web (the page's content security policy).
+- **Removed**: the leftover rating display, sort and search (D50).
+- **Tests**: theme engine (colours, contrast of every built-in theme, look normalisation, accent
+  from artwork), theme file validation and storage (core), layout normalisation and presets,
+  remapped shortcuts.
+- Demo script: `docs/demos/M5.md`.
+
 ### Next
 1. **Owner tests**:
    - `docs/demos/Android.md` on the phone (decides whether Tauri stays the Android approach).
    - `docs/demos/M2.md` against a USB DAC.
    - `docs/demos/M3.md` on the desktop (tray, media keys).
    - `docs/demos/M4.md` on a copy of some music.
+   - `docs/demos/M5.md` on the desktop, and liquid glass on the phone.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **M5: Customisation** (theme editor, layouts).
+3. **The rest of M5**:
+   - A column browser view (genre → artist → album columns).
+   - Grouping in the song list (by album, artist or genre).
+   - A visualizer Now Playing style (needs the engine to share audio levels with the UI).
+   - Docking the tag editor (Song Info is a window over the page today).
+   - System-wide hotkeys beyond the media keys (media keys work through MPRIS on Linux and the
+     media session on Android).
+   - Reordering the phone's tabs and choosing the mini-player style wait for the phone layout
+     (M7); they will use the same layout settings as the sidebar.
+4. **M6: Sync**.
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
@@ -248,7 +299,9 @@ These are shown or absent in the UI, never faked:
   - Undoing an artwork change needs the old images in Cadenza's artwork cache (they are put
     there when Song Info opens or a picture is changed).
 - **Online lookup** (MusicBrainz, Discogs, AcoustID) isn't built yet (see Next).
-- **Themes** are Light and Dark only; custom themes come in M5.
+- **Blur** behind glass panels needs WebKit's compositing; it wasn't visible on the test
+  display, so check it on the desktop (`docs/demos/M5.md`). Panels stay readable without it.
+- **Custom CSS** isn't offered on Android (the build prompt makes it a desktop feature).
 - **Android**:
   - USB DACs play through Android's mixer; the bit-perfect USB path (API 34) isn't built.
   - If playback starts while Cadenza is in the background, Android 12+ may refuse the playback
@@ -287,4 +340,4 @@ These are shown or absent in the UI, never faked:
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D49.
+D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D49. Added during M5: D50–D53.

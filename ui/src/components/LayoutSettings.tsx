@@ -13,6 +13,8 @@ import {
   NAV_LABELS,
   type NavId,
   type PlayerControl,
+  SHELF_LABELS,
+  type ShelfId,
   move,
 } from '../theme/layout';
 import { useStore } from '../store';
@@ -109,6 +111,7 @@ const ALL_NAV = Object.keys(NAV_LABELS) as NavId[];
 const RIGHT_CONTROLS = (['volume', 'output', 'miniPlayer', 'queue'] as PlayerControl[]).filter(
   (c) => !(isAndroid && c === 'miniPlayer'),
 );
+const ALL_SHELVES = Object.keys(SHELF_LABELS) as ShelfId[];
 const ALL_COLUMNS = Object.keys(COLUMN_SPECS) as ColumnId[];
 const COLUMN_NAMES = Object.fromEntries(
   ALL_COLUMNS.map((c) => [c, COLUMN_SPECS[c].label]),
@@ -217,6 +220,17 @@ export function LayoutSettings() {
           Drag the sidebar’s edge to resize it; double-click the edge to switch to icons only.
           Sound, Music Folders and Settings always stay at the bottom.
         </p>
+      </div>
+
+      <div className="settings-group">
+        <h2>Home</h2>
+        <OrderList
+          label="Home shelves"
+          all={ALL_SHELVES}
+          shown={layout.shelves}
+          names={SHELF_LABELS}
+          onChange={(shelves) => updateLayout({ shelves })}
+        />
       </div>
 
       <div className="settings-group">
