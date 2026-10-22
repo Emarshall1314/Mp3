@@ -11,6 +11,7 @@ mod lyrics;
 mod pages;
 mod scan;
 mod search;
+mod shared;
 mod text;
 
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ pub use history::{EditBatch, EditChange};
 pub use lyrics::{LyricLine, Lyrics};
 pub use pages::{ArtistPage, Browse, BrowseItem, Home, ReleaseSection};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};
+pub use shared::{TRASH_DAYS, TrackFile, TrashItem, UnsyncedPlay};
 
 use art::ArtCache;
 use db::{Db, now};
@@ -304,6 +306,7 @@ pub struct LibraryStats {
 pub struct Library {
     db: Db,
     art: ArtCache,
+    data_dir: PathBuf,
 }
 
 impl Library {
@@ -314,6 +317,7 @@ impl Library {
         Ok(Self {
             db,
             art: ArtCache::new(data_dir.join("artwork")),
+            data_dir: data_dir.to_owned(),
         })
     }
 
@@ -679,13 +683,20 @@ impl Library {
         Ok(found)
     }
 
-    /// Records a finished (or substantially played) listen.
-    pub fn record_play(&self, track_id: i64, played_ms: i64, completed: bool) -> Result<()> {
+    /// Records a finished (or substantially played) listen; with sync on, `sync_id` is its id
+    /// there.
+    pub fn record_play(
+        &self,
+        track_id: i64,
+        played_ms: i64,
+        completed: bool,
+        sync_id: Option<String>,
+    ) -> Result<()> {
         self.db.write(move |tx| {
             let uid: String = tx.query_row("SELECT uid FROM tracks WHERE id = ?", [track_id], |r| r.get(0))?;
             tx.execute(
-                "INSERT INTO play_events (track_uid, at, played_ms, completed) VALUES (?, ?, ?, ?)",
-                params![uid, now(), played_ms, completed],
+                "INSERT INTO play_events (track_uid, at, played_ms, completed, sync_id) VALUES (?, ?, ?, ?, ?)",
+                params![uid, now(), played_ms, completed, sync_id],
             )?;
             if completed {
                 tx.execute(

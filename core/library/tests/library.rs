@@ -188,7 +188,7 @@ fn rescans_are_incremental_and_follow_moves() {
         .unwrap()
         .songs
         .remove(0);
-    s.lib.record_play(song.id, 1000, true).unwrap();
+    s.lib.record_play(song.id, 1000, true, None).unwrap();
 
     // Move the file to another folder: same track (uid, play count), new path.
     let from = s
@@ -441,10 +441,10 @@ fn artist_pages_and_home_reflect_releases_and_plays() {
     // Plays drive top songs and the Home shelves.
     let night = &gamma.sections[0].albums[1];
     let tracks = s.lib.album(night.id).unwrap().tracks;
-    s.lib.record_play(tracks[1].id, 1000, true).unwrap();
-    s.lib.record_play(tracks[1].id, 1000, true).unwrap();
-    s.lib.record_play(tracks[0].id, 1000, true).unwrap();
-    s.lib.record_play(tracks[0].id, 500, false).unwrap();
+    s.lib.record_play(tracks[1].id, 1000, true, None).unwrap();
+    s.lib.record_play(tracks[1].id, 1000, true, None).unwrap();
+    s.lib.record_play(tracks[0].id, 1000, true, None).unwrap();
+    s.lib.record_play(tracks[0].id, 500, false, None).unwrap();
     let gamma = s.lib.artist_page("Gamma").unwrap();
     let top: Vec<i64> = gamma.top_songs.iter().map(|t| t.id).collect();
     assert_eq!(top, [tracks[1].id, tracks[0].id]);
@@ -490,4 +490,78 @@ fn column_browser_narrows_by_genre_then_artist() {
     );
     let by_artist = s.lib.browse(None, Some("gamma")).unwrap();
     assert_eq!(by_artist.albums.len(), 2, "both Night Drive editions");
+}
+
+#[test]
+fn favourites_and_imported_listens_count_once() {
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let songs = s.lib.songs(SongSort::Title, false, 0, 3).unwrap();
+    let (a, b) = (songs[0].id, songs[1].id);
+    s.lib.set_favourite(&[a], true).unwrap();
+    assert!(s.lib.tracks(&[a]).unwrap()[0].favourite);
+    let hash = s.lib.audio_hashes(&[a]).unwrap()[0].1.clone();
+    assert!(s.lib.tracks_with_hash(&hash).unwrap().contains(&a));
+    assert_eq!(s.lib.favourite_hashes().unwrap(), [hash]);
+    s.lib.set_favourite(&[a], false).unwrap();
+    assert!(s.lib.favourite_hashes().unwrap().is_empty());
+
+    s.lib.record_play(b, 1000, true, None).unwrap();
+    s.lib
+        .record_play(b, 1000, true, Some("1.0.x".into()))
+        .unwrap();
+    let unsynced = s.lib.unsynced_plays().unwrap();
+    assert_eq!(unsynced.len(), 1);
+    s.lib
+        .mark_plays_synced(vec![(unsynced[0].id, "2.0.x".into())])
+        .unwrap();
+    assert!(s.lib.unsynced_plays().unwrap().is_empty());
+
+    assert!(s.lib.import_play(b, 100, 1000, true, "3.0.y").unwrap());
+    assert!(
+        !s.lib.import_play(b, 100, 1000, true, "3.0.y").unwrap(),
+        "only once"
+    );
+    assert!(
+        !s.lib.import_play(b, 100, 1000, true, "1.0.x").unwrap(),
+        "own listen"
+    );
+    assert_eq!(s.lib.tracks(&[b]).unwrap()[0].play_count, 3);
+}
+
+#[test]
+fn trash_hides_a_song_and_restore_brings_it_back_with_its_history() {
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let song = s.lib.songs(SongSort::Title, false, 0, 1).unwrap()[0].clone();
+    let path = s.lib.playable(&[song.id]).unwrap()[0].path.clone();
+    std::fs::write(path.with_extension("lrc"), "[00:01.00]hi").unwrap();
+    s.lib.record_play(song.id, 1000, true, None).unwrap();
+    let before = s.lib.stats().unwrap().tracks;
+
+    let items = s.lib.trash(&[song.id]).unwrap();
+    assert_eq!(items.len(), 1);
+    assert!(!path.exists() && !path.with_extension("lrc").exists());
+    assert_eq!(s.lib.stats().unwrap().tracks, before - 1);
+    assert!(s.lib.playable(&[song.id]).unwrap().is_empty());
+    assert_eq!(s.lib.trash_items().unwrap()[0].title, song.title);
+    // A scan doesn't bring it back, and nothing is old enough to purge.
+    scan(&s.lib);
+    assert_eq!(s.lib.stats().unwrap().tracks, before - 1);
+    assert_eq!(s.lib.purge_expired().unwrap(), 0);
+
+    s.lib.restore(items[0].id).unwrap();
+    assert!(path.exists() && path.with_extension("lrc").exists());
+    scan(&s.lib);
+    assert_eq!(s.lib.stats().unwrap().tracks, before);
+    let back = s.lib.tracks(&[song.id]).unwrap();
+    assert_eq!(back[0].play_count, 1, "same song, same history");
+    assert!(s.lib.trash_items().unwrap().is_empty());
+
+    // Purging deletes the file for good.
+    let items = s.lib.trash(&[song.id]).unwrap();
+    s.lib.purge(items[0].id).unwrap();
+    assert!(s.lib.trash_items().unwrap().is_empty());
+    assert!(!path.exists());
+    assert!(s.lib.restore(items[0].id).is_err());
 }

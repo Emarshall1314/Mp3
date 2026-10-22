@@ -1312,11 +1312,18 @@ def group_library(lib: Library) -> None:
     pcm = Pcm(44100, 16, S, 2)
     cover = make_image(lib, "front_600", 600, 600, "jpg")
 
+    songs = [0]
+
     def album(folder: str, kind: str, album_key: str, tracks: list[dict], common: dict[str, list[str]],
               art: bool = True) -> None:
         for i, t in enumerate(tracks):
             fname = f"{t.get('disc', 1)}-{i + 1:02d} {t['title']}" if "disc" in t else f"{i + 1:02d} {t['title']}"
-            e = make_audio(lib, f"library/{folder}/{fname}", kind, pcm, 0.5, "library")
+            # Every song has its own audio, as in a real library: sync tells songs apart by it.
+            songs[0] += 1
+            src = lib.scratch(f"src_library_{songs[0]}.wav")
+            if not src.exists():
+                synth_wav(lib.tools, src, pcm, 0.5, [300.0 + 7 * songs[0], 500.0 + 11 * songs[0]])
+            e = make_audio(lib, f"library/{folder}/{fname}", kind, pcm, 0.5, "library", src=src)
             fields = dict(common)
             fields |= {"title": [t["title"]], "tracknumber": [str(t.get("n", i + 1))],
                        "tracktotal": [str(t.get("total", len(tracks)))]}

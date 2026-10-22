@@ -15,7 +15,7 @@ use crate::op::{Change, Op, TrackKey};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Version<T> {
-    seen: Option<Hlc>,
+    seen: Vec<Hlc>,
     value: T,
 }
 
@@ -32,7 +32,7 @@ impl<T: Clone + PartialEq> Register<T> {
     }
 
     /// Adds a version; true if it is the new winner.
-    fn insert(&mut self, hlc: Hlc, seen: Option<Hlc>, value: T) -> bool {
+    fn insert(&mut self, hlc: Hlc, seen: Vec<Hlc>, value: T) -> bool {
         if self.versions.contains_key(&hlc) {
             return false;
         }
@@ -51,7 +51,7 @@ impl<T: Clone + PartialEq> Register<T> {
         let winner = self.winner();
         self.versions.iter().filter_map(move |(hlc, v)| {
             let (w, value) = winner?;
-            let replaced = self.versions.values().any(|o| o.seen == Some(*hlc));
+            let replaced = self.versions.values().any(|o| o.seen.contains(hlc));
             (*hlc != w && !replaced && v.value != *value).then_some((*hlc, &v.value))
         })
     }
@@ -78,7 +78,31 @@ pub enum Effect {
         at: i64,
         played_ms: i64,
         completed: bool,
+        /// The op's timestamp as text: the same on every device, so a listen is counted once.
+        id: String,
     },
+    /// A song's audio became available in the store.
+    Shared {
+        track: TrackKey,
+        rel_path: String,
+        size: u64,
+    },
+}
+
+/// A song's audio in the store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedAudio {
+    pub rel_path: String,
+    pub size: u64,
+}
+
+/// A listen as synced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayRecord {
+    pub track: TrackKey,
+    pub at: i64,
+    pub played_ms: i64,
+    pub completed: bool,
 }
 
 /// An edit that lost to a concurrent edit on another device.
@@ -93,14 +117,6 @@ pub struct Conflict {
     pub kept: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PlayRecord {
-    track: TrackKey,
-    at: i64,
-    played_ms: i64,
-    completed: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct State {
     fields: BTreeMap<TrackKey, BTreeMap<String, Register<Vec<String>>>>,
@@ -108,6 +124,13 @@ pub struct State {
     trash: BTreeMap<TrackKey, Register<bool>>,
     /// Grow-only: keyed by the op's timestamp, which is unique.
     plays: BTreeMap<Hlc, PlayRecord>,
+    /// The first device to share each song's audio wins; others' shares are the same audio.
+    shared: BTreeMap<TrackKey, (Hlc, SharedAudio)>,
+}
+
+/// A listen's id: its op's timestamp as text.
+pub fn play_id(hlc: &Hlc) -> String {
+    format!("{}.{}.{}", hlc.ms, hlc.n, hlc.device)
 }
 
 impl State {
@@ -128,7 +151,7 @@ impl State {
                 .or_default()
                 .entry(field.clone())
                 .or_insert_with(Register::new)
-                .insert(op.hlc, op.seen, values.clone())
+                .insert(op.hlc, op.seen.clone(), values.clone())
                 .then(|| Effect::Field {
                     track: track.clone(),
                     field: field.clone(),
@@ -138,7 +161,7 @@ impl State {
                 .favourites
                 .entry(track.clone())
                 .or_insert_with(Register::new)
-                .insert(op.hlc, op.seen, *on)
+                .insert(op.hlc, op.seen.clone(), *on)
                 .then(|| Effect::Favourite {
                     track: track.clone(),
                     on: *on,
@@ -147,7 +170,7 @@ impl State {
                 .trash
                 .entry(track.clone())
                 .or_insert_with(Register::new)
-                .insert(op.hlc, op.seen, *trashed)
+                .insert(op.hlc, op.seen.clone(), *trashed)
                 .then(|| Effect::Trash {
                     track: track.clone(),
                     trashed: *trashed,
@@ -173,21 +196,113 @@ impl State {
                     at: *at,
                     played_ms: *played_ms,
                     completed: *completed,
+                    id: play_id(&op.hlc),
                 })
+            }
+            Change::Shared {
+                track,
+                rel_path,
+                size,
+            } => {
+                let audio = SharedAudio {
+                    rel_path: rel_path.clone(),
+                    size: *size,
+                };
+                match self.shared.get(track) {
+                    Some((first, _)) if *first <= op.hlc => None,
+                    previous => {
+                        let fresh = previous.is_none();
+                        self.shared.insert(track.clone(), (op.hlc, audio));
+                        fresh.then(|| Effect::Shared {
+                            track: track.clone(),
+                            rel_path: rel_path.clone(),
+                            size: *size,
+                        })
+                    }
+                }
             }
         }
     }
 
-    /// The timestamp of the value an edit of this change's register would replace.
-    pub fn current(&self, change: &Change) -> Option<Hlc> {
+    /// The timestamps an edit of this change's register replaces: the current value's, or with
+    /// `all`, every version's (resolving a conflict).
+    pub fn current(&self, change: &Change, all: bool) -> Vec<Hlc> {
+        fn pick<T: Clone + PartialEq>(r: Option<&Register<T>>, all: bool) -> Vec<Hlc> {
+            match r {
+                Some(r) if all => r.versions.keys().copied().collect(),
+                Some(r) => r.winner().map(|w| w.0).into_iter().collect(),
+                None => Vec::new(),
+            }
+        }
         match change {
             Change::SetField { track, field, .. } => {
-                self.fields.get(track)?.get(field)?.winner().map(|w| w.0)
+                pick(self.fields.get(track).and_then(|f| f.get(field)), all)
             }
-            Change::SetFavourite { track, .. } => self.favourites.get(track)?.winner().map(|w| w.0),
-            Change::Trash { track, .. } => self.trash.get(track)?.winner().map(|w| w.0),
-            Change::Play { .. } => None,
+            Change::SetFavourite { track, .. } => pick(self.favourites.get(track), all),
+            Change::Trash { track, .. } => pick(self.trash.get(track), all),
+            Change::Play { .. } | Change::Shared { .. } => Vec::new(),
         }
+    }
+
+    /// Every value's current version: song, register ("favourite", "trash" or a tag field), the
+    /// winning timestamp and the value (a flag as "true"/"false"). A device applies the ones
+    /// whose timestamp it hasn't applied yet.
+    pub fn winners(&self) -> Vec<(&TrackKey, &str, Hlc, Vec<String>)> {
+        let mut out = Vec::new();
+        for (track, fields) in &self.fields {
+            for (field, r) in fields {
+                if let Some((h, v)) = r.winner() {
+                    out.push((track, field.as_str(), h, v.clone()));
+                }
+            }
+        }
+        for (name, map) in [("favourite", &self.favourites), ("trash", &self.trash)] {
+            for (track, r) in map {
+                if let Some((h, v)) = r.winner() {
+                    out.push((track, name, h, vec![v.to_string()]));
+                }
+            }
+        }
+        out
+    }
+
+    /// Every synced tag field of a song, with its current values.
+    pub fn fields_of(&self, track: &TrackKey) -> Vec<(String, Vec<String>)> {
+        self.fields
+            .get(track)
+            .into_iter()
+            .flatten()
+            .filter_map(|(f, r)| r.winner().map(|w| (f.clone(), w.1.clone())))
+            .collect()
+    }
+
+    /// Every synced listen of a song, with its id.
+    pub fn plays_of(&self, track: &TrackKey) -> Vec<(String, PlayRecord)> {
+        self.plays
+            .iter()
+            .filter(|(_, p)| p.track == *track)
+            .map(|(h, p)| (play_id(h), p.clone()))
+            .collect()
+    }
+
+    pub fn shared(&self, track: &TrackKey) -> Option<&SharedAudio> {
+        self.shared.get(track).map(|s| &s.1)
+    }
+
+    /// Every song whose audio is in the store.
+    pub fn all_shared(&self) -> impl Iterator<Item = (&TrackKey, &SharedAudio)> {
+        self.shared.iter().map(|(k, (_, a))| (k, a))
+    }
+
+    /// Every song with anything synced about it.
+    pub fn tracks(&self) -> std::collections::BTreeSet<&TrackKey> {
+        self.fields
+            .keys()
+            .chain(self.favourites.keys())
+            .chain(self.trash.keys())
+            .chain(self.plays.values().map(|p| &p.track))
+            .chain(self.shared.keys())
+            .collect()
     }
 
     /// A tag field's synced values, if any device has set it.
@@ -263,9 +378,9 @@ mod tests {
     fn set(clock: &mut Clock, wall: u64, seen: Option<Hlc>, title: &str) -> Op {
         Op {
             hlc: clock.tick(wall),
-            seen,
+            seen: seen.into_iter().collect(),
             change: Change::SetField {
-                track: TrackKey::new("h", None),
+                track: TrackKey::new("h"),
                 field: "title".into(),
                 values: vec![title.into()],
             },
@@ -285,7 +400,7 @@ mod tests {
         for op in [&first, &second, &third] {
             s.apply(op);
         }
-        let track = TrackKey::new("h", None);
+        let track = TrackKey::new("h");
         assert_eq!(s.field(&track, "title"), Some(&["Two".to_owned()][..]));
         let conflicts = s.conflicts();
         assert_eq!(conflicts.len(), 1);
@@ -303,10 +418,10 @@ mod tests {
     #[test]
     fn plays_add_up_and_effects_report_only_real_changes() {
         let mut c = Clock::new(DeviceId::new());
-        let track = TrackKey::new("h", None);
+        let track = TrackKey::new("h");
         let play = |c: &mut Clock, wall| Op {
             hlc: c.tick(wall),
-            seen: None,
+            seen: vec![],
             change: Change::Play {
                 track: track.clone(),
                 at: 1,

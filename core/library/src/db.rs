@@ -192,6 +192,21 @@ const MIGRATIONS: &[&str] = &[
     DROP INDEX tracks_sort_album;
     CREATE INDEX tracks_sort_album ON tracks(sort_album, album_id, disc_no, track_no) WHERE missing_since IS NULL;
     "#,
+    // 5: sync. A listen's sync id is the same on every device, so it's counted once; the trash
+    // keeps files for 30 days.
+    r#"
+    ALTER TABLE play_events ADD COLUMN sync_id TEXT;
+    CREATE UNIQUE INDEX play_events_sync ON play_events(sync_id) WHERE sync_id IS NOT NULL;
+    CREATE TABLE trash (
+        id INTEGER PRIMARY KEY,
+        audio_hash TEXT NOT NULL,
+        original_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        album TEXT NOT NULL,
+        trashed_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 pub(crate) struct Db {

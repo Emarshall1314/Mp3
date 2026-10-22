@@ -9,6 +9,7 @@ mod edit;
 mod loudness;
 mod organise;
 mod settings;
+mod sync;
 mod themes;
 mod watch;
 
@@ -24,6 +25,7 @@ pub use cadenza_engine::{
     DeviceFormat, DspSettings, Event as PlayerEvent, OutputDevice, PlayerState, Repeat,
     ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
+pub use cadenza_library::TrashItem;
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Browse, BrowseItem, EditBatch,
     EditChange, Home, LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch,
@@ -35,6 +37,7 @@ pub use edit::{
 };
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
+pub use sync::{SyncConflict, SyncDevice, SyncSettings, SyncStatus, Transfer};
 pub use themes::SavedTheme;
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
@@ -101,6 +104,10 @@ pub enum ApiEvent {
     /// A batch of tag changes was written (or stopped).
     EditFinished {
         report: EditReport,
+    },
+    /// Sync's settings, progress or results changed.
+    Sync {
+        status: SyncStatus,
     },
 }
 
@@ -187,6 +194,7 @@ pub struct Cadenza {
     analyzer: Arc<loudness::Analyzer>,
     scanner: Arc<Scanner>,
     editor: Arc<edit::Editor>,
+    syncer: Arc<sync::Syncer>,
     _watcher: Mutex<Option<watch::Watcher>>,
 }
 
@@ -235,15 +243,18 @@ impl Cadenza {
         let output = output.unwrap_or_else(|| backend_for(&saved));
         let emit: Emit = Arc::new(on_event);
         let player_emit = Arc::clone(&emit);
-        let counting = Arc::clone(&library);
+        // Listens go through sync, which is made after the player.
+        let counting: Arc<std::sync::OnceLock<Arc<sync::Syncer>>> = Arc::default();
+        let count_into = Arc::clone(&counting);
         let engine = Engine::new(output, move |event| {
             if let PlayerEvent::TrackFinished {
                 track_id,
                 played_ms,
                 completed,
             } = &event
+                && let Some(syncer) = count_into.get()
             {
-                let _ = counting.record_play(*track_id, *played_ms as i64, *completed);
+                syncer.play(*track_id, *played_ms as i64, *completed);
             }
             player_emit(ApiEvent::Player { event });
         });
@@ -272,6 +283,21 @@ impl Cadenza {
             Arc::clone(&scanner.emit),
             data_dir.to_owned(),
         ));
+        let syncer = sync::Syncer::new(
+            Arc::clone(&library),
+            Arc::clone(&editor),
+            Arc::clone(&scanner),
+            Arc::clone(&scanner.emit),
+            data_dir,
+        );
+        syncer.backups.store(saved.tag_backups, Ordering::Release);
+        let _ = counting.set(Arc::clone(&syncer));
+        let hook = Arc::downgrade(&syncer);
+        editor.on_written(Arc::new(move |track_id, changes| {
+            if let Some(s) = hook.upgrade() {
+                s.tags_written(track_id, changes);
+            }
+        }));
         let me = Self {
             library,
             engine,
@@ -281,6 +307,7 @@ impl Cadenza {
             analyzer,
             scanner,
             editor,
+            syncer,
             _watcher: Mutex::new(None),
         };
         me.restart_watcher();
@@ -745,6 +772,7 @@ impl Cadenza {
         let mut settings = self.settings();
         settings.tag_backups = on;
         self.settings.save(&settings)?;
+        self.syncer.backups.store(on, Ordering::Release);
         if let Ok(mut s) = self.current.lock() {
             *s = settings;
         }
@@ -777,6 +805,92 @@ impl Cadenza {
     }
     pub fn set_shuffle(&self, on: bool) {
         self.engine.set_shuffle(on);
+    }
+
+    // ---- favourites and trash -----------------------------------------------------------
+
+    pub fn set_favourite(&self, ids: &[i64], on: bool) -> Result<()> {
+        self.library.set_favourite(ids, on)?;
+        self.syncer.favourites(ids, on);
+        (self.scanner.emit)(ApiEvent::LibraryChanged);
+        Ok(())
+    }
+
+    /// Moves songs' files to the trash (kept 30 days); with sync on, other devices' copies too.
+    pub fn trash(&self, ids: &[i64]) -> Result<Vec<TrashItem>> {
+        let items = self.library.trash(ids)?;
+        self.syncer
+            .trash(items.iter().map(|i| i.audio_hash.clone()).collect(), true);
+        (self.scanner.emit)(ApiEvent::LibraryChanged);
+        Ok(items)
+    }
+
+    pub fn trash_items(&self) -> Result<Vec<TrashItem>> {
+        Ok(self.library.trash_items()?)
+    }
+
+    /// Puts a trashed song back where it was; with sync on, on other devices too.
+    pub fn restore(&self, id: i64) -> Result<()> {
+        let hash = self
+            .library
+            .trash_items()?
+            .into_iter()
+            .find(|t| t.id == id)
+            .map(|t| t.audio_hash);
+        self.library.restore(id)?;
+        if let Some(h) = hash {
+            self.syncer.trash(vec![h], false);
+        }
+        self.scanner.request();
+        Ok(())
+    }
+
+    /// Deletes a trashed song's files now instead of after 30 days. Only on this device: other
+    /// devices keep theirs in their trash until their own 30 days are up.
+    pub fn purge(&self, id: i64) -> Result<()> {
+        Ok(self.library.purge(id)?)
+    }
+
+    pub fn empty_trash(&self) -> Result<()> {
+        for item in self.library.trash_items()? {
+            self.library.purge(item.id)?;
+        }
+        Ok(())
+    }
+
+    // ---- sync ---------------------------------------------------------------------------
+
+    pub fn sync_status(&self) -> SyncStatus {
+        self.syncer.status()
+    }
+
+    pub fn set_sync_settings(&self, settings: SyncSettings) -> Result<SyncStatus> {
+        self.syncer.set_settings(settings)
+    }
+
+    /// Syncs soon, in the background.
+    pub fn sync_now(&self) {
+        self.syncer.sync_now();
+    }
+
+    /// Syncs on this thread and returns when done (tests, and shells that schedule their own
+    /// background work, like Android's WorkManager).
+    pub fn sync_blocking(&self) -> SyncStatus {
+        self.syncer.round();
+        self.syncer.status()
+    }
+
+    pub fn sync_conflicts(&self) -> Vec<SyncConflict> {
+        self.syncer.conflicts()
+    }
+
+    pub fn resolve_conflict(
+        &self,
+        audio_hash: &str,
+        field: &str,
+        values: Vec<String>,
+    ) -> Result<()> {
+        self.syncer.resolve(audio_hash, field, values)
     }
 }
 

@@ -4,19 +4,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::hlc::Hlc;
 
-/// A song, the same on every device: its audio hash (D5, D20), and for a song inside a cue sheet,
-/// its index there. Paths and database ids differ between devices, so ops never use them.
+/// A song, the same on every device: its audio hash as the library stores it (D5, D20; a song
+/// from a cue sheet has its index appended). Paths and database ids differ between devices, so
+/// ops never use them.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TrackKey {
     pub audio_hash: String,
-    pub cue: Option<u32>,
 }
 
 impl TrackKey {
-    pub fn new(audio_hash: impl Into<String>, cue: Option<u32>) -> Self {
+    pub fn new(audio_hash: impl Into<String>) -> Self {
         Self {
             audio_hash: audio_hash.into(),
-            cue,
         }
     }
 }
@@ -38,6 +37,14 @@ pub enum Change {
         track: TrackKey,
         trashed: bool,
     },
+    /// A device has the song's audio in the store's blobs, for devices that don't have it.
+    /// The first device to share a song decides where it goes on the others.
+    Shared {
+        track: TrackKey,
+        /// Where it is under its music folder, with `/` between parts.
+        rel_path: String,
+        size: u64,
+    },
     /// A listen. These only accumulate, so play counts add up across devices.
     Play {
         track: TrackKey,
@@ -54,6 +61,7 @@ impl Change {
             Change::SetField { track, .. }
             | Change::SetFavourite { track, .. }
             | Change::Trash { track, .. }
+            | Change::Shared { track, .. }
             | Change::Play { track, .. } => track,
         }
     }
@@ -65,6 +73,7 @@ pub struct Op {
     /// For a value change: the timestamp of the value the device had when it made the change
     /// (none if it had none). An op that saw another replaced it on purpose; ops that didn't see
     /// each other were concurrent, and the one that loses is kept as a conflict.
-    pub seen: Option<Hlc>,
+    /// More than one when the owner resolved a conflict: the edit replaces every version listed.
+    pub seen: Vec<Hlc>,
     pub change: Change,
 }

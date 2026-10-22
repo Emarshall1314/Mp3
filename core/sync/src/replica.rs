@@ -71,11 +71,26 @@ impl Replica {
         self.outbox.len()
     }
 
+    /// Local ops not pushed yet.
+    pub fn outbox(&self) -> &[Op] {
+        &self.outbox
+    }
+
     /// Records a change made on this device. `wall` is the time now, in ms.
     pub fn record(&mut self, change: Change, wall: u64) -> Op {
+        self.record_seen(change, wall, false)
+    }
+
+    /// Resolves a conflict: `change` replaces every version of its value, including the ones
+    /// that lost to concurrent edits, so the conflict goes away on every device.
+    pub fn resolve(&mut self, change: Change, wall: u64) -> Op {
+        self.record_seen(change, wall, true)
+    }
+
+    fn record_seen(&mut self, change: Change, wall: u64, all: bool) -> Op {
         let op = Op {
             hlc: self.clock.tick(wall),
-            seen: self.state.current(&change),
+            seen: self.state.current(&change, all),
             change,
         };
         self.state.apply(&op);

@@ -78,9 +78,9 @@ mod tests {
                     n: 0,
                     device,
                 },
-                seen: None,
+                seen: vec![],
                 change: Change::SetField {
-                    track: TrackKey::new(format!("hash{i}"), None),
+                    track: TrackKey::new(format!("hash{i}")),
                     field: "title".into(),
                     values: vec![format!("Song {i}")],
                 },

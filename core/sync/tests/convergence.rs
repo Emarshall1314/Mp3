@@ -13,10 +13,31 @@ const FIELDS: [&str; 2] = ["title", "artist"];
 
 #[derive(Debug, Clone)]
 enum Action {
-    Edit { track: u8, field: usize, value: u8 },
-    Favourite { track: u8, on: bool },
-    Trash { track: u8, trashed: bool },
-    Play { track: u8 },
+    Edit {
+        track: u8,
+        field: usize,
+        value: u8,
+    },
+    Favourite {
+        track: u8,
+        on: bool,
+    },
+    Trash {
+        track: u8,
+        trashed: bool,
+    },
+    Play {
+        track: u8,
+    },
+    Share {
+        track: u8,
+        path: u8,
+    },
+    /// Resolve the track's title to this value, over every version.
+    Resolve {
+        track: u8,
+        value: u8,
+    },
     Push,
     Pull,
 }
@@ -29,13 +50,15 @@ fn action() -> impl Strategy<Value = Action> {
         1 => (0..TRACKS, any::<bool>())
             .prop_map(|(track, trashed)| Action::Trash { track, trashed }),
         1 => (0..TRACKS).prop_map(|track| Action::Play { track }),
+        1 => (0..TRACKS, 0u8..3).prop_map(|(track, path)| Action::Share { track, path }),
+        1 => (0..TRACKS, 1u8..4).prop_map(|(track, value)| Action::Resolve { track, value }),
         2 => Just(Action::Push),
         2 => Just(Action::Pull),
     ]
 }
 
 fn key(track: u8) -> TrackKey {
-    TrackKey::new(format!("hash{track}"), (track == 2).then_some(1))
+    TrackKey::new(format!("hash{track}"))
 }
 
 /// What a device's library would hold after applying its own changes and the effects it was given.
@@ -45,6 +68,7 @@ struct View {
     favourites: BTreeMap<TrackKey, bool>,
     trash: BTreeMap<TrackKey, bool>,
     plays: BTreeMap<TrackKey, usize>,
+    shared: std::collections::BTreeSet<TrackKey>,
 }
 
 impl View {
@@ -70,6 +94,9 @@ impl View {
                     *self.plays.entry(track).or_default() += 1;
                 }
             }
+            Effect::Shared { track, .. } => {
+                assert!(self.shared.insert(track), "a song is shared once");
+            }
         }
     }
 
@@ -85,6 +112,7 @@ impl View {
             }) && state.favourite(&k) == self.favourites.get(&k).copied()
                 && state.trashed(&k) == self.trash.get(&k).copied()
                 && state.play_count(&k) == self.plays.get(&k).copied().unwrap_or(0)
+                && state.shared(&k).is_some() == self.shared.contains(&k)
         })
     }
 }
@@ -119,6 +147,31 @@ proptest! {
                     played_ms: 1000,
                     completed: true,
                 }),
+                Action::Share { track, path } => Some(Change::Shared {
+                    track: key(track),
+                    rel_path: format!("Artist/Album/{path}.flac"),
+                    size: 100,
+                }),
+                Action::Resolve { track, value } => {
+                    let op = replica.resolve(
+                        Change::SetField {
+                            track: key(track),
+                            field: "title".into(),
+                            values: vec![format!("v{value}")],
+                        },
+                        now,
+                    );
+                    let mut s = State::new();
+                    if let Some(e) = s.apply(&op) {
+                        view.apply(e);
+                    }
+                    let k = key(track);
+                    prop_assert!(
+                        !replica.state().conflicts().iter().any(|c| c.track == k && c.field == "title"),
+                        "resolving clears the conflict here"
+                    );
+                    None
+                }
                 Action::Push => {
                     replica.push(&store, None, now).expect("push");
                     None
@@ -130,10 +183,15 @@ proptest! {
             };
             if let Some(change) = change {
                 let op = replica.record(change, now);
-                // A local change applies to the library directly, like an edit in Song Info.
+                // A local change applies to the library directly, like an edit in Song Info. A
+                // device sharing a song already has it.
                 let mut s = State::new();
-                if let Some(e) = s.apply(&op) {
-                    view.apply(e);
+                match s.apply(&op) {
+                    Some(Effect::Shared { track, .. }) => {
+                        view.shared.insert(track);
+                    }
+                    Some(e) => view.apply(e),
+                    None => {}
                 }
             }
         }

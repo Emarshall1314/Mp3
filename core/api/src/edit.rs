@@ -136,7 +136,12 @@ struct Job {
     expect_pictures: Option<Vec<String>>,
     /// Instead of tags: move the file from here to there (the organiser, and its undo).
     rename: Option<(PathBuf, PathBuf)>,
+    /// Applying another device's changes: not reported to sync again.
+    from_sync: bool,
 }
+
+/// Told about each file's changed tags (field, new values; pictures as "type:hash:description").
+pub(crate) type OnWritten = Arc<dyn Fn(i64, Vec<(String, Vec<String>)>) + Send + Sync>;
 
 /// One file's move in an organiser preview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -164,6 +169,7 @@ pub(crate) struct Editor {
     done: AtomicU64,
     total: AtomicU64,
     batch: Mutex<Option<i64>>,
+    on_written: Mutex<Option<OnWritten>>,
 }
 
 impl Editor {
@@ -183,7 +189,41 @@ impl Editor {
             done: AtomicU64::new(0),
             total: AtomicU64::new(0),
             batch: Mutex::new(None),
+            on_written: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn on_written(&self, f: OnWritten) {
+        if let Ok(mut slot) = self.on_written.lock() {
+            *slot = Some(f);
+        }
+    }
+
+    /// Writes changes that came from another device.
+    pub(crate) fn apply_synced(
+        self: &Arc<Self>,
+        edits: Vec<TrackEdit>,
+        description: &str,
+        backups: bool,
+    ) -> Result<i64> {
+        let jobs = edits
+            .into_iter()
+            .filter(|e| !e.fields.is_empty() || e.pictures.is_some())
+            .map(|e| Job {
+                track_id: e.track_id,
+                fields: e.fields,
+                expect: BTreeMap::new(),
+                pictures: e.pictures,
+                expect_pictures: None,
+                rename: None,
+                from_sync: true,
+            })
+            .collect();
+        self.run(jobs, description, None, backups)
+    }
+
+    pub(crate) fn busy(&self) -> bool {
+        self.running.load(Ordering::Acquire)
     }
 
     pub(crate) fn status(&self) -> EditStatus {
@@ -263,6 +303,7 @@ impl Editor {
                 pictures: e.pictures,
                 expect_pictures: None,
                 rename: None,
+                from_sync: false,
             })
             .collect();
         self.run(jobs, description, None, backups)
@@ -293,6 +334,7 @@ impl Editor {
                 pictures: None,
                 expect_pictures: None,
                 rename: None,
+                from_sync: false,
             });
             if change.field == FILE {
                 if let (Some(old), Some(new)) = (change.old.first(), change.new.first()) {
@@ -486,9 +528,19 @@ impl Editor {
             }
         }
         if !changes.is_empty() {
+            let synced: Vec<(String, Vec<String>)> = changes
+                .iter()
+                .map(|(field, _, new)| (field.clone(), new.clone()))
+                .collect();
             self.library
                 .record_edit(batch, job.track_id, changes)
                 .map_err(|e| fail(format!("written, but not recorded for undo: {e}")))?;
+            let hook = self.on_written.lock().ok().and_then(|h| h.clone());
+            if !job.from_sync
+                && let Some(hook) = hook
+            {
+                hook(job.track_id, synced);
+            }
         }
         Ok(())
     }
@@ -630,6 +682,8 @@ impl Editor {
                 pictures: None,
                 expect_pictures: None,
                 rename: Some((PathBuf::from(p.from), PathBuf::from(p.to))),
+                // Where files live is each device's own business: moves don't sync.
+                from_sync: true,
             })
             .collect();
         if jobs.is_empty() {
@@ -739,7 +793,7 @@ impl Editor {
     }
 }
 
-fn parse_picture(s: &str) -> Option<PictureRef> {
+pub(crate) fn parse_picture(s: &str) -> Option<PictureRef> {
     let mut parts = s.splitn(3, ':');
     let picture_type = parts.next()?.parse().ok()?;
     let hash = parts.next()?;
