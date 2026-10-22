@@ -19,7 +19,7 @@ tauri-build = { version = "2.7", features = [] }
 cadenza-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2.12", features = [] }
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2.8"
 
 [features]

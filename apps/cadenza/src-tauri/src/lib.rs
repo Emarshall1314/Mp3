@@ -14,6 +14,8 @@ use cadenza_api::{
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[cfg(desktop)]
+mod desktop;
 #[cfg(target_os = "linux")]
 mod mpris;
 
@@ -224,6 +226,29 @@ fn artwork_palette(app: App<'_>, hash: String) -> Res<Vec<[u8; 3]>> {
     app.artwork_palette(&hash).map_err(e)
 }
 
+/// Opens or closes the always-on-top mini player.
+#[tauri::command]
+fn toggle_mini_player(app: tauri::AppHandle) -> Res<()> {
+    #[cfg(desktop)]
+    {
+        desktop::toggle_mini_player(&app).map_err(e)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        Err("there is no mini player on this platform".into())
+    }
+}
+
+/// Brings the main window to the front.
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    #[cfg(desktop)]
+    desktop::show_main(&app);
+    #[cfg(not(desktop))]
+    let _ = app;
+}
+
 #[tauri::command]
 fn dsp(app: App<'_>) -> DspSettings {
     app.dsp()
@@ -322,6 +347,10 @@ pub fn run() {
             let (to_media, media_events) = std::sync::mpsc::channel();
             let cadenza = Cadenza::open(&data_dir, None, move |event: ApiEvent| {
                 if let ApiEvent::Player { event } = &event {
+                    #[cfg(desktop)]
+                    if let cadenza_api::PlayerEvent::State(state) = event {
+                        desktop::update_tray(&handle, state);
+                    }
                     let _ = to_media.send(event.clone());
                 }
                 let _ = handle.emit("cadenza://event", event);
@@ -344,6 +373,10 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             drop(media_events);
             app.manage(cadenza);
+            #[cfg(desktop)]
+            if let Err(err) = desktop::setup_tray(app.handle()) {
+                eprintln!("cadenza: no tray icon: {err}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -387,6 +420,8 @@ pub fn run() {
             set_dop,
             lyrics,
             artwork_palette,
+            toggle_mini_player,
+            show_main_window,
             dsp,
             set_dsp,
             replay_gain,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ListMusic,
+  PictureInPicture2,
   Pause,
   Play,
   Repeat,
@@ -12,6 +13,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { api } from '../api';
 import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
@@ -125,6 +127,14 @@ export function PlayerBar() {
       <div className="player-extras">
         <VolumeControl />
         <OutputPicker />
+        <button
+          className="icon-button"
+          aria-label="Mini player"
+          title="Mini player"
+          onClick={() => void attempt(invoke<null>('toggle_mini_player'))}
+        >
+          <PictureInPicture2 size={18} />
+        </button>
         <button
           className={`icon-button ${queueOpen ? 'active' : ''}`}
           aria-pressed={queueOpen}

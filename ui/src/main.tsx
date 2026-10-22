@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import './main.css';
 import { App } from './App';
+import { MiniPlayer } from './MiniPlayer';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root');
@@ -14,7 +15,5 @@ window.addEventListener('contextmenu', (e) => {
 });
 
 createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+  <StrictMode>{window.location.hash === '#mini' ? <MiniPlayer /> : <App />}</StrictMode>,
 );

@@ -1325,3 +1325,49 @@ input[type='range']::-webkit-slider-thumb {
 .signal-popover {
   width: 380px;
 }
+
+/* ---------- mini player (its own window) ---------- */
+
+.mini-player {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 100vh;
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  user-select: none;
+  cursor: default;
+}
+
+.mini-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mini-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-text .title {
+  font-weight: 600;
+}
+
+.mini-text .subtitle {
+  color: var(--color-text-secondary);
+}
+
+.mini-buttons,
+.mini-window-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.mini-window-buttons {
+  flex-direction: column;
+  align-self: flex-start;
+  padding-top: var(--space-1);
+}
