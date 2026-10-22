@@ -73,7 +73,10 @@ fn python_env() -> Result<PathBuf> {
     let stamp = venv.join(".requirements");
     let wanted = std::fs::read_to_string(&requirements).map_err(|e| e.to_string())?;
     if std::fs::read_to_string(&stamp).ok().as_deref() != Some(wanted.as_str()) {
-        run(Command::new("python3").args(["-m", "venv"]).arg(&venv))?;
+        // --clear: a partly restored CI cache must not leave stale packages behind.
+        run(Command::new("python3")
+            .args(["-m", "venv", "--clear"])
+            .arg(&venv))?;
         run(Command::new(&python)
             .args(["-m", "pip", "install", "-q", "-r"])
             .arg(&requirements))?;
@@ -93,11 +96,13 @@ fn monkeys_audio() -> Result<PathBuf> {
     if bin.exists() {
         return Ok(bin);
     }
-    if !src.join(".git").exists() {
-        run(Command::new("git")
-            .args(["clone", "--quiet", MAC_REPO])
-            .arg(&src))?;
+    // Start from a clean clone: a CI cache can restore the directory without its build or `.git`.
+    if src.exists() {
+        std::fs::remove_dir_all(&src).map_err(|e| e.to_string())?;
     }
+    run(Command::new("git")
+        .args(["clone", "--quiet", MAC_REPO])
+        .arg(&src))?;
     run(Command::new("git")
         .arg("-C")
         .arg(&src)
