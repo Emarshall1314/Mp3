@@ -194,3 +194,51 @@ pub(crate) fn folder_image(dir: &Path) -> Option<PathBuf> {
     }
     (entries.len() == 1).then(|| entries[0].clone())
 }
+
+/// Up to four dominant colours of a picture, most prominent first, for backgrounds derived from
+/// artwork. Colours are bucketed (4 bits per channel), weighted towards saturated ones so a grey
+/// border doesn't win, and kept only if clearly distinct from those already chosen.
+pub(crate) fn palette(path: &Path) -> Result<Vec<[u8; 3]>> {
+    let img = image::open(path)
+        .map_err(|e| Error::Image(e.to_string()))?
+        .thumbnail(48, 48)
+        .to_rgb8();
+    let mut buckets: std::collections::HashMap<u16, (f64, [u64; 3], u64)> = Default::default();
+    for p in img.pixels() {
+        let [r, g, b] = p.0;
+        let key = (u16::from(r >> 4) << 8) | (u16::from(g >> 4) << 4) | u16::from(b >> 4);
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let saturation = if max == 0 {
+            0.0
+        } else {
+            f64::from(max - min) / f64::from(max)
+        };
+        let e = buckets.entry(key).or_insert((0.0, [0; 3], 0));
+        e.0 += 0.3 + saturation;
+        e.1[0] += u64::from(r);
+        e.1[1] += u64::from(g);
+        e.1[2] += u64::from(b);
+        e.2 += 1;
+    }
+    let mut ranked: Vec<(f64, [u8; 3])> = buckets
+        .into_values()
+        .map(|(w, sum, n)| (w, sum.map(|c| (c / n) as u8)))
+        .collect();
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut chosen: Vec<[u8; 3]> = Vec::new();
+    for (_, c) in ranked {
+        let distinct = chosen.iter().all(|k| {
+            let d: i32 = (0..3)
+                .map(|i| (i32::from(c[i]) - i32::from(k[i])).pow(2))
+                .sum();
+            d > 60 * 60
+        });
+        if distinct {
+            chosen.push(c);
+            if chosen.len() == 4 {
+                break;
+            }
+        }
+    }
+    Ok(chosen)
+}

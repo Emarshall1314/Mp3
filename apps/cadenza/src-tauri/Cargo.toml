@@ -28,3 +28,6 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+souvlaki = "0.8"

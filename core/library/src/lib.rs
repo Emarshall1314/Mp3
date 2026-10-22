@@ -6,6 +6,7 @@ mod art;
 mod cue;
 mod db;
 mod hash;
+mod lyrics;
 mod scan;
 mod search;
 mod text;
@@ -16,6 +17,7 @@ use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 use serde::Serialize;
 
 pub use art::THUMB_SIZES;
+pub use lyrics::{LyricLine, Lyrics};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};
 
 use art::ArtCache;
@@ -698,10 +700,56 @@ impl Library {
         self.art.thumbnail(hash, size)
     }
 
+    /// Dominant colours of an artwork (up to four, most prominent first), from its 128 px
+    /// thumbnail.
+    pub fn artwork_palette(&self, hash: &str) -> Result<Vec<[u8; 3]>> {
+        art::palette(&self.art.thumbnail(hash, 128)?)
+    }
+
     /// The full-resolution original for an artwork hash.
     pub fn artwork_original(&self, hash: &str) -> Result<PathBuf> {
         self.art
             .original(hash)
             .ok_or_else(|| Error::NotFound(format!("artwork {hash}")))
+    }
+
+    /// The track's lyrics: a sidecar `.lrc` beside the file, else embedded synced lyrics, else
+    /// embedded plain lyrics. `None` if there are none.
+    pub fn lyrics(&self, track_id: i64) -> Result<Option<Lyrics>> {
+        let (path, whole_file, synced, plain) = self.db.read(move |c| {
+            let (root, rel, start): (String, String, Option<i64>) = c.query_row(
+                "SELECT r.path, t.rel_path, t.start_frame FROM tracks t JOIN roots r ON r.id = t.root_id
+                 WHERE t.id = ?",
+                [track_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+            let tag = |field: &str| -> rusqlite::Result<Option<String>> {
+                c.query_row(
+                    "SELECT value FROM tags WHERE track_id = ? AND field = ? ORDER BY idx LIMIT 1",
+                    params![track_id, field],
+                    |r| r.get(0),
+                )
+                .optional()
+            };
+            Ok((
+                Path::new(&root).join(rel),
+                start.is_none(),
+                tag("syncedlyrics")?,
+                tag("lyrics")?,
+            ))
+        })?;
+        // A sidecar belongs to a whole file, not to one track of a cue-split album.
+        if whole_file {
+            for ext in ["lrc", "LRC"] {
+                if let Ok(text) = std::fs::read_to_string(path.with_extension(ext))
+                    && let Some(l) = lyrics::parse(&text, "file")
+                {
+                    return Ok(Some(l));
+                }
+            }
+        }
+        Ok(synced
+            .and_then(|t| lyrics::parse(&t, "embedded"))
+            .or_else(|| plain.and_then(|t| lyrics::parse(&t, "embedded"))))
     }
 }

@@ -22,8 +22,8 @@ pub use cadenza_engine::{
     ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
 pub use cadenza_library::{
-    AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, Root, SavedSearch, ScanPhase,
-    ScanProgress, ScanReport, SearchResults, SongSort, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, LyricLine, Lyrics, Root,
+    SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, TrackRow,
 };
 pub use loudness::LoudnessStatus;
 pub use settings::Settings;
@@ -471,6 +471,16 @@ impl Cadenza {
     }
     pub fn set_volume(&self, volume: f32) {
         self.engine.set_volume(volume);
+    }
+
+    /// The track's lyrics (sidecar `.lrc`, else embedded), if any.
+    pub fn lyrics(&self, track_id: i64) -> Result<Option<Lyrics>> {
+        Ok(self.library.lyrics(track_id)?)
+    }
+
+    /// Dominant colours of an artwork, most prominent first (up to four).
+    pub fn artwork_palette(&self, hash: &str) -> Result<Vec<[u8; 3]>> {
+        Ok(self.library.artwork_palette(hash)?)
     }
 
     // ---- outputs --------------------------------------------------------------------------

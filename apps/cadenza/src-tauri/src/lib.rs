@@ -8,11 +8,14 @@ use std::sync::Arc;
 
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, DspSettings, EqBand,
-    ImportedEq, LibraryStats, LoudnessStatus, Outputs, PlayerState, Repeat, ReplayGainSettings,
-    Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackRow,
+    ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Repeat,
+    ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+#[cfg(target_os = "linux")]
+mod mpris;
 
 type App<'a> = State<'a, Arc<Cadenza>>;
 type Res<T> = Result<T, String>;
@@ -211,6 +214,16 @@ fn analyze_loudness(app: App<'_>) {
     app.analyze_loudness();
 }
 
+#[tauri::command(async)]
+fn lyrics(app: App<'_>, track_id: i64) -> Res<Option<Lyrics>> {
+    app.lyrics(track_id).map_err(e)
+}
+
+#[tauri::command(async)]
+fn artwork_palette(app: App<'_>, hash: String) -> Res<Vec<[u8; 3]>> {
+    app.artwork_palette(&hash).map_err(e)
+}
+
 #[tauri::command]
 fn dsp(app: App<'_>) -> DspSettings {
     app.dsp()
@@ -305,7 +318,12 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let handle = app.handle().clone();
+            // Player events also go to the desktop media controls (MPRIS).
+            let (to_media, media_events) = std::sync::mpsc::channel();
             let cadenza = Cadenza::open(&data_dir, None, move |event: ApiEvent| {
+                if let ApiEvent::Player { event } = &event {
+                    let _ = to_media.send(event.clone());
+                }
                 let _ = handle.emit("cadenza://event", event);
             })?;
             // `cadenza --add-folder <path>`: add a music folder from the command line or a script.
@@ -315,7 +333,17 @@ pub fn run() {
                     eprintln!("cadenza: cannot add {}: {err}", pair[1]);
                 }
             }
-            app.manage(Arc::new(cadenza));
+            let cadenza = Arc::new(cadenza);
+            #[cfg(target_os = "linux")]
+            {
+                let (app_ref, handle) = (Arc::clone(&cadenza), app.handle().clone());
+                std::thread::Builder::new()
+                    .name("cadenza-mpris".into())
+                    .spawn(move || mpris::run(app_ref, handle, media_events))?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            drop(media_events);
+            app.manage(cadenza);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -357,6 +385,8 @@ pub fn run() {
             outputs,
             set_output,
             set_dop,
+            lyrics,
+            artwork_palette,
             dsp,
             set_dsp,
             replay_gain,

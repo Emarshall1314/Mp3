@@ -367,3 +367,54 @@ fn replay_gain_comes_from_tags_and_measurements_survive_rescans() {
     assert_eq!(s.lib.playable(&[first]).unwrap()[0].gain, measured);
     assert_eq!(s.lib.tracks_missing_gain().unwrap().len(), todo.len() - 1);
 }
+
+#[test]
+fn lyrics_come_from_sidecar_lrc_or_tags() {
+    use cadenza_library::SongSort;
+
+    let s = setup(&["tags", "library"]);
+    scan(&s.lib);
+    let ids = s.lib.song_ids(SongSort::Title, false).unwrap();
+    let tracks = s.lib.playable(&ids).unwrap();
+    let mut embedded = 0;
+    for t in &tracks {
+        let path = t.path.to_string_lossy();
+        let lyrics = s.lib.lyrics(t.id).unwrap();
+        if path.ends_with("Lyric Song.flac") || path.contains("Lyric Song.") {
+            let l = lyrics.expect("sidecar lyrics");
+            assert_eq!(l.source, "file");
+            assert!(l.synced);
+            assert!(l.lines.windows(2).all(|w| w[0].time_ms <= w[1].time_ms));
+        } else if path.contains("/tags/") {
+            let l = lyrics.unwrap_or_else(|| panic!("{path}: no lyrics"));
+            assert_eq!(l.source, "embedded");
+            let text: Vec<&str> = l.lines.iter().map(|l| l.text.as_str()).collect();
+            assert_eq!(text, ["First line", "Second line"], "{path}");
+            embedded += 1;
+        }
+    }
+    assert!(embedded >= 13, "{embedded}");
+}
+
+#[test]
+fn artwork_palettes_find_distinct_dominant_colours() {
+    use cadenza_library::AlbumSort;
+
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let albums = s.lib.albums(AlbumSort::Artist, 0, 100).unwrap();
+    let with_art: Vec<_> = albums.iter().filter_map(|a| a.art_hash.clone()).collect();
+    assert!(!with_art.is_empty());
+    for hash in with_art {
+        let p = s.lib.artwork_palette(&hash).unwrap();
+        assert!(!p.is_empty() && p.len() <= 4, "{p:?}");
+        for (i, a) in p.iter().enumerate() {
+            for b in &p[i + 1..] {
+                let d: i32 = (0..3)
+                    .map(|k| (i32::from(a[k]) - i32::from(b[k])).pow(2))
+                    .sum();
+                assert!(d > 3600, "{p:?}");
+            }
+        }
+    }
+}
