@@ -40,12 +40,15 @@ pub enum Theme {
 
 /// How the app looks. The reduce switches add to the desktop's own accessibility preferences:
 /// on, they always apply; off, the desktop's preference still does.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
     pub theme: Theme,
     pub reduce_motion: bool,
     pub reduce_transparency: bool,
+    /// The rest of the look and layout (themes chosen, accent, background, density, layout,
+    /// shortcuts...), owned by the UI, which fills in defaults. Stored as given.
+    pub look: serde_json::Value,
 }
 
 impl Settings {

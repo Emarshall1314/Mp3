@@ -7,6 +7,7 @@ import type {
   AlbumSort,
   ApiEvent,
   Appearance,
+  SavedTheme,
   ArtistPage,
   ArtistRow,
   EditBatch,
@@ -103,6 +104,17 @@ export const api = {
   organise: (ids: number[], pattern: string) => invoke<number>('organise', { ids, pattern }),
   setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
+  themes: () => invoke<SavedTheme[]>('themes'),
+  saveTheme: (
+    id: string | null,
+    theme: SavedTheme['theme'] | Omit<SavedTheme['theme'], 'format' | 'version'>,
+  ) => invoke<SavedTheme>('save_theme', { id, theme }),
+  importTheme: (text: string) => invoke<SavedTheme>('import_theme', { text }),
+  deleteTheme: (id: string) => invoke<null>('delete_theme', { id }),
+  exportTheme: (
+    theme: SavedTheme['theme'] | Omit<SavedTheme['theme'], 'format' | 'version'>,
+    path: string,
+  ) => invoke<string>('export_theme', { theme, path }),
   loudnessStatus: () => invoke<LoudnessStatus>('loudness_status'),
   analyzeLoudness: () => invoke<null>('analyze_loudness'),
   importAutoeq: (path: string) => invoke<ImportedEq>('import_autoeq', { path }),
@@ -122,6 +134,11 @@ export function onApiEvent(handler: (e: ApiEvent) => void): Promise<UnlistenFn> 
 
 /// Android has no separate windows: no mini player, no tray.
 export const isAndroid = /Android/.test(navigator.userAgent);
+
+/// Saved themes changed (saved, imported or deleted in any window).
+export function onThemesChanged(handler: () => void): Promise<UnlistenFn> {
+  return listen('cadenza://themes', () => handler());
+}
 
 /// Appearance changes, from whichever window made them.
 export function onAppearance(handler: (a: Appearance) => void): Promise<UnlistenFn> {

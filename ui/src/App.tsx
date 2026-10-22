@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, onApiEvent } from './api';
 import { attempt, useStore } from './store';
 import { useAppearance } from './hooks/useAppearance';
+import { useCurrentTrack } from './hooks/useCurrentTrack';
 import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
@@ -113,7 +114,8 @@ function Main() {
 export function App() {
   useCoreEvents();
   useShortcuts();
-  useAppearance();
+  const playing = useCurrentTrack();
+  useAppearance(playing?.artHash ?? null);
   const queueOpen = useStore((s) => s.queueOpen);
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);

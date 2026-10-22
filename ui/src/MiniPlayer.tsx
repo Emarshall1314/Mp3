@@ -10,7 +10,7 @@ import { useAppearance } from './hooks/useAppearance';
 export function MiniPlayer() {
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [track, setTrack] = useState<TrackRow | null>(null);
-  useAppearance();
+  useAppearance(track?.artHash ?? null);
 
   useEffect(() => {
     void api.player().then(setPlayer);

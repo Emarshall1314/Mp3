@@ -8,12 +8,15 @@ import type { AlbumDetail, AlbumRow } from '../types';
 import { Artwork } from '../components/Artwork';
 import { QualityBadge } from '../components/QualityBadge';
 import { AlbumCard } from './AlbumGrid';
+import { useLook } from '../hooks/useAppearance';
+import { ARTWORK_SIZES } from '../theme/look';
 
 /// Album page: big artwork, title, artist link, meta + badge, Play/Shuffle, tracklist, footer.
 export function AlbumView({ id }: { id: number }) {
   const navigate = useStore((s) => s.navigate);
   const libraryVersion = useStore((s) => s.libraryVersion);
   const playingId = useStore((s) => s.player?.trackId);
+  const heroSize = ARTWORK_SIZES[useLook((s) => s.look.artworkSize)];
   const [detail, setDetail] = useState<AlbumDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [moreBy, setMoreBy] = useState<AlbumRow[]>([]);
@@ -64,7 +67,7 @@ export function AlbumView({ id }: { id: number }) {
       <header className="album-hero">
         <Artwork
           hash={album.artHash}
-          size={260}
+          size={heroSize}
           alt={`${album.title} artwork`}
           className="hero-art"
         />

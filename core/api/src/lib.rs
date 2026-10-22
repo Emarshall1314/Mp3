@@ -9,6 +9,7 @@ mod edit;
 mod loudness;
 mod organise;
 mod settings;
+mod themes;
 mod watch;
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ pub use edit::{
 };
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
+pub use themes::SavedTheme;
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
 use cadenza_library::Library;
@@ -180,6 +182,7 @@ pub struct Cadenza {
     library: Arc<Library>,
     engine: Engine,
     settings: settings::Store,
+    themes: themes::Themes,
     current: Mutex<Settings>,
     analyzer: Arc<loudness::Analyzer>,
     scanner: Arc<Scanner>,
@@ -273,6 +276,7 @@ impl Cadenza {
             library,
             engine,
             settings: store,
+            themes: themes::Themes::new(data_dir),
             current: Mutex::new(saved),
             analyzer,
             scanner,
@@ -631,6 +635,9 @@ impl Cadenza {
     }
 
     pub fn set_appearance(&self, appearance: Appearance) -> Result<()> {
+        if appearance.look.to_string().len() > 256 * 1024 {
+            return Err(Error::Other("the look settings are too large".into()));
+        }
         let mut settings = self.settings();
         settings.appearance = appearance;
         self.settings.save(&settings)?;
@@ -638,6 +645,30 @@ impl Cadenza {
             *s = settings;
         }
         Ok(())
+    }
+
+    /// The owner's saved themes (built-in ones live in the UI).
+    pub fn themes(&self) -> Vec<SavedTheme> {
+        self.themes.list()
+    }
+
+    /// Saves a theme from the editor: replacing `id`, or as a new theme.
+    pub fn save_theme(&self, id: Option<&str>, theme: &serde_json::Value) -> Result<SavedTheme> {
+        self.themes.save(id, theme)
+    }
+
+    /// Adds a theme from a theme file's text.
+    pub fn import_theme(&self, text: &str) -> Result<SavedTheme> {
+        self.themes.import(text)
+    }
+
+    pub fn delete_theme(&self, id: &str) -> Result<()> {
+        self.themes.delete(id)
+    }
+
+    /// Writes a theme to `path` as a file to share.
+    pub fn export_theme(&self, theme: &serde_json::Value, path: &Path) -> Result<()> {
+        themes::export(theme, path)
     }
 
     /// Tracks' tags as their files hold them now, for the tag editor.

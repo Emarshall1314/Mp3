@@ -4,14 +4,15 @@
 //! UI as `cadenza://event`, and artwork is served by the `cadenza` URI scheme from the
 //! thumbnail cache: `cadenza://localhost/art/<hash>?s=<px>`.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
     Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
     LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
-    ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort,
-    StoredArt, TrackEdit, TrackRow, TrackTags,
+    ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
+    SongSort, StoredArt, TrackEdit, TrackRow, TrackTags,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -277,9 +278,49 @@ fn set_tag_backups(app: App<'_>, on: bool) -> Res<()> {
 /// Saves the appearance and tells every window (main and mini player) to apply it.
 #[tauri::command(async)]
 fn set_appearance(app: App<'_>, handle: AppHandle, appearance: Appearance) -> Res<()> {
-    app.set_appearance(appearance).map_err(e)?;
+    app.set_appearance(appearance.clone()).map_err(e)?;
     let _ = handle.emit("cadenza://appearance", appearance);
     Ok(())
+}
+
+#[tauri::command(async)]
+fn themes(app: App<'_>) -> Vec<SavedTheme> {
+    app.themes()
+}
+
+#[tauri::command(async)]
+fn save_theme(
+    app: App<'_>,
+    handle: AppHandle,
+    id: Option<String>,
+    theme: serde_json::Value,
+) -> Res<SavedTheme> {
+    let saved = app.save_theme(id.as_deref(), &theme).map_err(e)?;
+    let _ = handle.emit("cadenza://themes", ());
+    Ok(saved)
+}
+
+#[tauri::command(async)]
+fn import_theme(app: App<'_>, handle: AppHandle, text: String) -> Res<SavedTheme> {
+    let saved = app.import_theme(&text).map_err(e)?;
+    let _ = handle.emit("cadenza://themes", ());
+    Ok(saved)
+}
+
+#[tauri::command(async)]
+fn delete_theme(app: App<'_>, handle: AppHandle, id: String) -> Res<()> {
+    app.delete_theme(&id).map_err(e)?;
+    let _ = handle.emit("cadenza://themes", ());
+    Ok(())
+}
+
+/// Writes a theme file to `path`: from a save dialog on Linux, in the Download folder on Android
+/// (where save dialogs give content URIs, not paths).
+#[tauri::command(async)]
+fn export_theme(app: App<'_>, theme: serde_json::Value, path: String) -> Res<String> {
+    let path = PathBuf::from(path);
+    app.export_theme(&theme, &path).map_err(e)?;
+    Ok(path.display().to_string())
 }
 
 #[tauri::command]
@@ -578,6 +619,11 @@ pub fn run() {
             settings,
             set_crossfade,
             set_appearance,
+            themes,
+            save_theme,
+            import_theme,
+            delete_theme,
+            export_theme,
             track_tags,
             edit_tracks,
             edit_status,

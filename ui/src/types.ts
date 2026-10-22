@@ -345,6 +345,20 @@ export interface Appearance {
   theme: Theme;
   reduceMotion: boolean;
   reduceTransparency: boolean;
+  /// The look settings (theme/look.ts `Look`); normalised by the UI.
+  look: unknown;
+}
+
+/// A theme file as the core stores it.
+export interface SavedTheme {
+  id: string;
+  theme: {
+    format: 'cadenza-theme';
+    version: 1;
+    name: string;
+    scheme: 'light' | 'dark';
+    tokens: Record<string, string>;
+  };
 }
 
 export interface LoudnessStatus {

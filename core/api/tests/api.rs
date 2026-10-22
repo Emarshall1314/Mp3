@@ -171,8 +171,9 @@ fn appearance_is_saved_across_restarts() {
         theme: Theme::Dark,
         reduce_motion: true,
         reduce_transparency: false,
+        look: serde_json::json!({ "lightTheme": "paper", "density": "compact" }),
     };
-    app.set_appearance(chosen).unwrap();
+    app.set_appearance(chosen.clone()).unwrap();
     assert_eq!(app.settings().appearance, chosen);
     drop(app);
     assert_eq!(open().settings().appearance, chosen);
