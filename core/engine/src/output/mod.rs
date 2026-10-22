@@ -1,6 +1,8 @@
 //! Audio outputs. An `OutputBackend` opens an `Output` for a requested format; the device may
 //! grant a different rate or channel count, and the player adapts (resample / remix).
 
+#[cfg(target_os = "android")]
+pub mod aaudio;
 #[cfg(target_os = "linux")]
 pub mod alsa;
 

@@ -81,9 +81,13 @@ The Android spike is still blocked; see Known issues.
 
 ### Next
 1. **Android spike**:
-   - Needs `dl.google.com`, or a debug APK from CI.
-   - Also needs an AAudio output backend, a MediaSession plugin and libwavpack cross-built for the
-     NDK.
+   - Done: CI builds and signs an arm64 APK (`cadenza-android` artifact).
+     WavPack is vendored and libopus builds from source, so decoding cross-compiles.
+     An AAudio shared-mode output exists (D27, D28).
+   - Remaining:
+     - Storage access to the music folder: the folder picker and media permissions.
+     - A MediaSession foreground service, so playback continues with the screen off.
+     - Running the §11 criteria on the owner's phone.
 2. **M2 hi-res engine**:
    - ALSA `hw:` exclusive with PipeWire device reservation.
    - Device picker.
@@ -113,11 +117,12 @@ These are shown or absent in the UI, never faked:
 ## Known issues / blockers
 - **Android SDK/NDK cannot be downloaded in this environment.** The network policy denies
   `dl.google.com`.
-  - CI builds an unsigned release APK, which Android won't install. The spike needs a debug build
-    or a locally signed APK.
+  - CI signs the APK with the `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` repository
+    secrets. If they are absent, it uses a throwaway key, and each new build must be installed after
+    uninstalling the old one.
   - The spike also needs the owner's phone to run against the criteria in ARCHITECTURE §11.
 - Fixture warnings are expected: ffmpeg decodes AAC without applying the edit list's end trim
   (D18). They are warnings, not failures, because ffmpeg isn't the system under test.
 
 ## Decisions
-See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D26.
+See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28.

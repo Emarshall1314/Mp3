@@ -165,7 +165,12 @@ pub fn default_output() -> Box<dyn OutputBackend> {
         let device = std::env::var("CADENZA_ALSA_DEVICE").unwrap_or_else(|_| "default".into());
         Box::new(cadenza_engine::output::alsa::Alsa { device })
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "android")]
+    {
+        Box::new(cadenza_engine::output::aaudio::AAudio)
+    }
+    // Linux and Android are the only platforms (D11); elsewhere the core builds for tests only.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         Box::new(cadenza_engine::Capture::new())
     }

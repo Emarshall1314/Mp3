@@ -67,7 +67,7 @@ docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
 | Database | rusqlite + bundled SQLite (WAL, FTS5) | 0.40 | MIT / public domain | |
 | Decode | symphonia | 0.6 | **MPL-2.0** (file-level copyleft; fine unmodified) | FLAC, ALAC, WAV, AIFF, CAF, MP3, AAC, Vorbis, (APE — verify in M1) |
 | Decode | libopus via `opus` bindings | 1.5 | BSD-3 | Opus |
-| Decode | libwavpack (own thin FFI) | 5.x | BSD-3 | WavPack incl. hybrid/DSD |
+| Decode | libwavpack (own thin FFI), vendored in `third_party/wavpack` and built with `cc` | 5.9.0 | BSD-3 | WavPack incl. hybrid/DSD (D27) |
 | Decode | DSF/DFF reader | in-house | — | simple container formats |
 | Decode fallback | FFmpeg, dynamically linked | 6.1+ | **LGPL-2.1+** | Linux + Android; also used by the converter |
 | Tags | lofty | 0.25 | MIT/Apache | used at the *concrete* tag-type level (see §6) |
@@ -76,7 +76,7 @@ docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
 | Fingerprint | rusty-chromaprint | 0.3 | MIT | port of Chromaprint (avoids LGPL C lib) |
 | Ring buffer | rtrb | 0.4 | MIT/Apache | wait-free SPSC |
 | Output Linux | alsa | 0.12 | MIT/Apache | `hw:`/`plughw:`/`default` (PipeWire) |
-| Output Android | AAudio via `ndk` + Kotlin plugin | — | MIT/Apache | bit-perfect mixer attributes API 34+ |
+| Output Android | AAudio (own thin FFI to `libaaudio`) + Kotlin plugin | API 26+ | — (OS) | bit-perfect mixer attributes API 34+ (D28) |
 | FS watch | notify | 8.2 | CC0 | |
 | Hashing | blake3 | 1.8 | CC0/Apache | audio-stream hash, blob ids |
 | Async | tokio | 1.54 | MIT | not on the audio thread |
@@ -346,6 +346,8 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D24 | DSD→PCM applies no +6 dB make-up gain; SACD 0 dB reference lands at −6 dBFS | Hot DSD masters exceed the reference level and would clip; ReplayGain (M2) can make up the level |
 | D25 | Player state carries queue length and version, not the queue; the UI fetches id windows | A 200k-track "play all" made every state event megabytes |
 | D26 | Empty sort keys sort last (stored as U+10FFFF) | "Unknown Artist" and untitled albums belong at the end of lists, and an index-friendly key avoids a computed ORDER BY |
+| D27 | WavPack is vendored (5.9.0 library sources) and compiled by `cadenza-decode`'s build script on every target | The NDK has no libwavpack; one build path keeps Linux and Android on the same version and drops a system package. libopus already builds from bundled source the same way |
+| D28 | Android minimum is API 26 (Android 8.0); AAudio is bound directly, not through the `ndk` crate | AAudio needs API 26 and its library is only in the NDK sysroot from 26. The API used is about 20 functions, so a hand-written binding avoids a dependency |
 
 ## 14. Owner answers (2026-10-21)
 

@@ -11,7 +11,7 @@ struct WavpackContext {
     _private: [u8; 0],
 }
 
-#[link(name = "wavpack")]
+// Linked from the vendored sources built by build.rs.
 unsafe extern "C" {
     fn WavpackOpenFileInput(
         name: *const c_char,

@@ -327,6 +327,7 @@ version = "0.1.0"
 dependencies = [
  "ape-decoder",
  "cadenza-testkit",
+ "cc",
  "md-5",
  "ogg",
  "opus",

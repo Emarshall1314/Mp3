@@ -30,7 +30,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: fmt, clippy, lint, typecheck, fixtures + self-check, tests
-        run: cargo xtask ci
+        run: tools/ci-step.sh cargo xtask ci
       - name: Bundle (.deb, AppImage)
         run: pnpm build
       - uses: actions/upload-artifact@v7
@@ -59,12 +59,39 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The runner image ships the Android SDK and NDK. Its variables are only visible to the
-      # shell (not to `${{ env }}`), so NDK_HOME is set inside each step.
+      # shell (not to `${{ env }}`), so NDK_HOME is set inside each step. ANDROID_NDK_HOME is for
+      # libopus's bundled CMake build.
       - name: Generate Android project
-        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" pnpm --filter @cadenza/app tauri android init --ci
+        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" tools/ci-step.sh pnpm --filter @cadenza/app tauri android init --ci
       - name: Build APK (arm64)
-        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" pnpm --filter @cadenza/app tauri android build --apk --target aarch64
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME" ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          tools/ci-step.sh pnpm --filter @cadenza/app tauri android build --apk --target aarch64
+      # Android installs only signed APKs. With the ANDROID_KEYSTORE (base64 .jks) and
+      # ANDROID_KEYSTORE_PASSWORD secrets set, every build is signed with the same key and updates
+      # in place. Without them a throwaway key is generated, so installing a newer build means
+      # uninstalling the old one first (which clears the app's library database).
+      - name: Sign APK
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          apk=$(find apps/cadenza/src-tauri/gen/android/app/build/outputs/apk -name '*-unsigned.apk' | head -1)
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/cadenza.jks"
+          else
+            echo "::warning::No ANDROID_KEYSTORE secret: signing with a throwaway key"
+            KEYSTORE_PASSWORD=throwaway
+            keytool -genkeypair -keystore "$RUNNER_TEMP/cadenza.jks" -storepass "$KEYSTORE_PASSWORD" \
+              -alias cadenza -keyalg RSA -keysize 3072 -validity 10000 -dname CN=Cadenza
+          fi
+          mkdir -p dist
+          "$tools/zipalign" -f -p 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$RUNNER_TEMP/cadenza.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --out dist/cadenza-arm64.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify dist/cadenza-arm64.apk
       - uses: actions/upload-artifact@v7
         with:
           name: cadenza-android
-          path: apps/cadenza/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: dist/cadenza-arm64.apk
