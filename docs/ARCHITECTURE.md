@@ -113,7 +113,7 @@ albums(id, album_artist_key, title_key, release_key, release_group_mbid, ...)  -
 artists(id, name, sort_name, mbid) / track_artists(track_id, artist_id, role, idx)
                                                           -- role: artist|album_artist|composer|conductor|performer|lyricist|...
 artwork(hash, mime, w, h, bytes_len, source) / track_artwork(track_id, hash, picture_type, idx)
-user_data(track_id, rating, rating_hlc, favourite, favourite_hlc, skip_on_shuffle, start_ms, end_ms, volume_db, ...)
+user_data(track_id, favourite, favourite_hlc, skip_on_shuffle, start_ms, end_ms, volume_db, ...)
 play_events(id, track_id, device_id, at, duration_played, completed)    -- grow-only; counts are derived
 playlists(id, parent_id, name, kind, rules_json, sort_key) / playlist_items(id, playlist_id, track_id, pos_key, tombstone)
 edit_batches(id, at, description) / edit_changes(batch_id, track_id, field, old, new)  -- undo/redo/revert
@@ -210,7 +210,7 @@ title + album artist appear under "Other versions".
 - **Move detection.** A disappearing path and an appearing path with the same `audio_hash` are treated
   as a move, so `track_id`, stats and playlists are kept.
 - **Search.** FTS5 word-prefix matching over denormalised text gives as-you-type results (D23). The advanced syntax
-  (`artist:"x" year:>2000 format:flac rating:>=4`) is parsed into an AST, then turned into SQL with
+  (`artist:"x" year:>2000 format:flac`) is parsed into an AST, then turned into SQL with
   indexed columns. Saved searches store the query string. Smart playlists compile the same way.
 - **IPC to UI.** Lists are paged by `(sort_key, id)` windows; the UI never holds 200k rows of objects,
   only a virtual window plus id arrays.
@@ -229,7 +229,7 @@ Cloud layout (inside an app-scoped folder):
 - **Ops**, each with a hybrid logical clock (HLC) and device ID:
   - `TrackAdded{audio_hash, rel_path, blob_ref, tags}`, `TrackMoved{track, rel_path}`, `TrackTrashed` / `Restored` / `Purged`
   - `SetField{track, field, values}`: last writer wins per *field*, ordered by HLC
-  - `SetArtwork`, `SetRating`, `SetFavourite`, `SetLyrics`
+  - `SetArtwork`, `SetFavourite`, `SetLyrics`
   - `PlayEvent{track, at}`: grow-only, so counts always add up
   - `Playlist*`: tree and sequence operations with fractional position keys and tombstones, so edits merge
   - `Settings*`: themes and layouts, with per-device overrides
@@ -397,3 +397,4 @@ generated Android project stays generated.
 | D47 | Edits run as background batches recorded in the library (old and new values per field, tracks by uid); undo writes old values back only where the file still holds the new ones | One mechanism serves the editor, artwork and the organiser. Undo never overwrites a change made since, in Cadenza or elsewhere |
 | D48 | Editing actions (find/replace, case, clean-up, tags from file names...) are pure functions in the UI over pending values; their results are reviewed as changes before saving | Nothing an action does reaches a file unseen, actions chain, and they are unit-tested without the core |
 | D49 | The organiser renames within the song's music folder, names sanitised for FAT/exFAT and Windows, previewed first, and undoable; the library follows by its move detection | Libraries live on SD cards and shared drives as well as Linux filesystems. Keeping files inside their music folder means the scanner always sees both sides of a move |
+| D50 | No ratings. Cadenza neither sets, shows, sorts nor searches by ratings; rating fields already in files are kept untouched like any other field | Owner decision (October 2026); the build prompt was revised to remove them. Favourites stay |

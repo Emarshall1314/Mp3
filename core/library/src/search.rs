@@ -5,10 +5,9 @@
 //! "paranoid android"             a phrase
 //! artist:"Radiohead"             a field contains the text   (artist, albumartist, album, title,
 //! artist:=Radiohead              a field equals the text      composer, genre, path)
-//! year:>2000  year:1990..1999    numbers: > >= < <= = and ranges (year, rating, plays, bits,
+//! year:>2000  year:1990..1999    numbers: > >= < <= = and ranges (year, plays, bits,
 //!                                rate, channels, track, disc, duration, added)
 //! format:flac  quality:hires     codec/container, or lossy | lossless | hires | dsd
-//! rating:>=4                     ratings ≤ 5 are stars, otherwise 0–100
 //! added:<30                      added in the last 30 days
 //! fav:yes                        favourites
 //! -live  -genre:podcast          exclude
@@ -80,7 +79,6 @@ const FIELDS: &[&str] = &[
     "genre",
     "path",
     "year",
-    "rating",
     "plays",
     "bits",
     "bitdepth",
@@ -255,17 +253,6 @@ pub(crate) fn compile(query: &str, now: i64) -> Compiled {
                 params.push(Value::Text(like(&c.value)));
             }
             Some("year") => numeric("t.year", 1.0, &mut conds, &mut params),
-            Some("rating") => {
-                // ≤ 5 means stars (half stars allowed), otherwise the 0–100 scale.
-                let scale = if num.is_some_and(|v| v <= 5.0)
-                    || matches!(c.op, Op::Range(_, b) if b <= 5.0)
-                {
-                    20.0
-                } else {
-                    1.0
-                };
-                numeric("u.rating", scale, &mut conds, &mut params)
-            }
             Some("plays") => numeric("u.play_count", 1.0, &mut conds, &mut params),
             Some("bits" | "bitdepth") => numeric("t.bit_depth", 1.0, &mut conds, &mut params),
             Some("rate" | "samplerate") => {
@@ -357,7 +344,7 @@ mod tests {
 
     #[test]
     fn parses_the_spec_example() {
-        let c = parse(r#"artist:"Radiohead" year:>2000 format:flac rating:>=4"#);
+        let c = parse(r#"artist:"Radiohead" year:>2000 format:flac plays:>=4"#);
         assert_eq!(c.len(), 4);
         assert_eq!(c[0].field.as_deref(), Some("artist"));
         assert_eq!(c[0].value, "Radiohead");

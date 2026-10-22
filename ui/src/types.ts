@@ -1,7 +1,7 @@
 // Mirrors of the Rust types the shell sends (serde camelCase). Keep in step with cadenza-api.
 
 export type SongSort =
-  'title' | 'artist' | 'album' | 'year' | 'duration' | 'added' | 'genre' | 'plays' | 'rating';
+  'title' | 'artist' | 'album' | 'year' | 'duration' | 'added' | 'genre' | 'plays';
 export type AlbumSort = 'artist' | 'title' | 'year' | 'added';
 export type Quality = 'lossy' | 'lossless' | 'hires' | 'dsd';
 
@@ -25,7 +25,6 @@ export interface TrackRow {
   bitrate: number;
   quality: Quality;
   artHash: string | null;
-  rating: number | null;
   favourite: boolean;
   playCount: number;
 }

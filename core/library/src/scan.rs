@@ -519,22 +519,17 @@ fn insert_stub(tx: &Transaction<'_>, root_id: i64, t: &NewTrack) -> Result<i64> 
         params![uuid::Uuid::now_v7().to_string(), t.audio_hash, root_id, t.rel, t.cue_index, now(), now()],
     )?;
     let id = tx.last_insert_rowid();
-    // Ratings and play counts stored in the file seed the library on first sight.
-    let rating = t
-        .fields
-        .get("rating")
-        .and_then(|v| v.first())
-        .and_then(|r| r.parse::<i64>().ok());
+    // Play counts stored in the file seed the library on first sight.
     let plays = t
         .fields
         .get("playcount")
         .and_then(|v| v.first())
         .and_then(|r| r.parse::<i64>().ok())
         .unwrap_or(0);
-    if rating.is_some() || plays > 0 {
+    if plays > 0 {
         tx.execute(
-            "INSERT OR IGNORE INTO user_data (track_uid, rating, play_count) SELECT uid, ?, ? FROM tracks WHERE id = ?",
-            params![rating, plays, id],
+            "INSERT OR IGNORE INTO user_data (track_uid, play_count) SELECT uid, ? FROM tracks WHERE id = ?",
+            params![plays, id],
         )?;
     }
     Ok(id)

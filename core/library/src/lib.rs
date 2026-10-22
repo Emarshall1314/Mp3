@@ -76,14 +76,13 @@ pub struct TrackRow {
     pub bitrate: i64,
     pub quality: String,
     pub art_hash: Option<String>,
-    pub rating: Option<i64>,
     pub favourite: bool,
     pub play_count: i64,
 }
 
 const TRACK_COLUMNS: &str = "t.id, t.uid, t.title, t.artist, t.album, t.albumartist, t.album_id, t.duration_ms,
     t.track_no, t.disc_no, t.year, t.genre, t.codec, t.sample_rate, t.bit_depth, t.dsd_rate, t.bitrate, t.quality,
-    t.art_hash, u.rating, COALESCE(u.favourite, 0), COALESCE(u.play_count, 0)";
+    t.art_hash, COALESCE(u.favourite, 0), COALESCE(u.play_count, 0)";
 const TRACK_FROM: &str = "tracks t LEFT JOIN user_data u ON u.track_uid = t.uid";
 
 fn track_row(r: &Row<'_>) -> rusqlite::Result<TrackRow> {
@@ -107,9 +106,8 @@ fn track_row(r: &Row<'_>) -> rusqlite::Result<TrackRow> {
         bitrate: r.get(16)?,
         quality: r.get(17)?,
         art_hash: r.get(18)?,
-        rating: r.get(19)?,
-        favourite: r.get(20)?,
-        play_count: r.get(21)?,
+        favourite: r.get(19)?,
+        play_count: r.get(20)?,
     })
 }
 
@@ -177,7 +175,6 @@ pub enum SongSort {
     Added,
     Genre,
     Plays,
-    Rating,
 }
 
 impl SongSort {
@@ -196,7 +193,6 @@ impl SongSort {
             SongSort::Added => format!("t.added_at{d}, t.id{d}"),
             SongSort::Genre => format!("t.genre{d}, t.sort_artist, t.id"),
             SongSort::Plays => format!("COALESCE(u.play_count, 0){d}, t.sort_artist, t.id"),
-            SongSort::Rating => format!("COALESCE(u.rating, 0){d}, t.sort_artist, t.id"),
         }
     }
 }
@@ -403,7 +399,7 @@ impl Library {
         // Page through ids on the (covering, partial) sort index first; only the page's rows are
         // then read in full. A deep OFFSET over full rows costs a table lookup per skipped row.
         let from = match sort {
-            SongSort::Plays | SongSort::Rating => TRACK_FROM,
+            SongSort::Plays => TRACK_FROM,
             _ => "tracks t",
         };
         let sql = format!(

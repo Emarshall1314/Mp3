@@ -8,7 +8,7 @@ import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
 
 const HELP =
-  'Try artist:"Name", year:>2000, format:flac, quality:hires, rating:>=4, added:<30, -exclude';
+  'Try artist:"Name", year:>2000, format:flac, quality:hires, plays:>10, added:<30, -exclude';
 
 /// Instant results across all fields; the advanced syntax works in the same box.
 export function SearchView({ query }: { query: string }) {

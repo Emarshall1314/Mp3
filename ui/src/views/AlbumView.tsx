@@ -130,9 +130,6 @@ export function AlbumView({ id }: { id: number }) {
                     <span>{t.title}</span>
                     {featured && <span className="featured">{featured}</span>}
                   </div>
-                  <span className="track-rating">
-                    {t.rating ? '★'.repeat(Math.round(t.rating / 20)) : ''}
-                  </span>
                   <span className="time">{duration(t.durationMs)}</span>
                 </div>
               );

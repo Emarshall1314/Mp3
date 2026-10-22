@@ -7,6 +7,8 @@ Each milestone is a vertical slice that ends with a usable, tested app and a dem
 - no placeholder UI remains
 - PROGRESS.md is updated
 
+The owner's build prompt is kept at [`docs/spec/build-prompt.pdf`](spec/build-prompt.pdf) (revised October 2026: ratings removed, M5 extended). Where the prompt still mentions ratings (a "Rate" context-menu item), D50 wins.
+
 Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS and iOS are out of scope.)
 
 ---
@@ -63,7 +65,6 @@ Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS
 - Online lookup: MusicBrainz + Cover Art Archive, Discogs (user token), AcoustID (fingerprint);
   side-by-side diff with per-field/track/all accept.
 - Action presets; file organiser (rename/move with preview, illegal chars, long paths, stats kept).
-- Ratings/favourites optionally written to tags.
 
 ## M5 — Customisation (D)
 - Theme engine (JSON ↔ tokens), theme editor with live preview + WCAG AA contrast warnings,
@@ -73,6 +74,9 @@ Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS
   (queue, lyrics, info, tag editor, signal path), per-section default view incl. column browser,
   list column editing + grouping, Now Playing styles, layout presets + shortcut switching.
 - Custom CSS with safe-mode start; fully remappable shortcuts + global media hotkeys.
+- Owner additions (October 2026): an accent colour picker; reorderable grid, tab and list options
+  (sidebar, Android tabs, list columns, grid or list per section); gradient backgrounds; and a
+  "liquid glass" option, researched for and adapted to Linux (WebKitGTK) and Android (WebView).
 
 ## M6 — Sync (D)
 - `sync`: HLC, op log, segment writer/reader, snapshots, apply engine (rewriting local tags safely).
