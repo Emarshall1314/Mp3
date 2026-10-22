@@ -2189,3 +2189,21 @@ kbd {
 .changes-artwork {
   margin: 0 0 var(--space-3);
 }
+
+.organiser {
+  margin-top: var(--space-4);
+}
+
+.organiser h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-200);
+}
+
+.rename-plan tr.same td,
+.rename-plan tr.error td {
+  color: var(--color-text-secondary);
+}
+
+.rename-plan .before {
+  text-decoration: none;
+}

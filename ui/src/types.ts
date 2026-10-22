@@ -236,6 +236,15 @@ export interface StoredArt {
   bytes: number;
 }
 
+export interface RenamePlan {
+  trackId: number;
+  from: string;
+  to: string;
+  /** Only "move" entries are moved. */
+  status: 'move' | 'same' | 'conflict' | 'error';
+  note: string | null;
+}
+
 export interface TrackEdit {
   trackId: number;
   fields: Fields;

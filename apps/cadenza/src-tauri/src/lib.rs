@@ -9,9 +9,9 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
     Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Repeat, ReplayGainSettings, Root,
-    SavedSearch, ScanStatus, SearchResults, Settings, SongSort, StoredArt, TrackEdit, TrackRow,
-    TrackTags,
+    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
+    ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults, Settings, SongSort,
+    StoredArt, TrackEdit, TrackRow, TrackTags,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -257,6 +257,16 @@ fn save_cover_to_folder(app: App<'_>, track_id: i64) -> Res<String> {
     app.save_cover_to_folder(track_id)
         .map(|p| p.display().to_string())
         .map_err(e)
+}
+
+#[tauri::command(async)]
+fn preview_organise(app: App<'_>, ids: Vec<i64>, pattern: String) -> Res<Vec<RenamePlan>> {
+    app.preview_organise(&ids, &pattern).map_err(e)
+}
+
+#[tauri::command(async)]
+fn organise(app: App<'_>, ids: Vec<i64>, pattern: String) -> Res<i64> {
+    app.organise(&ids, &pattern).map_err(e)
 }
 
 #[tauri::command(async)]
@@ -576,6 +586,8 @@ pub fn run() {
             edit_changes,
             undo_edit,
             set_tag_backups,
+            preview_organise,
+            organise,
             import_artwork,
             save_cover_to_folder,
             storage_access,

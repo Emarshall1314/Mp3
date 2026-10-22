@@ -7,6 +7,7 @@
 
 mod edit;
 mod loudness;
+mod organise;
 mod settings;
 mod watch;
 
@@ -29,7 +30,7 @@ pub use cadenza_library::{
 };
 pub use edit::{
     EditFailure, EditReport, EditStatus, LegacyFix, PictureEdit, PictureInfo, PictureRef,
-    TrackEdit, TrackTags,
+    RenamePlan, TrackEdit, TrackTags,
 };
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
@@ -681,6 +682,16 @@ impl Cadenza {
     /// Saves a track's front cover as cover.jpg (or .png) in its folder.
     pub fn save_cover_to_folder(&self, track_id: i64) -> Result<PathBuf> {
         self.editor.save_cover(track_id)
+    }
+
+    /// Where the organiser would move each track's file (`pattern`: see the organiser docs).
+    pub fn preview_organise(&self, ids: &[i64], pattern: &str) -> Result<Vec<RenamePlan>> {
+        self.editor.preview_organise(ids, pattern)
+    }
+
+    /// Moves the tracks' files to the paths `pattern` gives, in the background; undoable.
+    pub fn organise(&self, ids: &[i64], pattern: &str) -> Result<i64> {
+        self.editor.organise(ids, pattern)
     }
 
     /// Keep a copy of each file in the data folder before its tags are changed.

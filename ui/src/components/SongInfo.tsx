@@ -7,6 +7,7 @@ import { useModal } from '../hooks/useModal';
 import { Artwork } from './Artwork';
 import { TagActionsPanel } from './TagActionsPanel';
 import { ArtworkEditor } from './ArtworkEditor';
+import { Organiser } from './Organiser';
 
 type Kind = 'text' | 'long' | 'number' | 'check';
 interface FieldDef {
@@ -384,6 +385,7 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
                   {t.readOnly && <span className="small warn">{t.readOnly}</span>}
                 </div>
               ))}
+              <Organiser ids={ids} onDone={onClose} />
             </div>
           )}
         </div>

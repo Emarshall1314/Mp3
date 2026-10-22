@@ -134,7 +134,25 @@ struct Job {
     pictures: Option<PictureEdit>,
     /// For undo: the pictures the file must still hold (as recorded).
     expect_pictures: Option<Vec<String>>,
+    /// Instead of tags: move the file from here to there (the organiser, and its undo).
+    rename: Option<(PathBuf, PathBuf)>,
 }
+
+/// One file's move in an organiser preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamePlan {
+    pub track_id: i64,
+    pub from: String,
+    pub to: String,
+    /// "move", "same" (already there), "conflict" or "error"; only "move" happens.
+    pub status: String,
+    /// Why, for a conflict or an error.
+    pub note: Option<String>,
+}
+
+/// The history "field" for a file move: [old path] → [new path].
+const FILE: &str = "file";
 
 pub(crate) struct Editor {
     library: Arc<Library>,
@@ -244,6 +262,7 @@ impl Editor {
                 expect: BTreeMap::new(),
                 pictures: e.pictures,
                 expect_pictures: None,
+                rename: None,
             })
             .collect();
         self.run(jobs, description, None, backups)
@@ -273,8 +292,13 @@ impl Editor {
                 expect: BTreeMap::new(),
                 pictures: None,
                 expect_pictures: None,
+                rename: None,
             });
-            if change.field == PICTURES {
+            if change.field == FILE {
+                if let (Some(old), Some(new)) = (change.old.first(), change.new.first()) {
+                    job.rename = Some((PathBuf::from(new), PathBuf::from(old)));
+                }
+            } else if change.field == PICTURES {
                 job.pictures = Some(PictureEdit::Replace {
                     pictures: change.old.iter().filter_map(|s| parse_picture(s)).collect(),
                 });
@@ -403,6 +427,9 @@ impl Editor {
             })?;
         let path = track.path.display().to_string();
         let fail = |e: String| (path.clone(), e);
+        if let Some((from, to)) = &job.rename {
+            return self.move_file(batch, job.track_id, from, to);
+        }
         if track.start_frame.is_some() {
             return Err(fail(
                 "songs from a cue sheet are edited in the .cue file".into(),
@@ -528,6 +555,145 @@ impl Editor {
             }
             PictureEdit::RemoveAll => Vec::new(),
         })
+    }
+
+    /// Where the organiser would put each track's file under `pattern` (relative to its music
+    /// folder), without touching anything.
+    pub(crate) fn preview_organise(&self, ids: &[i64], pattern: &str) -> Result<Vec<RenamePlan>> {
+        let roots: Vec<PathBuf> = self
+            .library
+            .roots()?
+            .into_iter()
+            .map(|r| PathBuf::from(r.path))
+            .collect();
+        let mut plans: Vec<RenamePlan> = Vec::new();
+        let mut taken = std::collections::HashSet::new();
+        for t in self.library.playable(ids)? {
+            let from = t.path.display().to_string();
+            let mut plan = RenamePlan {
+                track_id: t.id,
+                from: from.clone(),
+                to: String::new(),
+                status: "error".into(),
+                note: None,
+            };
+            let target = (|| -> std::result::Result<PathBuf, String> {
+                if t.start_frame.is_some() {
+                    return Err("part of a single-file album with a cue sheet".into());
+                }
+                let root = roots
+                    .iter()
+                    .filter(|r| t.path.starts_with(r))
+                    .max_by_key(|r| r.as_os_str().len())
+                    .ok_or("not inside a music folder")?;
+                let tags = cadenza_tags::read(&t.path).map_err(|e| e.to_string())?;
+                let ext = t
+                    .path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or_default();
+                Ok(root.join(crate::organise::relative_path(pattern, &tags.fields, ext)?))
+            })();
+            match target {
+                Err(note) => plan.note = Some(note),
+                Ok(to) => {
+                    plan.to = to.display().to_string();
+                    if to == t.path {
+                        plan.status = "same".into();
+                    } else if !taken.insert(to.clone()) {
+                        plan.status = "conflict".into();
+                        plan.note =
+                            Some("another song in this list would get the same name".into());
+                    } else if to.exists() {
+                        plan.status = "conflict".into();
+                        plan.note = Some("a file with that name is already there".into());
+                    } else {
+                        plan.status = "move".into();
+                    }
+                }
+            }
+            plans.push(plan);
+        }
+        Ok(plans)
+    }
+
+    /// Moves the files of a preview's "move" entries, in the background (a batch, undoable).
+    pub(crate) fn organise(self: &Arc<Self>, ids: &[i64], pattern: &str) -> Result<i64> {
+        let jobs: Vec<Job> = self
+            .preview_organise(ids, pattern)?
+            .into_iter()
+            .filter(|p| p.status == "move")
+            .map(|p| Job {
+                track_id: p.track_id,
+                fields: BTreeMap::new(),
+                expect: BTreeMap::new(),
+                pictures: None,
+                expect_pictures: None,
+                rename: Some((PathBuf::from(p.from), PathBuf::from(p.to))),
+            })
+            .collect();
+        if jobs.is_empty() {
+            return Err(Error::Other("no files need moving".into()));
+        }
+        let n = jobs.len();
+        let description = if n == 1 {
+            "Rename 1 file".to_owned()
+        } else {
+            format!("Rename {n} files")
+        };
+        self.run(jobs, &description, None, false)
+    }
+
+    /// Moves one file (and a .lrc beside it), creating folders and removing ones left empty.
+    fn move_file(
+        &self,
+        batch: i64,
+        track_id: i64,
+        from: &std::path::Path,
+        to: &std::path::Path,
+    ) -> std::result::Result<(), (String, String)> {
+        let fail = |e: String| (from.display().to_string(), e);
+        if !from.exists() {
+            return Err(fail("the file isn't there any more; left as it is".into()));
+        }
+        if to.exists() {
+            return Err(fail(format!("{} already exists", to.display())));
+        }
+        if let Some(dir) = to.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| fail(e.to_string()))?;
+        }
+        std::fs::rename(from, to).map_err(|e| fail(e.to_string()))?;
+        let lrc_from = from.with_extension("lrc");
+        let lrc_to = to.with_extension("lrc");
+        if lrc_from.exists() && !lrc_to.exists() {
+            let _ = std::fs::rename(&lrc_from, &lrc_to);
+        }
+        let roots: Vec<PathBuf> = self
+            .library
+            .roots()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| PathBuf::from(r.path))
+            .collect();
+        let mut dir = from.parent();
+        while let Some(d) = dir {
+            if roots.iter().any(|r| r == d) || std::fs::remove_dir(d).is_err() {
+                break;
+            }
+            dir = d.parent();
+        }
+        self.library
+            .record_edit(
+                batch,
+                track_id,
+                vec![(
+                    FILE.to_owned(),
+                    vec![from.display().to_string()],
+                    vec![to.display().to_string()],
+                )],
+            )
+            .map_err(|e| fail(format!("moved, but not recorded for undo: {e}")))?;
+        Ok(())
     }
 
     /// Reads an image file into the artwork cache, for use in a picture edit.

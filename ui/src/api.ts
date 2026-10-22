@@ -28,6 +28,7 @@ import type {
   ScanStatus,
   SearchResults,
   Settings,
+  RenamePlan,
   SongSort,
   StoredArt,
   TrackEdit,
@@ -97,6 +98,9 @@ export const api = {
   undoEdit: (batch: number) => invoke<number>('undo_edit', { batch }),
   importArtwork: (path: string) => invoke<StoredArt>('import_artwork', { path }),
   saveCoverToFolder: (trackId: number) => invoke<string>('save_cover_to_folder', { trackId }),
+  previewOrganise: (ids: number[], pattern: string) =>
+    invoke<RenamePlan[]>('preview_organise', { ids, pattern }),
+  organise: (ids: number[], pattern: string) => invoke<number>('organise', { ids, pattern }),
   setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   loudnessStatus: () => invoke<LoudnessStatus>('loudness_status'),

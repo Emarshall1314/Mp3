@@ -374,3 +374,108 @@ fn artwork_edits_replace_the_cover_and_can_be_undone() {
         );
     }
 }
+
+#[test]
+fn the_organiser_moves_files_keeps_their_history_and_can_undo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let music = tmp.path().join("music");
+    copy_dir(
+        &fixtures_dir().join("library/Alpha Band"),
+        &music.join("Alpha Band"),
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let app = Cadenza::open(
+        &tmp.path().join("data"),
+        Some(Box::new(Capture::new())),
+        move |e| sink.lock().unwrap().push(e),
+    )
+    .unwrap();
+    app.add_root(&music).unwrap();
+    let scans = || {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, ApiEvent::ScanFinished { .. }))
+            .count()
+    };
+    let finished = || {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, ApiEvent::EditFinished { .. }))
+            .count()
+    };
+    wait("first scan", Duration::from_secs(20), || scans() >= 1);
+    let album = app.albums(AlbumSort::Artist, 0, 1).unwrap()[0].clone();
+    let ids: Vec<i64> = app
+        .album(album.id)
+        .unwrap()
+        .tracks
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    app.play_tracks(&ids[..1], 0, false).unwrap();
+    wait("a play", Duration::from_secs(20), || {
+        events.lock().unwrap().iter().any(|e| {
+            matches!(
+                e,
+                ApiEvent::Player {
+                    event: PlayerEvent::TrackFinished { .. }
+                }
+            )
+        }) && app.tracks(&ids[..1]).unwrap()[0].play_count == 1
+    });
+    let before: Vec<String> = app
+        .track_tags(&ids)
+        .unwrap()
+        .into_iter()
+        .map(|t| t.path)
+        .collect();
+
+    let pattern = "Sorted/%albumartist%/[%year% - ]%album%/%tracknumber:2% %title%";
+    let plan = app.preview_organise(&ids, pattern).unwrap();
+    assert!(plan.iter().all(|p| p.status == "move"), "{plan:?}");
+    assert!(
+        plan[0]
+            .to
+            .contains("Sorted/Alpha Band/2001 - Greatest Hits/01 "),
+        "{}",
+        plan[0].to
+    );
+    assert!(
+        std::path::Path::new(&before[0]).exists(),
+        "a preview moves nothing"
+    );
+
+    let scans_before = scans();
+    let batch = app.organise(&ids, pattern).unwrap();
+    wait("moves", Duration::from_secs(20), || finished() == 1);
+    wait("rescan", Duration::from_secs(20), || scans() > scans_before);
+    for p in &plan {
+        assert!(std::path::Path::new(&p.to).exists(), "{} moved", p.to);
+        assert!(!std::path::Path::new(&p.from).exists());
+    }
+    assert!(
+        !music.join("Alpha Band").exists(),
+        "the emptied folder is removed"
+    );
+    let now = app.tracks(&ids).unwrap();
+    assert_eq!(now.len(), ids.len(), "same track ids after the move");
+    assert_eq!(now[0].play_count, 1, "play counts kept");
+    assert_eq!(
+        app.preview_organise(&ids, pattern).unwrap()[0].status,
+        "same"
+    );
+
+    let scans_before = scans();
+    app.undo_edit(batch).unwrap();
+    wait("undo", Duration::from_secs(20), || finished() == 2);
+    wait("rescan", Duration::from_secs(20), || scans() > scans_before);
+    for path in &before {
+        assert!(std::path::Path::new(path).exists(), "{path} back");
+    }
+    assert!(!music.join("Sorted").exists());
+}
