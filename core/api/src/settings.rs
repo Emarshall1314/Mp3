@@ -24,6 +24,8 @@ pub struct Settings {
     /// Crossfade between tracks, in seconds (0: off).
     pub crossfade_s: f64,
     pub appearance: Appearance,
+    /// Copy each file to `<data>/backups` before writing its tags.
+    pub tag_backups: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +71,7 @@ impl Default for Settings {
             replay_gain: ReplayGainSettings::default(),
             crossfade_s: 0.0,
             appearance: Appearance::default(),
+            tag_backups: false,
         }
     }
 }

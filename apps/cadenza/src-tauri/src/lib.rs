@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
-    Cadenza, DspSettings, EqBand, Home, ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs,
-    PlayerState, Repeat, ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults,
-    Settings, SongSort, TrackRow,
+    Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
+    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Repeat, ReplayGainSettings, Root,
+    SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackEdit, TrackRow, TrackTags,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -207,6 +207,46 @@ fn settings(app: App<'_>) -> Settings {
 #[tauri::command(async)]
 fn set_crossfade(app: App<'_>, seconds: f64) -> Res<()> {
     app.set_crossfade(seconds).map_err(e)
+}
+
+#[tauri::command(async)]
+fn track_tags(app: App<'_>, ids: Vec<i64>) -> Res<Vec<TrackTags>> {
+    app.track_tags(&ids).map_err(e)
+}
+
+#[tauri::command(async)]
+fn edit_tracks(app: App<'_>, edits: Vec<TrackEdit>, description: String) -> Res<i64> {
+    app.edit_tracks(edits, &description).map_err(e)
+}
+
+#[tauri::command]
+fn edit_status(app: App<'_>) -> EditStatus {
+    app.edit_status()
+}
+
+#[tauri::command]
+fn cancel_edit(app: App<'_>) {
+    app.cancel_edit();
+}
+
+#[tauri::command(async)]
+fn edit_history(app: App<'_>, limit: i64) -> Res<Vec<EditBatch>> {
+    app.edit_history(limit).map_err(e)
+}
+
+#[tauri::command(async)]
+fn edit_changes(app: App<'_>, batch: i64) -> Res<Vec<EditChange>> {
+    app.edit_changes(batch).map_err(e)
+}
+
+#[tauri::command(async)]
+fn undo_edit(app: App<'_>, batch: i64) -> Res<i64> {
+    app.undo_edit(batch).map_err(e)
+}
+
+#[tauri::command(async)]
+fn set_tag_backups(app: App<'_>, on: bool) -> Res<()> {
+    app.set_tag_backups(on).map_err(e)
 }
 
 /// Saves the appearance and tells every window (main and mini player) to apply it.
@@ -513,6 +553,14 @@ pub fn run() {
             settings,
             set_crossfade,
             set_appearance,
+            track_tags,
+            edit_tracks,
+            edit_status,
+            cancel_edit,
+            edit_history,
+            edit_changes,
+            undo_edit,
+            set_tag_backups,
             storage_access,
             request_storage_access,
             pick_music_folder,

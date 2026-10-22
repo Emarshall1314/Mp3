@@ -6,6 +6,7 @@ mod art;
 mod cue;
 mod db;
 mod hash;
+mod history;
 mod lyrics;
 mod pages;
 mod scan;
@@ -18,6 +19,7 @@ use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 use serde::Serialize;
 
 pub use art::THUMB_SIZES;
+pub use history::{EditBatch, EditChange};
 pub use lyrics::{LyricLine, Lyrics};
 pub use pages::{ArtistPage, Home, ReleaseSection};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};

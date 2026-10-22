@@ -165,6 +165,28 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tracks ADD COLUMN rg_hash TEXT;
     CREATE INDEX tracks_no_gain ON tracks(album_id) WHERE rg_track_gain IS NULL AND missing_since IS NULL;
     "#,
+    // 3: tag edit history, for undo. Values are JSON arrays; tracks by uid, which survives moves.
+    r#"
+    CREATE TABLE edit_batches (
+        id INTEGER PRIMARY KEY,
+        at INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        -- the batch this one undid
+        undo_of INTEGER REFERENCES edit_batches(id),
+        undone INTEGER NOT NULL DEFAULT 0,
+        written INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        finished INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE edit_changes (
+        batch_id INTEGER NOT NULL REFERENCES edit_batches(id) ON DELETE CASCADE,
+        track_uid TEXT NOT NULL,
+        field TEXT NOT NULL,
+        old TEXT NOT NULL,
+        new TEXT NOT NULL
+    );
+    CREATE INDEX edit_changes_batch ON edit_changes(batch_id);
+    "#,
 ];
 
 pub(crate) struct Db {

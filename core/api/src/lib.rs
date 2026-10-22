@@ -5,6 +5,7 @@
 //! Types stay plain so the same API can later be exported through UniFFI if a native mobile UI
 //! is needed.
 
+mod edit;
 mod loudness;
 mod settings;
 mod watch;
@@ -22,10 +23,11 @@ pub use cadenza_engine::{
     ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
 pub use cadenza_library::{
-    AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Home, LibraryStats, LyricLine, Lyrics,
-    ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults,
-    SongSort, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, EditBatch, EditChange, Home,
+    LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
+    ScanReport, SearchResults, SongSort, TrackRow,
 };
+pub use edit::{EditFailure, EditReport, EditStatus, PictureInfo, TrackEdit, TrackTags};
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
 
@@ -85,6 +87,14 @@ pub enum ApiEvent {
     /// Loudness measurement progress.
     Loudness {
         status: LoudnessStatus,
+    },
+    /// Tag writing progress.
+    EditProgress {
+        status: EditStatus,
+    },
+    /// A batch of tag changes was written (or stopped).
+    EditFinished {
+        report: EditReport,
     },
 }
 
@@ -169,6 +179,7 @@ pub struct Cadenza {
     current: Mutex<Settings>,
     analyzer: Arc<loudness::Analyzer>,
     scanner: Arc<Scanner>,
+    editor: Arc<edit::Editor>,
     _watcher: Mutex<Option<watch::Watcher>>,
 }
 
@@ -248,6 +259,12 @@ impl Cadenza {
         engine.set_dsp(saved.current_dsp());
         engine.set_replay_gain(saved.replay_gain);
         engine.set_crossfade(saved.crossfade_s);
+        let editor = Arc::new(edit::Editor::new(
+            Arc::clone(&library),
+            Arc::clone(&scanner),
+            Arc::clone(&scanner.emit),
+            data_dir.to_owned(),
+        ));
         let me = Self {
             library,
             engine,
@@ -255,6 +272,7 @@ impl Cadenza {
             current: Mutex::new(saved),
             analyzer,
             scanner,
+            editor,
             _watcher: Mutex::new(None),
         };
         me.restart_watcher();
@@ -611,6 +629,51 @@ impl Cadenza {
     pub fn set_appearance(&self, appearance: Appearance) -> Result<()> {
         let mut settings = self.settings();
         settings.appearance = appearance;
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        Ok(())
+    }
+
+    /// Tracks' tags as their files hold them now, for the tag editor.
+    pub fn track_tags(&self, ids: &[i64]) -> Result<Vec<TrackTags>> {
+        self.editor.tags(ids)
+    }
+
+    /// Writes tag changes to files in the background (see [`ApiEvent::EditProgress`] and
+    /// [`ApiEvent::EditFinished`]); returns the batch id, for undo.
+    pub fn edit_tracks(&self, edits: Vec<TrackEdit>, description: &str) -> Result<i64> {
+        self.editor
+            .start(edits, description, self.settings().tag_backups)
+    }
+
+    pub fn edit_status(&self) -> EditStatus {
+        self.editor.status()
+    }
+
+    /// Stops after the file being written; files already written stay changed.
+    pub fn cancel_edit(&self) {
+        self.editor.cancel();
+    }
+
+    pub fn edit_history(&self, limit: i64) -> Result<Vec<EditBatch>> {
+        Ok(self.library.edit_batches(limit)?)
+    }
+
+    pub fn edit_changes(&self, batch: i64) -> Result<Vec<EditChange>> {
+        Ok(self.library.edit_changes(batch)?)
+    }
+
+    /// Writes back the values a batch replaced, where the files still hold what it wrote.
+    pub fn undo_edit(&self, batch: i64) -> Result<i64> {
+        self.editor.undo(batch, self.settings().tag_backups)
+    }
+
+    /// Keep a copy of each file in the data folder before its tags are changed.
+    pub fn set_tag_backups(&self, on: bool) -> Result<()> {
+        let mut settings = self.settings();
+        settings.tag_backups = on;
         self.settings.save(&settings)?;
         if let Ok(mut s) = self.current.lock() {
             *s = settings;

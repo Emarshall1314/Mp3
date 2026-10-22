@@ -177,3 +177,109 @@ fn appearance_is_saved_across_restarts() {
     drop(app);
     assert_eq!(open().settings().appearance, chosen);
 }
+
+#[test]
+fn tag_edits_reach_files_and_library_and_can_be_undone() {
+    use cadenza_api::TrackEdit;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let music = tmp.path().join("music");
+    copy_dir(
+        &fixtures_dir().join("library/Alpha Band"),
+        &music.join("Alpha Band"),
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let app = Cadenza::open(
+        &tmp.path().join("data"),
+        Some(Box::new(Capture::new())),
+        move |e| sink.lock().unwrap().push(e),
+    )
+    .unwrap();
+    app.add_root(&music).unwrap();
+    let scans = || {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, ApiEvent::ScanFinished { .. }))
+            .count()
+    };
+    let finished = || -> Vec<cadenza_api::EditReport> {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                ApiEvent::EditFinished { report } => Some(report.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    wait("first scan", Duration::from_secs(20), || scans() >= 1);
+
+    let track = app
+        .songs(cadenza_api::SongSort::Title, false, 0, 1)
+        .unwrap()[0]
+        .clone();
+    let original = track.title.clone();
+    let tags = app.track_tags(&[track.id]).unwrap();
+    assert_eq!(tags[0].fields["title"], vec![original.clone()]);
+    assert!(tags[0].read_only.is_none());
+
+    let edit = |title: &str| TrackEdit {
+        track_id: track.id,
+        fields: [("title".to_owned(), vec![title.to_owned()])].into(),
+    };
+    let scans_before = scans();
+    let batch = app.edit_tracks(vec![edit("Renamed ✓")], "Rename").unwrap();
+    wait("edit", Duration::from_secs(20), || finished().len() == 1);
+    let report = &finished()[0];
+    assert_eq!(
+        (report.batch, report.written, report.failed.len()),
+        (batch, 1, 0)
+    );
+    wait("rescan", Duration::from_secs(20), || scans() > scans_before);
+    let now = &app.tracks(&[track.id]).unwrap()[0];
+    assert_eq!(now.title, "Renamed ✓", "same track id, new title");
+
+    let history = app.edit_history(10).unwrap();
+    assert_eq!(history[0].description, "Rename");
+    assert_eq!(history[0].tracks, 1);
+    let changes = app.edit_changes(batch).unwrap();
+    assert_eq!(changes[0].old, vec![original.clone()]);
+    assert_eq!(changes[0].new, vec!["Renamed ✓".to_owned()]);
+
+    let scans_before = scans();
+    app.undo_edit(batch).unwrap();
+    wait("undo", Duration::from_secs(20), || finished().len() == 2);
+    assert_eq!(finished()[1].written, 1);
+    wait("rescan", Duration::from_secs(20), || scans() > scans_before);
+    assert_eq!(app.tracks(&[track.id]).unwrap()[0].title, original);
+    let history = app.edit_history(10).unwrap();
+    assert!(history[1].undone, "the first batch is marked undone");
+    assert!(app.undo_edit(batch).is_err(), "can't undo twice");
+
+    // An undo leaves alone fields changed since the edit.
+    let batch = app.edit_tracks(vec![edit("Second")], "Again").unwrap();
+    wait("edit", Duration::from_secs(20), || finished().len() == 3);
+    let path = std::path::PathBuf::from(&app.track_tags(&[track.id]).unwrap()[0].path);
+    let mut elsewhere = cadenza_tags::Edit::default();
+    elsewhere
+        .fields
+        .insert("title".into(), vec!["Changed elsewhere".into()]);
+    cadenza_tags::write(&path, &elsewhere, &Default::default()).unwrap();
+    app.undo_edit(batch).unwrap();
+    wait("undo", Duration::from_secs(20), || finished().len() == 4);
+    let report = &finished()[3];
+    assert_eq!(report.written, 0);
+    assert!(
+        report.failed[0].error.contains("changed since"),
+        "{:?}",
+        report.failed
+    );
+    assert_eq!(
+        cadenza_tags::read(&path).unwrap().get("title"),
+        Some("Changed elsewhere")
+    );
+}
