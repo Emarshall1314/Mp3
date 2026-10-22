@@ -500,12 +500,19 @@ fn ratings_stay_in_the_library_unless_written_to_files() {
     wait("first scan", Duration::from_secs(20), || {
         app.scan_status().last_report.is_some()
     });
-    let track = app.songs(cadenza_api::SongSort::Title, false, 0, 1).unwrap()[0].clone();
+    let track = app
+        .songs(cadenza_api::SongSort::Title, false, 0, 1)
+        .unwrap()[0]
+        .clone();
     let path = std::path::PathBuf::from(&app.track_tags(&[track.id]).unwrap()[0].path);
 
     assert_eq!(app.rate(&[track.id], Some(60)).unwrap(), None);
     assert_eq!(app.tracks(&[track.id]).unwrap()[0].rating, Some(60));
-    assert_eq!(cadenza_tags::read(&path).unwrap().get("rating"), None, "file untouched");
+    assert_eq!(
+        cadenza_tags::read(&path).unwrap().get("rating"),
+        None,
+        "file untouched"
+    );
 
     app.set_ratings_to_files(true).unwrap();
     let scans = app.scan_status().last_report.clone();

@@ -2,8 +2,10 @@
 
 ## Status (2026-10-22)
 
-**M3 (Design polish) is done for Linux**, on top of M1 (Foundation) and M2 (Hi-res engine).
-`cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
+**M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
+(MusicBrainz, Cover Art Archive, Discogs, AcoustID) waits for network access to those services
+from the development environment, so it can be built against the real services rather than
+guessed responses. `cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
 media keys need a real desktop session to see, so check them on the owner's machine with
 `docs/demos/M3.md`. None of the M2 output work has run on real audio hardware yet (see
 `docs/demos/M2.md`). The Android spike is built and waiting for the owner's phone: see
@@ -178,12 +180,56 @@ media keys need a real desktop session to see, so check them on the owner's mach
 - The mini player and tray are desktop only, and their buttons don't show on Android.
 - Phone test: `docs/demos/Android.md`.
 
+### M4: Tag editing
+- **Safe writing** (`cadenza-tags`, D46): every tag format Cadenza reads can be written: ID3v2.3/2.4
+  (MP3, WAV, AIFF, and the ID3 tag inside DSF/DFF), Vorbis comments (FLAC, Ogg, Opus), MP4 atoms
+  and APEv2.
+  - Only the edited fields change; frames, comments and atoms Cadenza doesn't know survive.
+  - The edited copy must read back as intended, with every other field and the audio (a full
+    BLAKE3 of the audio region) unchanged, before it is fsynced and renamed over the original.
+  - Read-only files, unwritable fields and bad values are refused up front.
+- **Edits through the library** (D47): background batches with progress, Stop, per-file errors, an
+  incremental scan afterwards (same track ids), and history with undo that leaves alone anything
+  changed since. Optional backups of each file before it changes.
+- **Song Info** (Get Info…, Ctrl+I for the playing song): Details, Credits, Sorting, Lyrics,
+  Artwork, All Tags (every field, custom ones included), and File.
+  - Several songs at once: differing fields show Mixed and stay untouched unless changed.
+  - Table: per-song cells with keyboard movement, paste from a spreadsheet, Fill Down, Number
+    Tracks.
+  - Actions (D48): find and replace (text or regular expressions), case (title case with
+    exceptions), clean-up, tags from file names, copy, split and join, clear, fix legacy
+    encodings.
+  - Changes: every pending change, old to new, with Revert, before anything is written.
+- **Artwork**: add, retype, describe and remove pictures; one cover for many songs; save the cover
+  to the folder. Undo restores old artwork from the artwork cache.
+- **File organiser** (D49): rename and move files from a tag pattern, previewed first; names safe
+  for Windows and Android SD cards; play counts and ratings follow the files; undoable.
+- **Ratings** (D50): stars on the album page, stored by Cadenza; optionally written into the
+  files.
+- **Fixes found along the way**:
+  - An MP3 with a date frame that isn't an ID3 timestamp ("Spring 1999") couldn't be read at all.
+  - lofty drops ID3v2.4-only frames from v2.3 tags; those fields go to TXXX frames there.
+  - lofty's Vorbis comment removal reordered other fields' values.
+- **Tests**:
+  - All 13 tag formats round-trip an edit and its undo.
+  - Every field at once in every format.
+  - Unknown data survives; pictures replace and clear.
+  - Refused edits leave files byte-identical.
+  - A process killed at each stage of a write leaves the old or the new file.
+  - API: edits, conflicts on undo, artwork, the organiser with play counts, ratings.
+  - UI: every action.
+- Demo script: `docs/demos/M4.md`.
+
 ### Next
 1. **Owner tests**:
    - `docs/demos/Android.md` on the phone (decides whether Tauri stays the Android approach).
    - `docs/demos/M2.md` against a USB DAC.
    - `docs/demos/M3.md` on the desktop (tray, media keys).
-2. **M4: Tags and metadata** (tag editing, artwork tools).
+   - `docs/demos/M4.md` on a copy of some music.
+2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
+   environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
+   and api.acoustid.org.
+3. **M5: Customisation** (theme editor, layouts).
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
@@ -193,7 +239,17 @@ These are shown or absent in the UI, never faked:
   tray icon needs a StatusNotifier host (KDE, or GNOME with the AppIndicator extension); desktops
   without one show no icon, and the mini player and player bar still work.
 - **Mini player** opens at the window manager's chosen spot each time; its position isn't saved.
-- **Lyrics** are read only: no editing and no online lookup.
+- **Lyrics**: plain lyrics can be edited in Song Info; synced lyrics belong in a .lrc file beside
+  the song (they aren't written into tags), and there is no online lookup.
+- **Tag writing**:
+  - ID3v2.3 has no place for a full original date (only its year, TORY) or for several values in
+    one field (they are joined with "/", as other taggers write them).
+  - A date frame another tagger wrote in a form Cadenza can't read is dropped when that file is
+    edited.
+  - Songs from a cue sheet (one file, many songs) are edited in the .cue file, not by Cadenza.
+  - Undoing an artwork change needs the old images in Cadenza's artwork cache (they are put
+    there when Song Info opens or a picture is changed).
+- **Online lookup** (MusicBrainz, Discogs, AcoustID) isn't built yet (see Next).
 - **Themes** are Light and Dark only; custom themes come in M5.
 - **Android**:
   - USB DACs play through Android's mixer; the bit-perfect USB path (API 34) isn't built.
@@ -210,8 +266,9 @@ These are shown or absent in the UI, never faked:
 - **EQ presets** are built in only; saving your own isn't there yet.
 - **DSD** converted to PCM is 6 dB quieter than the DSD reference level (D24).
 - **Not yet built:**
-  - Tag editing (M4).
-  - Setting ratings (ratings stored in files are shown).
+  - Online tag lookup.
+  - Saved action presets (the case exceptions and the organiser pattern are remembered).
+  - Favourites (the library has room for them; nothing sets them).
   - Playlists.
   - Android's USB bit-perfect path (API 34 mixer attributes).
   - An allocator guard on the output thread.
@@ -232,4 +289,4 @@ These are shown or absent in the UI, never faked:
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36. Added during M3: D37–D42. Added for Android: D43–D45.
+D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D50.
