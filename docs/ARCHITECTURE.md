@@ -95,9 +95,9 @@ cpal is deliberately not used for output, as the spec asks: it hides `hw:` devic
 ## 4. Data model (SQLite, one DB per device)
 
 Key identities:
-- **`audio_hash`**: BLAKE3 of the decoded-container *audio stream bytes* (tag chunks/frames excluded,
-  computed per container). Tag edits don't change it. This is a track's identity everywhere: moves,
-  sync, dedupe.
+- **`audio_hash`**: BLAKE3 of the container's *audio region* (tag chunks/frames excluded, computed
+  per container). Tag edits don't change it. This is a track's identity everywhere: moves, sync,
+  dedupe. As built in M1 it is sampled: three 32 KiB windows plus the region length (D20).
 - **`track_id`**: UUIDv7, stable for the track's lifetime; mapped 1:1 to `audio_hash` (re-mapped if a
   file is legitimately re-encoded).
 
@@ -117,13 +117,16 @@ user_data(track_id, rating, rating_hlc, favourite, favourite_hlc, skip_on_shuffl
 play_events(id, track_id, device_id, at, duration_played, completed)    -- grow-only; counts are derived
 playlists(id, parent_id, name, kind, rules_json, sort_key) / playlist_items(id, playlist_id, track_id, pos_key, tombstone)
 edit_batches(id, at, description) / edit_changes(batch_id, track_id, field, old, new)  -- undo/redo/revert
-search_fts  -- FTS5 contentless table over title/artist/album/composer/genre/... with trigram tokenizer
+search_fts  -- FTS5 contentless table over title/artist/album/composer/genre/..., word-prefix (D23)
 sync_log_local(seq, hlc, op_blob) / sync_cursors(remote_device_id, seq) / trash(...)
 ```
 
+The schema above is the target across all milestones. M1 builds the subset it needs (roots, albums,
+tracks, tags, artwork, user_data, play_events, saved_searches, search_fts) in migration v1; later
+milestones add tables through further migrations.
+
 Album identity: `(normalised album artist, normalised title, release_key)` where `release_key` is the
-MusicBrainz release ID if present, else `(date, label+catno or barcode, total discs)`, else the parent
-folder. Same-named albums therefore never merge; editions sharing a release-group MBID or normalised
+MusicBrainz release ID if present, else the parent folder, with `CD1`/`Disc 2` folders collapsed (D21). Same-named albums therefore never merge; editions sharing a release-group MBID or normalised
 title + album artist appear under "Other versions".
 
 ## 5. Audio pipeline
@@ -191,7 +194,7 @@ title + album artist appear under "Other versions".
   so the UI is usable within seconds.
 - **Move detection.** A disappearing path and an appearing path with the same `audio_hash` are treated
   as a move, so `track_id`, stats and playlists are kept.
-- **Search.** FTS5 trigram over denormalised text gives as-you-type matching. The advanced syntax
+- **Search.** FTS5 word-prefix matching over denormalised text gives as-you-type results (D23). The advanced syntax
   (`artist:"x" year:>2000 format:flac rating:>=4`) is parsed into an AST, then turned into SQL with
   indexed columns. Saved searches store the query string. Smart playlists compile the same way.
 - **IPC to UI.** Lists are paged by `(sort_key, id)` windows; the UI never holds 200k rows of objects,
@@ -336,10 +339,17 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D17 | FLAC embedded art is limited to one 16 MiB metadata block | Format limit, found by the fixtures. The M4 artwork tools must resize or refuse instead of failing mid-write |
 | D18 | AAC gapless: honour the MP4 edit list *and* iTunSMPB | ffmpeg-made files carry only an edit list, iTunes-made ones only iTunSMPB. ffmpeg itself ignores the edit list's end trim, so Cadenza applies trimming itself (M1 gapless test) |
 | D19 | ID3v2.3 multi-value text is read as one "/"-joined string, not split | Splitting would break "AC/DC"; the owner can opt in per field later |
+| D20 | Identity hash samples the audio region: BLAKE3 over three 32 KiB windows (start, middle, end) plus the region length; for Ogg, page payloads only | Hashing whole files made the first scan of a large library disk-bound for hours. Sampling is still unchanged by tag edits and distinguishes real-world files; a full hash can be added for sync dedupe in M7 if needed |
+| D21 | Album key = album artist + title + (MusicBrainz release id, else folder, with disc subfolders collapsed) | Date/label/barcode keys from the original design split albums whose tracks disagree slightly; the folder is what owners actually use to separate editions. Same-named albums by one artist in different folders stay separate and link as Other Versions |
+| D22 | 32-bit integer FLAC is rejected as "unsupported" | Symphonia's FLAC decoder overflows on the side channel at 32 bits. Such files are rare (libFLAC 1.4+); shown in the scan report, not silently dropped |
+| D23 | Search uses FTS5 word-prefix (`unicode61 remove_diacritics 2`, prefix 1–3) instead of trigram | Trigram missed the 50 ms budget at 200k tracks. Trade-off: no mid-word matches ("ight" doesn't find "Night"); prefix matching covers as-you-type. Ranking is skipped above 5,000 matches |
+| D24 | DSD→PCM applies no +6 dB make-up gain; SACD 0 dB reference lands at −6 dBFS | Hot DSD masters exceed the reference level and would clip; ReplayGain (M2) can make up the level |
+| D25 | Player state carries queue length and version, not the queue; the UI fetches id windows | A 200k-track "play all" made every state event megabytes |
+| D26 | Empty sort keys sort last (stored as U+10FFFF) | "Unknown Artist" and untitled albums belong at the end of lists, and an index-friendly key avoids a computed ORDER BY |
 
 ## 14. Owner answers (2026-10-21)
 
 - Recommendations approved as written (licences, OpenDAL, rubato, no ASIO).
 - Personal use only; never published.
 - Platforms: Linux and Android only.
-- Repository: not yet provided; the work is local until a GitHub remote is available.
+- Repository: github.com/Emarshall1314/Mp3 (connected 2026-10-21).
