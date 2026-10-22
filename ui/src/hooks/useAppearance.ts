@@ -28,6 +28,8 @@ interface LookState {
   palette: Rgb[];
   /// A theme being edited, shown in place of the chosen one.
   preview: ThemeDef | null;
+  /// The last registration of system-wide shortcuts (null before any, or where unsupported).
+  globalShortcuts: { wayland: boolean; failed: [string, string][] } | null;
   /// Started with `--safe-mode`, or Ctrl+Alt+Shift+S pressed: the owner's CSS is off.
   safeMode: boolean;
   /// What is on screen now.
@@ -42,6 +44,7 @@ export const useLook = create<LookState>(() => ({
   palette: [],
   preview: null,
   safeMode: false,
+  globalShortcuts: null,
   scheme: 'light',
   theme: themeFor(normaliseLook(null), 'light', []),
 }));

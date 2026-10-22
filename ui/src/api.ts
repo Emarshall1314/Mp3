@@ -109,6 +109,8 @@ export const api = {
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   themes: () => invoke<SavedTheme[]>('themes'),
   safeMode: () => invoke<boolean>('safe_mode'),
+  setGlobalShortcuts: (bindings: [string, string][]) =>
+    invoke<{ wayland: boolean; failed: [string, string][] }>('set_global_shortcuts', { bindings }),
   setVisualizer: (on: boolean) => invoke<null>('set_visualizer', { on }),
   spectrum: (bands: number) => invoke<number[]>('spectrum', { bands }),
   saveTheme: (
@@ -140,6 +142,11 @@ export function onApiEvent(handler: (e: ApiEvent) => void): Promise<UnlistenFn> 
 
 /// Android has no separate windows: no mini player, no tray.
 export const isAndroid = /Android/.test(navigator.userAgent);
+
+/// A system-wide shortcut was pressed: the action's id.
+export function onGlobalShortcut(handler: (action: string) => void): Promise<UnlistenFn> {
+  return listen<string>('cadenza://global-shortcut', (msg) => handler(msg.payload));
+}
 
 /// Saved themes changed (saved, imported or deleted in any window).
 export function onThemesChanged(handler: () => void): Promise<UnlistenFn> {

@@ -4,6 +4,7 @@ import { api, onApiEvent } from './api';
 import { attempt, useStore } from './store';
 import { useAppearance, useLook } from './hooks/useAppearance';
 import { useCurrentTrack } from './hooks/useCurrentTrack';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { presetMenu } from './components/LayoutSettings';
 import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
@@ -117,6 +118,7 @@ export function App() {
   useShortcuts();
   const playing = useCurrentTrack();
   useAppearance(playing?.artHash ?? null);
+  useGlobalShortcuts();
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);
   const toast = useStore((s) => s.toast);

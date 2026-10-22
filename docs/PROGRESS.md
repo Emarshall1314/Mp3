@@ -2,9 +2,9 @@
 
 ## Status (2026-10-22)
 
-**M5 (Customisation) is mostly done for Linux**: themes, the theme editor, liquid glass, layouts and
-presets, the dockable panel, remappable shortcuts and custom CSS. What's left of M5 is listed
-under Next. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
+**M5 (Customisation) is done for Linux**: themes, the theme editor, liquid glass, layouts and
+presets, the dockable panel (with the tag editor), the column browser, grouping, the visualizer,
+remappable and system-wide shortcuts, and custom CSS. The phone's own layout options wait for M7. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
 (MusicBrainz, Cover Art Archive, Discogs, AcoustID) waits for network access to those services
 from the development environment, so it can be built against the real services rather than
 guessed responses. `cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
@@ -245,11 +245,22 @@ glass.
   headings and edges); Home shelves chosen and ordered; Now Playing styles (artwork, lyrics
   first, minimal).
 - **Dockable panel**: Queue, Lyrics, Info (credits and file) and Signal Path in one panel docked
-  right, left or at the bottom, resizable, or floating, moved by its header.
+  right, left or at the bottom, resizable, or floating, moved by its header. Song Info can be
+  docked there too (its Tags tab), so tags can be edited beside the song list.
+- **Column browser**: a third Albums view: genres, album artists, albums, and the album's songs.
+- **Grouping**: the song list grouped by album, artist or genre. Sorting by album now keeps
+  same-titled albums by different artists apart (migration 4).
+- **Visualizer** (D54): a Now Playing style with a 48-band spectrum of what the device is
+  playing, read from a lock-free tap on the output thread only while it's on screen. Off while
+  Reduce Motion is on, and blank for DSD sent as DSD.
 - **Layout presets**: Listening, Tagging and Minimal, plus saved ones, from the toolbar's layout
   button or Ctrl+Shift+L.
 - **Shortcuts**: every shortcut can be remapped; a combination used elsewhere moves to the new
   action. New optional actions: shuffle, repeat, Now Playing, info and signal path panels.
+- **System-wide shortcuts** (Linux, X11): playback keys that work while another app has focus,
+  through `tauri-plugin-global-shortcut` (MIT/Apache). None are set at first. Wayland doesn't let
+  apps take keys, which Settings says, pointing to `playerctl` in the desktop's keyboard settings.
+- **Fixed**: theme Export couldn't open its save dialog (the permission was missing).
 - **Custom CSS** (desktop): applied after the theme, so it can override any token or style.
   `cadenza --safe-mode` starts without it, and Ctrl+Alt+Shift+S turns it off at once. Images
   and fonts can't come from the web (the page's content security policy).
@@ -269,16 +280,9 @@ glass.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **The rest of M5**:
-   - A column browser view (genre → artist → album columns).
-   - Grouping in the song list (by album, artist or genre).
-   - A visualizer Now Playing style (needs the engine to share audio levels with the UI).
-   - Docking the tag editor (Song Info is a window over the page today).
-   - System-wide hotkeys beyond the media keys (media keys work through MPRIS on Linux and the
-     media session on Android).
-   - Reordering the phone's tabs and choosing the mini-player style wait for the phone layout
-     (M7); they will use the same layout settings as the sidebar.
-4. **M6: Sync**.
+3. **M6: Sync**.
+4. **M7: the phone layout**, including reordering its tabs and the mini-player style (they will
+   use the same layout settings as the sidebar).
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
@@ -340,4 +344,4 @@ These are shown or absent in the UI, never faked:
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D49. Added during M5: D50–D53.
+D29–D36. Added during M3: D37–D42. Added for Android: D43–D45. Added during M4: D46–D49. Added during M5: D50–D54.

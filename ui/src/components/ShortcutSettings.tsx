@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { updateLook, useLook } from '../hooks/useAppearance';
-import { ACTIONS, FIXED_KEYS, bindings, comboOf, showCombo } from '../shortcuts';
+import { ACTIONS, FIXED_KEYS, GLOBAL_ACTIONS, bindings, comboOf, showCombo } from '../shortcuts';
 
 /// Keyboard shortcuts: every action's keys, changed by pressing new ones.
 export function ShortcutSettings() {
@@ -109,6 +109,107 @@ export function ShortcutSettings() {
       <p className="muted small">
         Click a shortcut, then press the new keys. Tab moves between controls; Enter or Space
         activates them. Media keys on your keyboard work through the desktop’s media controls.
+      </p>
+    </div>
+  );
+}
+
+/// Keys that work while other apps have focus. Linux (X11) only; Wayland doesn't allow it.
+export function GlobalShortcutSettings() {
+  const keys = useLook((s) => s.look.globalShortcuts);
+  const result = useLook((s) => s.globalShortcuts);
+  const [recording, setRecording] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const assign = (id: string, combo: string) => {
+    const next = Object.fromEntries(
+      Object.entries({ ...useLook.getState().look.globalShortcuts, [id]: combo }).filter(
+        ([k, v]) => v && (k === id || v !== combo),
+      ),
+    );
+    updateLook({ globalShortcuts: next });
+  };
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === 'Escape') {
+        setRecording(null);
+        return;
+      }
+      const combo = comboOf(e);
+      if (!combo) return;
+      // Plain keys system-wide would stop them working in every other app.
+      if (!/^(Ctrl|Alt)\+/.test(combo) && !/^(Shift\+)?(F\d+|Media\w+|Audio\w+)$/.test(combo)) {
+        setNote(
+          'Use Ctrl or Alt with the key (or a function or media key), so typing elsewhere still works.',
+        );
+        return;
+      }
+      setNote(null);
+      assign(recording, combo);
+      setRecording(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
+  const failed = new Map(result?.failed ?? []);
+  return (
+    <div className="settings-group">
+      <h2>System-Wide Shortcuts</h2>
+      {result?.wayland && (
+        <p className="small safe-mode" role="status">
+          This desktop uses Wayland, which doesn’t let apps take keys system-wide. Instead, add
+          shortcuts in your desktop’s keyboard settings that run <code>playerctl play-pause</code>,{' '}
+          <code>playerctl next</code> or <code>playerctl previous</code>: they control Cadenza.
+        </p>
+      )}
+      <table className="shortcut-table">
+        <tbody>
+          {GLOBAL_ACTIONS.map((id) => {
+            const action = ACTIONS.find((a) => a.id === id);
+            if (!action) return null;
+            return (
+              <tr key={id}>
+                <td>{action.action}</td>
+                <td>
+                  <button
+                    className={`shortcut-key ${recording === id ? 'recording' : ''}`}
+                    aria-label={`${action.action} system-wide: ${showCombo(keys[id] ?? '')}. Change`}
+                    onClick={() => setRecording(recording === id ? null : id)}
+                  >
+                    {recording === id ? (
+                      'Press keys… (Esc cancels)'
+                    ) : (
+                      <kbd>{showCombo(keys[id] ?? '')}</kbd>
+                    )}
+                  </button>
+                  {failed.has(id) && <span className="warn small"> {failed.get(id)}</span>}
+                </td>
+                <td>
+                  {keys[id] && (
+                    <button className="link" onClick={() => assign(id, '')}>
+                      Clear
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {note && (
+        <p className="small" role="status">
+          {note}
+        </p>
+      )}
+      <p className="muted small">
+        These work while another app has focus (on X11 desktops). None are set at first, so no other
+        app loses its keys. Media keys on your keyboard already work through the desktop’s media
+        controls.
       </p>
     </div>
   );

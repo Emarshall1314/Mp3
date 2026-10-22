@@ -1,6 +1,6 @@
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { LayoutSettings } from '../components/LayoutSettings';
-import { ShortcutSettings } from '../components/ShortcutSettings';
+import { GlobalShortcutSettings, ShortcutSettings } from '../components/ShortcutSettings';
 import { CustomCssSettings } from '../components/CustomCssSettings';
 import { isAndroid } from '../api';
 
@@ -15,6 +15,7 @@ export function SettingsView() {
       <AppearanceSettings />
       <LayoutSettings />
       <ShortcutSettings />
+      {!isAndroid && <GlobalShortcutSettings />}
       {!isAndroid && <CustomCssSettings />}
     </section>
   );

@@ -163,6 +163,25 @@ export const ACTIONS: ShortcutAction[] = [
   { id: 'nextLayout', action: 'Next layout preset', keys: 'Ctrl+Shift+L', run: cyclePreset },
 ];
 
+/// Actions that can also have a system-wide shortcut (desktop): playback, which makes sense
+/// while another app has focus.
+export const GLOBAL_ACTIONS = [
+  'playPause',
+  'next',
+  'previous',
+  'seekForward',
+  'seekBack',
+  'volumeUp',
+  'volumeDown',
+  'shuffle',
+  'repeat',
+];
+
+/// Runs an action by id (from a system-wide shortcut).
+export function runAction(id: string) {
+  ACTIONS.find((a) => a.id === id)?.run();
+}
+
 /// Keys handled where they apply; listed so they can be found. Not remappable.
 export const FIXED_KEYS = [
   { keys: '↑ / ↓, Enter', action: 'Move through songs; play the selected one' },

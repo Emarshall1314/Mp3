@@ -22,6 +22,8 @@ mod android;
 #[cfg(desktop)]
 mod desktop;
 #[cfg(target_os = "linux")]
+mod hotkeys;
+#[cfg(target_os = "linux")]
 mod mpris;
 
 type App<'a> = State<'a, Arc<Cadenza>>;
@@ -34,6 +36,22 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 #[tauri::command]
 fn build_info() -> BuildInfo {
     cadenza_api::build_info()
+}
+
+/// Registers system-wide shortcuts: (action id, key combination) pairs.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn set_global_shortcuts(
+    handle: AppHandle,
+    bindings: Vec<(String, String)>,
+) -> hotkeys::HotkeyResult {
+    hotkeys::set(&handle, bindings)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+fn set_global_shortcuts(_bindings: Vec<(String, String)>) -> Res<()> {
+    Err("System-wide shortcuts aren't available on this platform".into())
 }
 
 /// `cadenza --safe-mode`: start without the owner's custom CSS, to undo CSS that hides the way
@@ -532,10 +550,22 @@ fn artwork_response(app: &AppHandle, uri: &tauri::http::Uri) -> Response<Vec<u8>
     }
 }
 
+#[cfg(target_os = "linux")]
+fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_plugin_global_shortcut::Builder::new().build()
+}
+
+/// Nothing to add where system-wide shortcuts don't exist.
+#[cfg(not(target_os = "linux"))]
+fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("cadenza-no-global-shortcut").build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(global_shortcut_plugin())
         .plugin(tauri_plugin_cadenza_android::init())
         .register_asynchronous_uri_scheme_protocol("cadenza", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -645,6 +675,7 @@ pub fn run() {
             spectrum,
             set_appearance,
             safe_mode,
+            set_global_shortcuts,
             themes,
             save_theme,
             import_theme,

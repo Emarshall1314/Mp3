@@ -55,6 +55,8 @@ export interface Look {
   presets: Preset[];
   /// Remapped shortcuts: action id → key combination ('' for none).
   shortcuts: Record<string, string>;
+  /// System-wide shortcuts (desktop): action id → key combination.
+  globalShortcuts: Record<string, string>;
   /// The owner's CSS, applied after the theme (desktop; ignored in safe mode).
   customCss: string;
 }
@@ -77,6 +79,7 @@ export const DEFAULT_LOOK: Look = {
   layout: DEFAULT_LAYOUT,
   presets: [],
   shortcuts: {},
+  globalShortcuts: {},
   customCss: '',
 };
 
@@ -294,13 +297,19 @@ export function normaliseLook(value: unknown): Look {
     artworkSize: pick(v.artworkSize, ['small', 'medium', 'large'], d.artworkSize),
     layout: normaliseLayout(v.layout),
     presets: normalisePresets(v.presets),
-    shortcuts: Object.fromEntries(
-      Object.entries(v.shortcuts && typeof v.shortcuts === 'object' ? v.shortcuts : {})
-        .filter(([k, s]) => /^[a-zA-Z]{1,40}$/.test(k) && typeof s === 'string' && s.length <= 40)
-        .slice(0, 100),
-    ) as Record<string, string>,
+    shortcuts: keyMap(v.shortcuts),
+    globalShortcuts: keyMap(v.globalShortcuts),
     customCss: typeof v.customCss === 'string' ? v.customCss.slice(0, 100_000) : '',
   };
+}
+
+/// Action id → key combination, as stored.
+function keyMap(value: unknown): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+      .filter(([k, s]) => /^[a-zA-Z]{1,40}$/.test(k) && typeof s === 'string' && s.length <= 40)
+      .slice(0, 100),
+  ) as Record<string, string>;
 }
 
 /// Font names are limited to what a font family name can hold, so they can't break the CSS.
