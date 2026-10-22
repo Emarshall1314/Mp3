@@ -40,7 +40,7 @@ Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS
   parametric EQ, presets, AutoEq import, per-device profiles, FIR convolution (partitioned FFT),
   crossfeed, crossfade (auto-off for gapless albums), limiter, TPDF dither, rubato resampler, multichannel downmix.
 - Signal path panel + quality badges with hover spec.
-- Tests: capture-backend bit-perfect equality, ALSA `snd-aloop` loopback on Linux CI, DoP marker
+- Tests: capture-backend bit-perfect equality, the real ALSA path through its `file` plugin (D30; replaces `snd-aloop`), DoP marker
   validity, no-alloc audio thread assertion, seek < 100 ms benchmark.
 
 ## M3 — Design polish (D)

@@ -2,8 +2,11 @@
 
 ## Status (2026-10-22)
 
-**M1 (Foundation) is done for Linux.** `cargo xtask ci` passes locally and in GitHub Actions.
-The Android spike is still blocked; see Known issues.
+**M2 (Hi-res engine) is done for Linux**, on top of M1 (Foundation). `cargo xtask ci` passes.
+None of the M2 output work has run on real audio hardware yet: this environment has no sound card.
+Bit-perfect, DoP and native DSD are verified byte for byte through ALSA's `file` plugin. Exclusive
+mode on a real DAC, the PipeWire hand-over and DoP on a real DAC need checking on the owner's
+machine; see `docs/demos/M2.md`. The Android spike is still blocked; see Known issues.
 
 ### Done
 - **M0 bootstrap**:
@@ -79,6 +82,49 @@ The Android spike is still blocked; see Known issues.
   | Library open | 25 ms | — |
 - Demo script: `docs/demos/M1.md`.
 
+### M2: Hi-res engine
+- **f64 pipeline** (D29). Outputs quantise samples that lie on the integer grid exactly (bit-perfect),
+  and TPDF-dither everything else.
+- **Outputs**:
+  - System Default (shared, float, through PipeWire/PulseAudio).
+  - Every ALSA playback device as exclusive `hw:CARD=<id>,DEV=<n>`. The source rate is followed, ALSA
+    resampling is off, and the integer format carries the source's depth (16/24/32-bit).
+  - Exclusive opens reserve the card over D-Bus so the sound server lets go (D31).
+  - Outputs can be switched while playing; playback continues at the same position.
+  - The output menu is in the player bar; the choice is saved per machine (D34).
+- **DSD out**:
+  - Native DSD (DSD_U8, U16/U32 LE/BE) when the driver offers it.
+  - DoP v1.1 when enabled for the device (D32).
+  - Otherwise DSD→PCM conversion, remembered per output so DSD albums stay gapless.
+- **DSP chain** on the output thread, heard at once (D33):
+  - Preamp.
+  - Graphic (10-band) or parametric EQ: RBJ biquads, presets, AutoEq `ParametricEQ.txt` import, and a
+    response curve computed by the core.
+  - Crossfeed: three strengths, bs2b-style.
+  - Convolution: partitioned FFT, impulse responses up to 10 s, resampled to the output rate.
+  - Limiter: −0.3 dBFS ceiling, 1.5 ms lookahead.
+  - One DSP profile per output device.
+- **ReplayGain**:
+  - Read from tags in every container; Opus R128 tags are converted.
+  - Tracks without tags are measured with EBU R128 in the background, album by album (D35).
+  - Track, Album and Auto modes, with a preamp, a level for untagged tracks, and clipping prevention.
+- **Crossfade**: 0–12 s with equal-power curves. Never within an album, nor across a rate or channel
+  change (D36).
+- **Signal path panel**: click the quality badge. It shows each stage from file to device, a
+  Bit-perfect badge, or the reasons it isn't.
+- **Tests**:
+  - Bit-perfect at 16/24/32-bit through the capture backend and through ALSA's `file` plugin.
+  - DoP markers and payload; native DSD word order; volume never touching DSD.
+  - Gapless DSD on a non-DSD output; output switching mid-track.
+  - EQ, crossfeed and limiter responses; convolution against direct convolution and with a real IR
+    file.
+  - ReplayGain modes, Auto's album detection and clipping prevention; R128 measurement end to end.
+  - Crossfade sample-exact; WavPack's lossless flag.
+- **Fixes found along the way**:
+  - WavPack files were reported as lossy (wrong `MODE_LOSSLESS` constant).
+  - The resampler's final flush only counted the last of several chained tracks.
+- Demo script: `docs/demos/M2.md`.
+
 ### Next
 1. **Android spike**:
    - Done: CI builds and signs an arm64 APK (`cadenza-android` artifact).
@@ -88,28 +134,33 @@ The Android spike is still blocked; see Known issues.
      - Storage access to the music folder: the folder picker and media permissions.
      - A MediaSession foreground service, so playback continues with the screen off.
      - Running the §11 criteria on the owner's phone.
-2. **M2 hi-res engine**:
-   - ALSA `hw:` exclusive with PipeWire device reservation.
-   - Device picker.
-   - Automatic rate switching, DoP.
-   - DSP graph, ReplayGain.
-   - Signal path panel.
+2. **M2 on real hardware**: run `docs/demos/M2.md` against a USB DAC (exclusive, rate switching,
+   DoP/native DSD, PipeWire hand-over).
+3. **M3 design polish**: Now Playing, themes, motion.
 
-## Known limitations in the M1 app
+## Known limitations
 These are shown or absent in the UI, never faked:
-- **Output.** The only output is the ALSA `default` device (PipeWire/PulseAudio) in shared mode,
-  resampled to the server rate. There is no device picker and no bit-perfect path yet; both come
-  in M2.
-- **DSD.** DSD plays as PCM at 176.4 kHz, with no DoP. It is quieter by 6 dB (D24).
+- **Untested on hardware.** Exclusive output, device reservation, DoP and native DSD have only run
+  against ALSA's `null` and `file` devices (see Status).
+- **Device list.** It is read when the output menu opens; plugging in a DAC while the menu is open
+  doesn't update it. A device that disappears mid-playback stops playback with an error.
+- **Volume** is software only. Below 100% it ends bit-perfect playback, which the signal path says.
+  Hardware mixer volume is not used yet.
+- **Native DSD** is used whenever ALSA offers it. Its word layout (oldest byte most significant)
+  follows MPD and is unverified on a real DAC.
+- **Crossfade** skips tracks whose rate or channel count differ from the current one (D36).
+- **EQ presets** are built in only; saving your own isn't there yet.
+- **DSD** converted to PCM is 6 dB quieter than the DSD reference level (D24).
 - **Not yet built:**
   - Tag editing (M4).
-  - Ratings can't be set; ratings stored in files are shown.
-  - ReplayGain and EQ (M2).
+  - Setting ratings (ratings stored in files are shown).
   - MPRIS media keys.
   - Playlists.
-  - Settings.
   - The Now Playing screen (M3).
-  
+  - Android's USB bit-perfect path (API 34 mixer attributes).
+  - An allocator guard on the output thread.
+  - A seek-latency benchmark.
+
   None of these have dead buttons.
 - **32-bit integer FLAC** is reported as unsupported in the scan report (D22).
 - **Search** matches word prefixes, not text in the middle of words (D23).
@@ -125,4 +176,5 @@ These are shown or absent in the UI, never faked:
   (D18). They are warnings, not failures, because ffmpeg isn't the system under test.
 
 ## Decisions
-See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28.
+See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
+D29–D36.

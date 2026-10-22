@@ -29,6 +29,7 @@ pub(crate) struct Convolver {
     scratch_t: Vec<f64>,
     scratch_f: Vec<Complex<f64>>,
     acc: Vec<Complex<f64>>,
+    block_out: Vec<f64>,
 }
 
 impl std::fmt::Debug for Convolver {
@@ -79,6 +80,7 @@ impl Convolver {
             scratch_t: vec![0.0; 2 * BLOCK],
             scratch_f: fft.make_output_vec(),
             acc: vec![Complex::default(); bins],
+            block_out: vec![0.0; BLOCK * channels],
             kernels,
             fft,
             ifft,
@@ -90,7 +92,6 @@ impl Convolver {
     }
 
     fn run_block(&mut self) {
-        let mut block_out = vec![0.0; BLOCK * self.channels];
         for c in 0..self.channels {
             self.scratch_t.copy_from_slice(&self.window[c]);
             let _ = self.fft.process(&mut self.scratch_t, &mut self.scratch_f);
@@ -109,12 +110,12 @@ impl Convolver {
             let _ = self.ifft.process(&mut self.acc, &mut self.scratch_t);
             let norm = 1.0 / (2 * BLOCK) as f64;
             for (i, v) in self.scratch_t[BLOCK..].iter().enumerate() {
-                block_out[i * self.channels + c] = v * norm;
+                self.block_out[i * self.channels + c] = v * norm;
             }
             // Slide: the current block becomes the previous one.
             self.window[c].copy_within(BLOCK.., 0);
         }
-        self.out.extend(block_out);
+        self.out.extend(self.block_out.iter().copied());
     }
 
     /// Replaces `buf` (interleaved) with its convolution, delayed by [`Self::latency`] frames.

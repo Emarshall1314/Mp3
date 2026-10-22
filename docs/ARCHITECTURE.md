@@ -132,42 +132,57 @@ title + album artist appear under "Other versions".
 ## 5. Audio pipeline
 
 ```
- file ─► demux/decode ─► gapless trim ─► [DSP graph, f64] ─► resample ─► dither ─► format convert ─► SPSC ring ─► output callback ─► device
-        (decoder thread)                  RG/R128, EQ, FIR,     rubato     TPDF       int/float/DoP      (rtrb)        (RT thread)
-                                          crossfeed, limiter
+ player thread                                                             output thread
+ file ─► decode ─► gapless trim ─► ReplayGain ─► crossfade mix ─► remix ─► resample ─► ring (f64) ─► DSP chain ─► volume ─► quantise ─► device
+         (DSD: packed as DoP/native, or DSD→PCM)                           rubato      2 s, rtrb    preamp, EQ,   ramp      exact on the
+                                                                                                    crossfeed,              integer grid,
+                                                                                                    convolution,            else TPDF
+                                                                                                    limiter
 ```
 
-- **Threads.** A *decoder thread* reads, decodes and processes ahead (default 2 s, more for network/cloud
-  sources) into a preallocated lock-free ring. The *output callback* only copies from the ring, applies
-  a precomputed software volume if enabled and handles underrun by writing silence and flagging it.
-  It does no allocation, takes no locks and does no I/O; this is checked in debug builds with an
-  allocator guard (`assert_no_alloc`-style) during tests.
-- **Bit-perfect.** If no DSP is active, volume is hardware or fixed, and the device is open in exclusive
-  mode at the source rate and depth, samples go straight through. Every stage reports what it did, so
-  the signal path panel and its verdict (bit-perfect / lossless-processed / lossy) are *computed* from
-  the real pipeline, never asserted.
-- **Processing.** Once any DSP is enabled, everything runs in 64-bit float, and TPDF dither is applied
-  whenever the output depth is lower than the processing depth.
-- **Gapless.** The scheduler pre-opens the next decoder at T−10 s. Encoder delay and padding are
-  removed (LAME/Xing, iTunSMPB, Opus pre-skip, MP4 edit lists). If the next track has the same output
-  format, its samples are appended to the same ring, giving sample-accurate gapless playback. If the
-  format differs, a *format-change marker* goes into the ring: output drains, the device is reconfigured
-  (rate switch), then playback resumes. That boundary is the only non-gapless case, and the UI says so.
-- **Seeks.** A local seek flushes the ring with an epoch counter, and the decoder seeks and refills only
-  ~50 ms before output resumes. Target is under 100 ms.
-- **DSD.** DSF/DFF are read natively. *DoP* (0x05/0xFA markers, 24-bit at DSD rate/16) is used where the
-  device is marked DoP-capable. Otherwise a multistage FIR decimator converts DSD to PCM at 176.4 kHz
-  or 352.8 kHz, with −6 dB gain compensation.
+- **Threads.** The *player thread* decodes ahead (2 s) into a lock-free ring. The *output thread*
+  takes from the ring and runs the DSP chain, volume and conversion to the device format. It does no
+  I/O and takes no blocking locks: a new DSP chain arrives through a `try_lock` slot, and the player
+  thread builds it, including loading impulse responses. Buffers are reused, but there is no
+  allocator guard in tests yet (planned).
+- **Why DSP sits after the ring.** EQ and other changes are heard within one 10 ms buffer instead of
+  after 2 s of queued audio (D33). ReplayGain and crossfade are per track, so they run before the ring,
+  where track boundaries are known.
+- **f64 throughout** (D29). Integer PCM of every depth up to 32 bits is exact in f64. The output's
+  quantiser converts a buffer whose samples all lie on the device's integer grid exactly: the
+  bit-perfect case. Anything else gets TPDF dither.
+- **Bit-perfect** means the output is exclusive, at the source's rate and channel count, in a format
+  that carries the source's depth, with no ReplayGain, DSP or volume touching it. The engine computes
+  this per stream (`StreamInfo::bit_perfect`), and the signal path panel shows each stage and the
+  reasons when it isn't. Tests check it byte for byte through ALSA (D30).
+- **Gapless.** When a decoder ends, the next entry is opened at once, while ~2 s of audio is still
+  queued. Encoder delay and padding are removed (LAME/Xing, iTunSMPB, Opus pre-skip, MP4 edit lists).
+  If the next track fits the open stream (same rate and channels, and on an exclusive device a depth
+  the format carries), its samples follow in the same ring: sample-accurate gapless playback. If it
+  doesn't, the ring drains, the device is reopened (rate switch), and playback resumes. That boundary
+  is the only non-gapless case.
+- **Crossfade** (optional): the next track is mixed under the end of the current one with equal-power
+  curves, except within an album or across a rate or channel change (D36).
+- **Seeks.** A seek flushes the ring with an epoch handshake and refills from the new position. It is
+  fast in practice; the < 100 ms target has no benchmark yet.
+- **DSD.** DSF/DFF are read natively. On an exclusive ALSA device, native DSD formats are used when
+  the driver offers them. *DoP* (0x05/0xFA markers, 24-bit at DSD rate/16) is used only where the
+  owner marked the device DoP-capable (D32). Otherwise a multistage FIR decimator converts DSD to PCM
+  at 176.4 kHz (D24). DSD passed as DSD bypasses ReplayGain, DSP and volume.
 - **Multichannel.** Native channel layout passes through if the device has enough channels; otherwise
   it is downmixed to stereo with ITU-R BS.775 coefficients (flagged as processing).
 - **CUE.** Single-file albums become virtual tracks (`start_sample`/`end_sample`). Gapless across them is
   automatic, because the underlying file is continuous.
-- **Output backends.** One trait: `enumerate()`, `capabilities(device)` (rates, formats, exclusive,
-  DoP, hardware volume), `open(format, mode)`, and device-change notifications. Per-device settings:
-  exclusive mode, max rate, resampling policy (never / when needed / always → rate), DSD mode
-  (DoP / PCM), volume type (hardware / software / fixed 100%).
-- **Capture backend.** A `capture` output writes exactly what would reach the device. Bit-perfect tests
-  use it in CI; on Linux they also run through `snd-aloop` for a real ALSA path.
+- **Output backends.** `OutputBackend::open(request)` takes the source's rate, channels, bit depth and
+  whether it is DSD, and returns an `Output` stating what the device granted (rate, channels, format,
+  exclusive). `output::devices()` lists outputs: System Default (shared) plus every ALSA playback
+  device as a stable `hw:CARD=<id>,DEV=<n>` (exclusive). The list is read afresh when the output menu
+  opens; there are no hot-plug notifications yet. Exclusive opens take the card's
+  `org.freedesktop.ReserveDevice1` name first, so PipeWire/PulseAudio release it (D31). Per-device
+  settings so far: DoP on/off and the DSP profile (D34).
+- **Capture backend.** A `capture` output records exactly what would reach the device, and can act as
+  an exclusive integer, DoP or native-DSD device. Bit-perfect tests use it, and on Linux they also run
+  through ALSA's `file` plugin for the real ALSA path (D30).
 
 ## 6. Tags and metadata safety
 
@@ -348,10 +363,11 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D26 | Empty sort keys sort last (stored as U+10FFFF) | "Unknown Artist" and untitled albums belong at the end of lists, and an index-friendly key avoids a computed ORDER BY |
 | D27 | WavPack is vendored (5.9.0 library sources) and compiled by `cadenza-decode`'s build script on every target | The NDK has no libwavpack; one build path keeps Linux and Android on the same version and drops a system package. libopus already builds from bundled source the same way |
 | D28 | Android minimum is API 26 (Android 8.0); AAudio is bound directly, not through the `ndk` crate | AAudio needs API 26 and its library is only in the NDK sysroot from 26. The API used is about 20 functions, so a hand-written binding avoids a dependency |
-
-## 14. Owner answers (2026-10-21)
-
-- Recommendations approved as written (licences, OpenDAL, rubato, no ASIO).
-- Personal use only; never published.
-- Platforms: Linux and Android only.
-- Repository: github.com/Emarshall1314/Mp3 (connected 2026-10-21).
+| D29 | The engine pipeline is f64; outputs quantise, exactly when samples are on the integer grid, else with TPDF dither | One path for bit-perfect and processed playback; 32-bit integer sources stay exact (f32 would not) |
+| D30 | Bit-perfect output is tested through ALSA's `file` plugin, not `snd-aloop` | CI runners have no `snd-aloop` module; the `file` plugin goes through the same alsa-lib code and records the exact bytes the device would get (PCM, DoP and native DSD) |
+| D31 | Exclusive ALSA output reserves the card over D-Bus (`org.freedesktop.ReserveDevice1`) with the `dbus` crate (MIT/Apache) | The protocol PipeWire, PulseAudio and JACK honour; `dbus` is already linked through Tauri's `tao` |
+| D32 | Native DSD is used automatically; DoP only per device when the owner enables it | Drivers advertise native DSD only for DACs that take it, but nothing reveals DoP support, and a DAC without it plays DoP as full-scale noise. Native DSD words (U8, U16/U32 LE/BE) hold the oldest byte in the most significant position, as MPD writes them |
+| D33 | The DSP chain runs on the output thread, after the 2 s ring; ReplayGain and crossfade run on the player thread | Settings changes are heard within ~10 ms; per-track gain and crossfades need track boundaries, which only the player thread knows |
+| D34 | Output device, DoP, DSP profiles (one per output device), ReplayGain and crossfade live in `settings.json` in the data folder | They describe this machine's audio hardware, not the library, so they are not synced; writes are atomic (temp file + rename) |
+| D35 | Loudness is measured with EBU R128 (`ebur128`, MIT) and stored in the library with the audio hash it was measured from | Tags always win; a measurement stays valid only while the audio is unchanged. Files are never written |
+| D36 | Crossfade never applies within an album and needs the same rate and channel count on both sides | Albums stay gapless; mixing before the shared resampler keeps one resampler per stream. Other changes happen without a fade, and the Sound page says so |
