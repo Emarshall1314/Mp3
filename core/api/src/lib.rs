@@ -5,6 +5,7 @@
 //! Types stay plain so the same API can later be exported through UniFFI if a native mobile UI
 //! is needed.
 
+mod loudness;
 mod settings;
 mod watch;
 
@@ -17,16 +18,17 @@ use serde::Serialize;
 
 pub use cadenza_engine::dsp::{CrossfeedLevel, EqBand, FilterKind, ImportedEq};
 pub use cadenza_engine::{
-    DeviceFormat, DspSettings, Event as PlayerEvent, OutputDevice, PlayerState, Repeat, Status,
-    StreamInfo,
+    DeviceFormat, DspSettings, Event as PlayerEvent, OutputDevice, PlayerState, Repeat,
+    ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, Root, SavedSearch, ScanPhase,
     ScanProgress, ScanReport, SearchResults, SongSort, TrackRow,
 };
+pub use loudness::LoudnessStatus;
 pub use settings::Settings;
 
-use cadenza_engine::{Engine, OutputBackend, QueueItem};
+use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
 use cadenza_library::Library;
 
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +81,10 @@ pub enum ApiEvent {
     },
     /// The catalogue changed; lists should refresh.
     LibraryChanged,
+    /// Loudness measurement progress.
+    Loudness {
+        status: LoudnessStatus,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -93,6 +99,7 @@ type Emit = Arc<dyn Fn(ApiEvent) + Send + Sync>;
 
 struct Scanner {
     library: Arc<Library>,
+    analyzer: Arc<loudness::Analyzer>,
     status: Mutex<ScanStatus>,
     running: AtomicBool,
     again: AtomicBool,
@@ -138,6 +145,9 @@ impl Scanner {
                     (me.emit)(ApiEvent::ScanFinished { report });
                     if changed {
                         (me.emit)(ApiEvent::LibraryChanged);
+                        if me.analyzer.auto.load(Ordering::Acquire) {
+                            me.analyzer.start();
+                        }
                     }
                     if !me.again.load(Ordering::Acquire) {
                         break;
@@ -156,6 +166,7 @@ pub struct Cadenza {
     engine: Engine,
     settings: settings::Store,
     current: Mutex<Settings>,
+    analyzer: Arc<loudness::Analyzer>,
     scanner: Arc<Scanner>,
     _watcher: Mutex<Option<watch::Watcher>>,
 }
@@ -217,19 +228,30 @@ impl Cadenza {
             }
             player_emit(ApiEvent::Player { event });
         });
+        let analyzer = Arc::new(loudness::Analyzer::new(
+            Arc::clone(&library),
+            Arc::clone(&emit),
+        ));
+        analyzer.auto.store(
+            saved.replay_gain.mode != ReplayGainMode::Off,
+            Ordering::Release,
+        );
         let scanner = Arc::new(Scanner {
             library: Arc::clone(&library),
+            analyzer: Arc::clone(&analyzer),
             status: Mutex::new(ScanStatus::default()),
             running: AtomicBool::new(false),
             again: AtomicBool::new(false),
             emit,
         });
         engine.set_dsp(saved.current_dsp());
+        engine.set_replay_gain(saved.replay_gain);
         let me = Self {
             library,
             engine,
             settings: store,
             current: Mutex::new(saved),
+            analyzer,
             scanner,
             _watcher: Mutex::new(None),
         };
@@ -352,6 +374,13 @@ impl Cadenza {
                 path: p.path,
                 start_frame: p.start_frame,
                 end_frame: p.end_frame,
+                album_id: p.album_id,
+                gain: TrackGain {
+                    track_gain: p.gain.track_gain,
+                    track_peak: p.gain.track_peak,
+                    album_gain: p.gain.album_gain,
+                    album_peak: p.gain.album_peak,
+                },
             })
             .collect())
     }
@@ -513,6 +542,39 @@ impl Cadenza {
     /// The EQ's response in dB at `freqs`, for drawing it.
     pub fn eq_curve(&self, preamp_db: f64, bands: &[EqBand], freqs: &[f64]) -> Vec<f64> {
         cadenza_engine::dsp::eq_curve(preamp_db, bands, freqs)
+    }
+
+    // ---- ReplayGain ---------------------------------------------------------------------
+
+    pub fn replay_gain(&self) -> ReplayGainSettings {
+        self.settings().replay_gain
+    }
+
+    /// Applies at once (the current track restarts in place). Turning ReplayGain on also starts
+    /// measuring tracks that have no ReplayGain tags.
+    pub fn set_replay_gain(&self, rg: ReplayGainSettings) -> Result<()> {
+        let mut settings = self.settings();
+        settings.replay_gain = rg;
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        self.engine.set_replay_gain(rg);
+        let on = rg.mode != ReplayGainMode::Off;
+        self.analyzer.auto.store(on, Ordering::Release);
+        if on {
+            self.analyzer.start();
+        }
+        Ok(())
+    }
+
+    pub fn loudness_status(&self) -> LoudnessStatus {
+        self.analyzer.status()
+    }
+
+    /// Measures every track without ReplayGain, in the background.
+    pub fn analyze_loudness(&self) {
+        self.analyzer.start();
     }
 
     pub fn settings(&self) -> Settings {

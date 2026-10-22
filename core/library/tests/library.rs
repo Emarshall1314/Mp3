@@ -315,3 +315,55 @@ fn whole_fixture_library_scans_without_crashing() {
     let stats = s.lib.stats().unwrap();
     assert_eq!(stats.tracks as u64, r.added);
 }
+
+#[test]
+fn replay_gain_comes_from_tags_and_measurements_survive_rescans() {
+    use cadenza_library::{Gain, MeasuredGain, SongSort};
+
+    let s = setup(&["tags", "formats"]);
+    scan(&s.lib);
+    let ids = s.lib.song_ids(SongSort::Title, false).unwrap();
+    let tracks = s.lib.playable(&ids).unwrap();
+    let tagged: Vec<_> = tracks
+        .iter()
+        .filter(|t| t.path.to_string_lossy().contains("/tags/"))
+        .filter(|t| t.gain.track_gain.is_some())
+        .collect();
+    assert!(tagged.len() >= 10, "only {} tagged files", tagged.len());
+    for t in &tagged {
+        assert_eq!(
+            t.gain,
+            Gain {
+                track_gain: Some(-7.89),
+                track_peak: Some(0.987_654),
+                album_gain: Some(-8.12),
+                album_peak: Some(0.999),
+            },
+            "{}",
+            t.path.display()
+        );
+    }
+    // The untagged format fixtures need measuring.
+    let todo = s.lib.tracks_missing_gain().unwrap();
+    assert!(
+        todo.iter()
+            .all(|t| t.track.path.to_string_lossy().contains("/formats/"))
+    );
+    let first = todo[0].track.id;
+    let measured = Gain {
+        track_gain: Some(-3.5),
+        track_peak: Some(0.5),
+        album_gain: None,
+        album_peak: None,
+    };
+    s.lib
+        .store_measured_gain(vec![MeasuredGain {
+            track_id: first,
+            gain: measured,
+        }])
+        .unwrap();
+    // A rescan that finds the file unchanged keeps the measurement.
+    s.lib.scan(&|_| {}).unwrap();
+    assert_eq!(s.lib.playable(&[first]).unwrap()[0].gain, measured);
+    assert_eq!(s.lib.tracks_missing_gain().unwrap().len(), todo.len() - 1);
+}

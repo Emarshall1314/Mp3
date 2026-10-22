@@ -540,6 +540,26 @@ fn insert_stub(tx: &Transaction<'_>, root_id: i64, t: &NewTrack) -> Result<i64> 
     Ok(id)
 }
 
+/// ReplayGain from tags, gains in dB at the ReplayGain 2 reference (−18 LUFS). Opus R128 gains
+/// (Q7.8 dB at −23 LUFS) are converted. `None` without a track gain.
+pub(crate) fn tag_gain(f: &cadenza_tags::Fields) -> Option<crate::Gain> {
+    let number = |k: &str| {
+        let v = first(f, k)?.trim();
+        let end = v
+            .find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.')))
+            .unwrap_or(v.len());
+        v[..end].parse::<f64>().ok().filter(|x| x.is_finite())
+    };
+    let r128 = |k: &str| number(k).map(|q| q / 256.0 + 5.0);
+    let track = number("replaygain_track_gain").or_else(|| r128("custom:R128_TRACK_GAIN"))?;
+    Some(crate::Gain {
+        track_gain: Some(track),
+        track_peak: number("replaygain_track_peak"),
+        album_gain: number("replaygain_album_gain").or_else(|| r128("custom:R128_ALBUM_GAIN")),
+        album_peak: number("replaygain_album_peak"),
+    })
+}
+
 fn first<'a>(fields: &'a cadenza_tags::Fields, k: &str) -> Option<&'a str> {
     fields.get(k).and_then(|v| v.first()).map(String::as_str)
 }
@@ -643,6 +663,21 @@ fn write_track(tx: &Transaction<'_>, id: i64, t: &NewTrack) -> Result<i64> {
             id,
         ],
     )?;
+    // ReplayGain: the file's tags win; Cadenza's own measurement survives a rescan only while the
+    // audio is unchanged (`audio_hash` above still holds the old value until this statement).
+    match tag_gain(f) {
+        Some(g) => tx.execute(
+            "UPDATE tracks SET rg_track_gain = ?, rg_track_peak = ?, rg_album_gain = ?,
+                rg_album_peak = ?, rg_source = 'tags' WHERE id = ?",
+            params![g.track_gain, g.track_peak, g.album_gain, g.album_peak, id],
+        )?,
+        None => tx.execute(
+            "UPDATE tracks SET rg_track_gain = NULL, rg_track_peak = NULL, rg_album_gain = NULL,
+                rg_album_peak = NULL, rg_source = NULL
+             WHERE id = ? AND NOT (rg_source IS 'analysis' AND rg_hash IS ?)",
+            params![id, t.audio_hash],
+        )?,
+    };
     tx.execute("DELETE FROM tags WHERE track_id = ?", [id])?;
     {
         let mut ins = tx

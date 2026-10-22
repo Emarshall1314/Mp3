@@ -8,9 +8,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+cadenza-decode = { path = "../decode" }
 cadenza-engine = { path = "../engine" }
 cadenza-library = { path = "../library" }
+ebur128 = "0.1"
 notify = "8.2"
+rayon = "1.12"
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"

@@ -19,14 +19,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crossbeam_channel::{Sender, unbounded};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use dsp::DspSettings;
 pub use output::{
     Capture, CapturedStream, DeviceFormat, Output, OutputBackend, OutputDevice, Quantizer,
     StreamRequest,
 };
-pub use queue::{QueueItem, Repeat};
+pub use queue::{QueueItem, Repeat, TrackGain};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -51,8 +51,8 @@ pub enum Status {
     Paused,
 }
 
-/// What is actually playing, for badges and (in M2) the signal path panel.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// What is actually playing, for badges and the signal path panel.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamInfo {
     pub codec: String,
@@ -76,6 +76,42 @@ pub struct StreamInfo {
     pub bit_perfect: bool,
     /// DSP stages running on this stream, in order (empty: none).
     pub dsp: Vec<String>,
+    /// ReplayGain applied to this track, in dB (`None`: ReplayGain off or not applicable).
+    pub replay_gain_db: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplayGainMode {
+    Off,
+    Track,
+    Album,
+    /// Album gain while an album plays in order (a neighbour in the queue is from the same
+    /// album and shuffle is off), track gain otherwise.
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReplayGainSettings {
+    pub mode: ReplayGainMode,
+    /// Added to every gain.
+    pub preamp_db: f64,
+    /// Used for tracks without ReplayGain data.
+    pub untagged_db: f64,
+    /// Lowers the gain where it would push the track's peak past full scale.
+    pub prevent_clipping: bool,
+}
+
+impl Default for ReplayGainSettings {
+    fn default() -> Self {
+        Self {
+            mode: ReplayGainMode::Off,
+            preamp_db: 0.0,
+            untagged_db: 0.0,
+            prevent_clipping: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -163,6 +199,7 @@ pub(crate) enum Cmd {
     Shuffle(bool),
     SetOutput(Box<dyn OutputBackend>),
     SetDsp(Box<DspSettings>),
+    SetReplayGain(ReplayGainSettings),
     Quit,
 }
 
@@ -272,6 +309,10 @@ impl Engine {
     /// Replaces the DSP settings; heard within milliseconds.
     pub fn set_dsp(&self, settings: DspSettings) {
         self.send(Cmd::SetDsp(Box::new(settings)));
+    }
+    /// Replaces the ReplayGain settings; the current track restarts in place to apply them.
+    pub fn set_replay_gain(&self, settings: ReplayGainSettings) {
+        self.send(Cmd::SetReplayGain(settings));
     }
     /// Switches outputs; playback continues on the new one from the same position.
     pub fn set_output(&self, backend: Box<dyn OutputBackend>) {

@@ -23,6 +23,7 @@ fn item(e: &Entry) -> QueueItem {
         path: e.file(),
         start_frame: None,
         end_frame: None,
+        ..Default::default()
     }
 }
 
@@ -646,4 +647,81 @@ fn turning_dsp_off_restores_bit_perfect_playback() {
     });
     let out = &h.capture.snapshot()[0].samples;
     assert!(out[..] == reference(e)[..]);
+}
+
+fn gain_events(h: &Harness) -> Vec<(i64, Option<f64>)> {
+    let mut seen: Vec<(i64, Option<f64>)> = Vec::new();
+    for e in h.events.lock().unwrap().iter() {
+        if let Event::State(s) = e
+            && let (Some(id), Some(info)) = (s.track_id, &s.stream)
+            && seen.last().is_none_or(|(last, _)| *last != id)
+        {
+            seen.push((id, info.replay_gain_db));
+        }
+    }
+    seen
+}
+
+#[test]
+fn replay_gain_modes_pick_the_right_gain_and_scale_the_samples() {
+    use cadenza_engine::{ReplayGainMode, ReplayGainSettings, TrackGain};
+
+    let e = entry("formats/flac_s16_44100");
+    let tagged = |id: i64, album: Option<i64>| QueueItem {
+        track_id: id,
+        album_id: album,
+        gain: TrackGain {
+            track_gain: Some(-6.0),
+            track_peak: Some(0.5),
+            album_gain: Some(-9.0),
+            album_peak: Some(0.6),
+        },
+        ..item(e)
+    };
+    let run = |mode, items: Vec<QueueItem>, shuffle: bool| {
+        let h = harness(Capture::paced(10.0));
+        h.engine.set_replay_gain(ReplayGainSettings {
+            mode,
+            preamp_db: 0.0,
+            untagged_db: -1.0,
+            prevent_clipping: true,
+        });
+        h.engine.set_shuffle(shuffle);
+        h.engine.set_queue(items, 0, true);
+        h.wait("queued", Duration::from_secs(5), |s| s.queue_length > 0);
+        h.wait("end", Duration::from_secs(20), |s| {
+            s.status == Status::Stopped
+        });
+        h
+    };
+    // Track mode: −6 dB, and the samples really are 6 dB down.
+    let h = run(ReplayGainMode::Track, vec![tagged(1, Some(7))], false);
+    assert_eq!(gain_events(&h), [(1, Some(-6.0))]);
+    let out = &h.capture.snapshot()[0].samples;
+    let factor = 10f64.powf(-6.0 / 20.0);
+    assert!(
+        out.iter()
+            .zip(reference(e))
+            .all(|(o, r)| (o - r * factor).abs() < 1e-12)
+    );
+    // Auto: album gain while the album plays in order, track gain for a lone track.
+    let h = run(
+        ReplayGainMode::Auto,
+        vec![tagged(1, Some(7)), tagged(2, Some(7)), tagged(3, Some(8))],
+        false,
+    );
+    assert_eq!(
+        gain_events(&h),
+        [(1, Some(-9.0)), (2, Some(-9.0)), (3, Some(-6.0))]
+    );
+    // Untagged tracks get the fallback gain; clipping prevention caps a boost at the peak.
+    let mut loud = tagged(4, None);
+    loud.gain.track_gain = Some(12.0);
+    let h = run(ReplayGainMode::Track, vec![item(e), loud], false);
+    let events = gain_events(&h);
+    assert_eq!(events[0].1, Some(-1.0));
+    assert!(
+        (events[1].1.unwrap() - 20.0 * 2f64.log10()).abs() < 1e-9,
+        "{events:?}"
+    );
 }

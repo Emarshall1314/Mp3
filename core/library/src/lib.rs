@@ -205,7 +205,29 @@ pub enum AlbumSort {
 }
 
 /// What the player needs to open a track.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+const PLAYABLE_COLUMNS: &str = "t.id, t.uid, r.path, t.rel_path, t.start_frame, t.end_frame, \
+    t.album_id, t.rg_track_gain, t.rg_track_peak, t.rg_album_gain, t.rg_album_peak";
+
+fn playable_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlayableTrack> {
+    let root: String = r.get(2)?;
+    let rel: String = r.get(3)?;
+    Ok(PlayableTrack {
+        id: r.get(0)?,
+        uid: r.get(1)?,
+        path: Path::new(&root).join(rel),
+        start_frame: r.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+        end_frame: r.get::<_, Option<i64>>(5)?.map(|v| v as u64),
+        album_id: r.get(6)?,
+        gain: Gain {
+            track_gain: r.get(7)?,
+            track_peak: r.get(8)?,
+            album_gain: r.get(9)?,
+            album_peak: r.get(10)?,
+        },
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayableTrack {
     pub id: i64,
@@ -213,6 +235,32 @@ pub struct PlayableTrack {
     pub path: PathBuf,
     pub start_frame: Option<u64>,
     pub end_frame: Option<u64>,
+    pub album_id: Option<i64>,
+    pub gain: Gain,
+}
+
+/// ReplayGain values (dB at −18 LUFS; peaks as linear sample peaks).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gain {
+    pub track_gain: Option<f64>,
+    pub track_peak: Option<f64>,
+    pub album_gain: Option<f64>,
+    pub album_peak: Option<f64>,
+}
+
+/// A track to measure: what to decode, and what the result belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GainTarget {
+    pub track: PlayableTrack,
+    pub audio_hash: String,
+}
+
+/// A measured track, ready to store.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeasuredGain {
+    pub track_id: i64,
+    pub gain: Gain,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -563,28 +611,60 @@ impl Library {
     }
 
     /// Resolves tracks to files for the player.
+    /// Present tracks without ReplayGain, album by album, for loudness measurement.
+    pub fn tracks_missing_gain(&self) -> Result<Vec<GainTarget>> {
+        let sql = format!(
+            "SELECT {PLAYABLE_COLUMNS}, t.audio_hash
+             FROM tracks t JOIN roots r ON r.id = t.root_id
+             WHERE t.rg_track_gain IS NULL AND t.missing_since IS NULL
+             ORDER BY t.album_id, t.disc_no, t.track_no, t.id"
+        );
+        self.db.read(move |c| {
+            let mut s = c.prepare(&sql)?;
+            let rows = s.query_map([], |r| {
+                Ok(GainTarget {
+                    track: playable_row(r)?,
+                    audio_hash: r.get(11)?,
+                })
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Stores loudness measured by Cadenza. Tags read later replace it; it is dropped if the audio
+    /// changes.
+    pub fn store_measured_gain(&self, measured: Vec<MeasuredGain>) -> Result<()> {
+        self.db.write(move |tx| {
+            let mut up = tx.prepare_cached(
+                "UPDATE tracks SET rg_track_gain = ?, rg_track_peak = ?, rg_album_gain = ?,
+                    rg_album_peak = ?, rg_source = 'analysis', rg_hash = audio_hash
+                 WHERE id = ? AND rg_track_gain IS NULL",
+            )?;
+            for m in &measured {
+                up.execute(params![
+                    m.gain.track_gain,
+                    m.gain.track_peak,
+                    m.gain.album_gain,
+                    m.gain.album_peak,
+                    m.track_id
+                ])?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn playable(&self, ids: &[i64]) -> Result<Vec<PlayableTrack>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let marks = vec!["?"; ids.len()].join(",");
         let sql = format!(
-            "SELECT t.id, t.uid, r.path, t.rel_path, t.start_frame, t.end_frame
+            "SELECT {PLAYABLE_COLUMNS}
              FROM tracks t JOIN roots r ON r.id = t.root_id WHERE t.id IN ({marks}) AND t.missing_since IS NULL"
         );
         let found: Vec<PlayableTrack> = self.db.read(|c| {
             let mut s = c.prepare(&sql)?;
-            let rows = s.query_map(params_from_iter(ids.iter()), |r| {
-                let root: String = r.get(2)?;
-                let rel: String = r.get(3)?;
-                Ok(PlayableTrack {
-                    id: r.get(0)?,
-                    uid: r.get(1)?,
-                    path: Path::new(&root).join(rel),
-                    start_frame: r.get::<_, Option<i64>>(4)?.map(|v| v as u64),
-                    end_frame: r.get::<_, Option<i64>>(5)?.map(|v| v as u64),
-                })
-            })?;
+            let rows = s.query_map(params_from_iter(ids.iter()), playable_row)?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
         let pos: std::collections::HashMap<i64, usize> =

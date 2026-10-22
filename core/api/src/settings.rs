@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cadenza_engine::DspSettings;
+use cadenza_engine::{DspSettings, ReplayGainSettings};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,7 @@ pub struct Settings {
     pub dop_devices: Vec<String>,
     /// DSP profile per output device id: headphones and speakers want different EQ.
     pub dsp: BTreeMap<String, DspSettings>,
+    pub replay_gain: ReplayGainSettings,
 }
 
 impl Settings {
@@ -42,6 +43,7 @@ impl Default for Settings {
             output_device: cadenza_engine::output::DEFAULT_DEVICE.to_owned(),
             dop_devices: Vec::new(),
             dsp: BTreeMap::new(),
+            replay_gain: ReplayGainSettings::default(),
         }
     }
 }

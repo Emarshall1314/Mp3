@@ -154,6 +154,17 @@ const MIGRATIONS: &[&str] = &[
         content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2', prefix='1 2 3'
     );
     "#,
+    // 2: ReplayGain, from tags ('tags') or measured by Cadenza ('analysis')
+    r#"
+    ALTER TABLE tracks ADD COLUMN rg_track_gain REAL;
+    ALTER TABLE tracks ADD COLUMN rg_track_peak REAL;
+    ALTER TABLE tracks ADD COLUMN rg_album_gain REAL;
+    ALTER TABLE tracks ADD COLUMN rg_album_peak REAL;
+    ALTER TABLE tracks ADD COLUMN rg_source TEXT;
+    -- the audio_hash a measurement was made for: it stays valid only while the audio is unchanged
+    ALTER TABLE tracks ADD COLUMN rg_hash TEXT;
+    CREATE INDEX tracks_no_gain ON tracks(album_id) WHERE rg_track_gain IS NULL AND missing_since IS NULL;
+    "#,
 ];
 
 pub(crate) struct Db {

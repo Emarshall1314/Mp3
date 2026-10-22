@@ -95,3 +95,65 @@ fn add_folder_scan_play_and_watch() {
         app.albums(AlbumSort::Artist, 0, 10).unwrap().len() == 2
     });
 }
+
+#[test]
+fn replay_gain_measures_untagged_albums_and_plays_at_album_gain() {
+    use cadenza_api::{ReplayGainMode, ReplayGainSettings};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let music = tmp.path().join("music");
+    copy_dir(
+        &fixtures_dir().join("library/Alpha Band"),
+        &music.join("Alpha Band"),
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let app = Cadenza::open(
+        &tmp.path().join("data"),
+        Some(Box::new(Capture::paced(20.0))),
+        move |e| sink.lock().unwrap().push(e),
+    )
+    .unwrap();
+    app.add_root(&music).unwrap();
+    wait("first scan", Duration::from_secs(20), || {
+        app.scan_status().last_report.is_some()
+    });
+    app.set_replay_gain(ReplayGainSettings {
+        mode: ReplayGainMode::Auto,
+        ..ReplayGainSettings::default()
+    })
+    .unwrap();
+    wait("loudness measured", Duration::from_secs(30), || {
+        let s = app.loudness_status();
+        !s.running && s.total == 3 && s.done == 3
+    });
+
+    let album = app.albums(AlbumSort::Artist, 0, 1).unwrap()[0].id;
+    app.play_album(album, 0, false).unwrap();
+    wait("album to play through", Duration::from_secs(20), || {
+        app.player().status == Status::Stopped
+            && events.lock().unwrap().iter().any(|e| {
+                matches!(
+                    e,
+                    ApiEvent::Player {
+                        event: PlayerEvent::TrackFinished { .. }
+                    }
+                )
+            })
+    });
+    let mut gains = Vec::new();
+    for e in events.lock().unwrap().iter() {
+        if let ApiEvent::Player {
+            event: PlayerEvent::State(s),
+        } = e
+            && let (Some(id), Some(info)) = (s.track_id, &s.stream)
+            && gains.last().is_none_or(|(last, _)| *last != id)
+        {
+            gains.push((id, info.replay_gain_db.unwrap()));
+        }
+    }
+    assert_eq!(gains.len(), 3, "{gains:?}");
+    // One album gain for every track, a plausible value for test tones.
+    assert!(gains.iter().all(|(_, g)| *g == gains[0].1), "{gains:?}");
+    assert!((-20.0..20.0).contains(&gains[0].1), "{gains:?}");
+}

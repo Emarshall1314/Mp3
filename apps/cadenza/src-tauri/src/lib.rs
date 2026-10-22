@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, DspSettings, EqBand,
-    ImportedEq, LibraryStats, Outputs, PlayerState, Repeat, Root, SavedSearch, ScanStatus,
-    SearchResults, SongSort, TrackRow,
+    ImportedEq, LibraryStats, LoudnessStatus, Outputs, PlayerState, Repeat, ReplayGainSettings,
+    Root, SavedSearch, ScanStatus, SearchResults, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -182,6 +182,26 @@ fn set_dop(app: App<'_>, id: String, on: bool) -> Res<()> {
 }
 
 #[tauri::command]
+fn replay_gain(app: App<'_>) -> ReplayGainSettings {
+    app.replay_gain()
+}
+
+#[tauri::command(async)]
+fn set_replay_gain(app: App<'_>, settings: ReplayGainSettings) -> Res<()> {
+    app.set_replay_gain(settings).map_err(e)
+}
+
+#[tauri::command]
+fn loudness_status(app: App<'_>) -> LoudnessStatus {
+    app.loudness_status()
+}
+
+#[tauri::command]
+fn analyze_loudness(app: App<'_>) {
+    app.analyze_loudness();
+}
+
+#[tauri::command]
 fn dsp(app: App<'_>) -> DspSettings {
     app.dsp()
 }
@@ -329,6 +349,10 @@ pub fn run() {
             set_dop,
             dsp,
             set_dsp,
+            replay_gain,
+            set_replay_gain,
+            loudness_status,
+            analyze_loudness,
             import_autoeq,
             eq_curve,
         ])

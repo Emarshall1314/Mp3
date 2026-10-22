@@ -14,7 +14,9 @@ use crate::convert::{Resampler, remix, to_f64};
 use crate::dsp::{Chain, DspSettings};
 use crate::output::{DeviceFormat, DsdPacker, Output, OutputBackend, StreamRequest};
 use crate::queue::{Queue, QueueItem, Repeat};
-use crate::{Cmd, Error, Event, PlayerState, Result, Status, StreamInfo};
+use crate::{
+    Cmd, Error, Event, PlayerState, ReplayGainMode, ReplayGainSettings, Result, Status, StreamInfo,
+};
 
 /// How far the decoder runs ahead of the speakers.
 const AHEAD: Duration = Duration::from_secs(2);
@@ -322,6 +324,8 @@ struct Source {
     channels: u16,
     duration_ms: u64,
     info: StreamInfo,
+    /// Linear ReplayGain factor applied to decoded PCM.
+    gain: f64,
 }
 
 impl Source {
@@ -376,6 +380,7 @@ fn open_source(item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source>
         resampled: false,
         bit_perfect: false,
         dsp: Vec::new(),
+        replay_gain_db: None,
     };
     Ok(Source {
         format: spec.format,
@@ -386,6 +391,7 @@ fn open_source(item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source>
         item: item.clone(),
         duration_ms,
         info,
+        gain: 1.0,
     })
 }
 
@@ -432,6 +438,7 @@ struct Player {
     /// stay gapless on it.
     dsd_unsupported: bool,
     dsp: DspSettings,
+    replay_gain: ReplayGainSettings,
 }
 
 pub(crate) fn run(
@@ -465,6 +472,7 @@ pub(crate) fn run(
         packer: None,
         dsd_unsupported: false,
         dsp: DspSettings::default(),
+        replay_gain: ReplayGainSettings::default(),
     };
     loop {
         let busy = p.status == Status::Playing && p.stream.is_some();
@@ -547,6 +555,7 @@ impl Player {
             && info.lossless
             && info.bits.is_some_and(|b| stream.format.carries(b))
             && stream.dsp.is_empty()
+            && info.replay_gain_db.is_none_or(|db| db == 0.0)
             && self.volume >= 1.0;
         Some(info)
     }
@@ -601,7 +610,7 @@ impl Player {
                 self.stop_output();
                 return;
             };
-            match open_source(&item, index, self.dsd_unsupported) {
+            match self.open(&item, index, self.dsd_unsupported) {
                 Ok(src) => {
                     let mut src = match self.prepare_output(src, true) {
                         Ok(src) => src,
@@ -673,6 +682,41 @@ impl Player {
         }
     }
 
+    /// Opens queue entry `index` with its ReplayGain worked out.
+    fn open(&self, item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source> {
+        let mut src = open_source(item, index, pcm_only)?;
+        let rg = self.replay_gain;
+        let use_album = match rg.mode {
+            ReplayGainMode::Off => {
+                return Ok(src);
+            }
+            ReplayGainMode::Track => false,
+            ReplayGainMode::Album => true,
+            ReplayGainMode::Auto => {
+                let same_album = |i: Option<usize>| {
+                    i.and_then(|i| self.queue.items.get(i))
+                        .is_some_and(|n| n.album_id.is_some() && n.album_id == item.album_id)
+                };
+                !self.queue.shuffle
+                    && (same_album(self.queue.before(index)) || same_album(self.queue.after(index)))
+            }
+        };
+        let g = item.gain;
+        let (gain, peak) = match (use_album, g.album_gain) {
+            (true, Some(a)) => (Some(a), g.album_peak),
+            _ => (g.track_gain, g.track_peak),
+        };
+        let mut db = gain.map_or(rg.untagged_db, |v| v + rg.preamp_db);
+        if rg.prevent_clipping
+            && let Some(p) = peak.filter(|p| *p > 0.0)
+        {
+            db = db.min(-20.0 * p.log10());
+        }
+        src.gain = 10f64.powf(db / 20.0);
+        src.info.replay_gain_db = Some(db);
+        Ok(src)
+    }
+
     /// Opens (or reuses) an output for `src`. A DSD source the output cannot take as DSD is
     /// reopened as PCM (converted), and the output opened for that.
     fn prepare_output(&mut self, src: Source, flush: bool) -> Result<Source> {
@@ -681,11 +725,17 @@ impl Player {
             return Ok(src);
         }
         match self.ensure_stream(src.request(), flush) {
-            Ok(()) if self.packer.is_some() => return Ok(src),
+            Ok(()) if self.packer.is_some() => {
+                // DSD bits pass untouched: no ReplayGain.
+                let mut src = src;
+                src.gain = 1.0;
+                src.info.replay_gain_db = None;
+                return Ok(src);
+            }
             Ok(()) | Err(Error::DsdUnsupported) => self.dsd_unsupported = true,
             Err(e) => return Err(e),
         }
-        let pcm = open_source(&src.item, src.index, true)?;
+        let pcm = self.open(&src.item, src.index, true)?;
         self.ensure_stream(pcm.request(), flush)?;
         Ok(pcm)
     }
@@ -779,7 +829,12 @@ impl Player {
                             self.f64_buf.clear();
                             packer.pack(bytes, &mut self.f64_buf);
                         }
-                        (chunk, _) => to_f64(chunk, src.format, &mut self.f64_buf),
+                        (chunk, _) => {
+                            to_f64(chunk, src.format, &mut self.f64_buf);
+                            if src.gain != 1.0 {
+                                self.f64_buf.iter_mut().for_each(|v| *v *= src.gain);
+                            }
+                        }
                     }
                     remix(&self.f64_buf, src.channels, out_ch, &mut self.remix_buf);
                     match self.resampler.as_mut() {
@@ -822,7 +877,7 @@ impl Player {
                 let Some(item) = self.queue.items.get(n).cloned() else {
                     break;
                 };
-                match open_source(&item, n, self.dsd_unsupported) {
+                match self.open(&item, n, self.dsd_unsupported) {
                     Ok(s) => {
                         next_src = Some(s);
                         break;
@@ -1163,6 +1218,17 @@ impl Player {
                 match (resume, self.status) {
                     (Some((index, ms)), Status::Playing | Status::Paused) => {
                         self.start_at(index, ms);
+                    }
+                    _ => self.publish(),
+                }
+            }
+            Cmd::SetReplayGain(settings) => {
+                self.replay_gain = settings;
+                // Gains are applied while decoding, ahead of the speakers: restart in place.
+                match (self.segments.front().cloned(), self.status) {
+                    (Some(seg), Status::Playing | Status::Paused) => {
+                        let at = self.position_ms();
+                        self.start_at(seg.index, at);
                     }
                     _ => self.publish(),
                 }

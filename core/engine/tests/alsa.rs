@@ -37,6 +37,7 @@ fn plays_through_alsa_null_device() {
             path: e.file(),
             start_frame: None,
             end_frame: None,
+            ..Default::default()
         }],
         0,
         true,
@@ -87,6 +88,7 @@ fn exclusive_mode_writes_the_files_samples_byte_for_byte() {
                 path: e.file(),
                 start_frame: None,
                 end_frame: None,
+                ..Default::default()
             }],
             0,
             true,
@@ -161,6 +163,7 @@ fn exclusive_mode_passes_dsd_through_unchanged() {
             path: e.file(),
             start_frame: None,
             end_frame: None,
+            ..Default::default()
         }],
         0,
         true,

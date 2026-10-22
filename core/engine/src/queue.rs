@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueItem {
     pub track_id: i64,
@@ -15,6 +15,21 @@ pub struct QueueItem {
     pub start_frame: Option<u64>,
     #[serde(skip)]
     pub end_frame: Option<u64>,
+    /// For ReplayGain's Auto mode: neighbours from the same album use album gain.
+    #[serde(skip)]
+    pub album_id: Option<i64>,
+    #[serde(skip)]
+    pub gain: TrackGain,
+}
+
+/// ReplayGain values for one track (dB at −18 LUFS; linear sample peaks). `None`: unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackGain {
+    pub track_gain: Option<f64>,
+    pub track_peak: Option<f64>,
+    pub album_gain: Option<f64>,
+    pub album_peak: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -185,9 +200,7 @@ mod tests {
         (0..n)
             .map(|i| QueueItem {
                 track_id: i,
-                path: PathBuf::new(),
-                start_frame: None,
-                end_frame: None,
+                ..QueueItem::default()
             })
             .collect()
     }
