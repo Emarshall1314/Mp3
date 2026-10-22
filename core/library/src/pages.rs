@@ -1,4 +1,4 @@
-//! Composite pages: an artist's page and Home.
+//! Composite pages: an artist's page, Home and the column browser.
 
 use rusqlite::{Connection, params};
 use serde::Serialize;
@@ -161,6 +161,68 @@ impl Library {
                     &per_album("SUM(u.play_count)", "u.play_count > 0"),
                     params![12],
                 )?,
+            })
+        })
+    }
+}
+
+/// A name in a column browser column, with how many albums it has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseItem {
+    /// Empty for albums without a genre.
+    pub name: String,
+    pub album_count: i64,
+}
+
+/// The column browser: genres; album artists in the chosen genre; albums by the chosen artist
+/// in the chosen genre. `None` in a filter means all.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Browse {
+    pub genres: Vec<BrowseItem>,
+    pub artists: Vec<BrowseItem>,
+    pub albums: Vec<AlbumRow>,
+}
+
+impl Library {
+    pub fn browse(&self, genre: Option<&str>, artist: Option<&str>) -> Result<Browse> {
+        let (genre, artist) = (genre.map(str::to_owned), artist.map(str::to_owned));
+        self.db.read(move |c| {
+            let items = |sql: &str, p: &[&dyn rusqlite::ToSql]| -> Result<Vec<BrowseItem>> {
+                let mut s = c.prepare_cached(sql)?;
+                let rows = s.query_map(p, |r| {
+                    Ok(BrowseItem {
+                        name: r.get(0)?,
+                        album_count: r.get(1)?,
+                    })
+                })?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            };
+            let genres = items(
+                "SELECT COALESCE(genre, ''), COUNT(*) FROM albums GROUP BY COALESCE(genre, '') COLLATE NOCASE
+                 ORDER BY COALESCE(genre, '') = '', COALESCE(genre, '') COLLATE NOCASE",
+                &[],
+            )?;
+            let artists = items(
+                "SELECT albumartist, COUNT(*) FROM albums
+                 WHERE ?1 IS NULL OR COALESCE(genre, '') = ?1 COLLATE NOCASE
+                 GROUP BY albumartist COLLATE NOCASE ORDER BY MIN(sort_artist)",
+                &[&genre],
+            )?;
+            let mut s = c.prepare_cached(&format!(
+                "SELECT {ALBUM_COLUMNS} FROM albums a
+                 WHERE (?1 IS NULL OR COALESCE(a.genre, '') = ?1 COLLATE NOCASE)
+                   AND (?2 IS NULL OR a.albumartist = ?2 COLLATE NOCASE)
+                 ORDER BY a.sort_artist, a.year, a.sort_title"
+            ))?;
+            let albums = s
+                .query_map(params![genre, artist], album_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(Browse {
+                genres,
+                artists,
+                albums,
             })
         })
     }

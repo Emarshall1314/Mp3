@@ -8,7 +8,7 @@ import {
   CONTROL_LABELS,
   type ColumnId,
   DEFAULT_LAYOUT,
-  type GridOrList,
+  type AlbumsView,
   type Layout,
   NAV_LABELS,
   type NavId,
@@ -146,7 +146,7 @@ export function LayoutSettings() {
   const layout = look.layout;
   const showToast = useStore((s) => s.showToast);
   const [presetName, setPresetName] = useState('');
-  const views = (key: keyof Layout['views']) => (v: GridOrList) =>
+  const views = (key: keyof Layout['views']) => (v: AlbumsView) =>
     updateLayout({ views: { ...layout.views, [key]: v } });
 
   const savePreset = () => {
@@ -304,6 +304,7 @@ export function LayoutSettings() {
             options={[
               ['grid', 'Grid'],
               ['list', 'List'],
+              ['columns', 'Columns'],
             ]}
             onChange={views('albums')}
           />

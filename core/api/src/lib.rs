@@ -25,9 +25,9 @@ pub use cadenza_engine::{
     ReplayGainMode, ReplayGainSettings, Status, StreamInfo,
 };
 pub use cadenza_library::{
-    AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, EditBatch, EditChange, Home,
-    LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
-    ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Browse, BrowseItem, EditBatch,
+    EditChange, Home, LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch,
+    ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
 pub use edit::{
     EditFailure, EditReport, EditStatus, LegacyFix, PictureEdit, PictureInfo, PictureRef,
@@ -372,6 +372,11 @@ impl Cadenza {
 
     pub fn artist_albums(&self, name: &str) -> Result<Vec<AlbumRow>> {
         Ok(self.library.artist_albums(name)?)
+    }
+
+    /// The column browser: genres, then artists in a genre, then their albums.
+    pub fn browse(&self, genre: Option<&str>, artist: Option<&str>) -> Result<Browse> {
+        Ok(self.library.browse(genre, artist)?)
     }
 
     pub fn search(&self, query: &str, limit: i64) -> Result<SearchResults> {

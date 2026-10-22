@@ -5,6 +5,7 @@ import type { AlbumSort } from '../types';
 import { AlbumGrid } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
 import { AlbumList } from './AlbumList';
+import { ColumnBrowser } from './ColumnBrowser';
 import { ViewToggle } from '../components/ViewToggle';
 import { updateLayout, useLook } from '../hooks/useAppearance';
 
@@ -50,7 +51,7 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
       <header className="view-header">
         <h1>{recent ? 'Recently Added' : 'Albums'}</h1>
         <div className="view-controls">
-          {!recent && (
+          {!recent && view !== 'columns' && (
             <label>
               Sort by{' '}
               <select
@@ -68,6 +69,7 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
             </label>
           )}
           <ViewToggle
+            columns={!recent}
             value={view}
             onChange={(v) =>
               updateLayout({ views: { ...useLook.getState().look.layout.views, [section]: v } })
@@ -89,6 +91,7 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
           )}
         </div>
       </header>
+      {view === 'columns' && <ColumnBrowser />}
       {count !== null && view === 'list' && (
         <AlbumList
           count={recent ? Math.min(count, 300) : count}

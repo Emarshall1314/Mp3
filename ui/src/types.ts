@@ -71,6 +71,18 @@ export interface AlbumDetail {
   otherVersions: AlbumRow[];
 }
 
+export interface BrowseItem {
+  /** Empty for albums without a genre. */
+  name: string;
+  albumCount: number;
+}
+
+export interface Browse {
+  genres: BrowseItem[];
+  artists: BrowseItem[];
+  albums: AlbumRow[];
+}
+
 export interface ArtistRow {
   name: string;
   albumCount: number;

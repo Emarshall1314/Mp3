@@ -21,7 +21,7 @@ use serde::Serialize;
 pub use art::{StoredArt, THUMB_SIZES};
 pub use history::{EditBatch, EditChange};
 pub use lyrics::{LyricLine, Lyrics};
-pub use pages::{ArtistPage, Home, ReleaseSection};
+pub use pages::{ArtistPage, Browse, BrowseItem, Home, ReleaseSection};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};
 
 use art::ArtCache;

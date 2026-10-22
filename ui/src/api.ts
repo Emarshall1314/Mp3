@@ -7,6 +7,7 @@ import type {
   AlbumSort,
   ApiEvent,
   Appearance,
+  Browse,
   SavedTheme,
   ArtistPage,
   ArtistRow,
@@ -52,6 +53,8 @@ export const api = {
   album: (id: number) => invoke<AlbumDetail>('album', { id }),
   artists: () => invoke<ArtistRow[]>('artists'),
   artistAlbums: (name: string) => invoke<AlbumRow[]>('artist_albums', { name }),
+  browse: (genre: string | null, artist: string | null) =>
+    invoke<Browse>('browse', { genre, artist }),
   artistPage: (name: string) => invoke<ArtistPage>('artist_page', { name }),
   home: () => invoke<Home>('home'),
   search: (query: string, limit: number) => invoke<SearchResults>('search', { query, limit }),

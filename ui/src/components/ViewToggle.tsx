@@ -1,13 +1,16 @@
-import { LayoutGrid, List } from 'lucide-react';
-import type { GridOrList } from '../theme/layout';
+import { Columns3, LayoutGrid, List } from 'lucide-react';
+import type { AlbumsView } from '../theme/layout';
 
-/// Grid or list for a section; the choice becomes the section's default view.
-export function ViewToggle({
+/// Grid, list (or columns) for a section; the choice becomes the section's default view.
+export function ViewToggle<T extends AlbumsView>({
   value,
   onChange,
+  columns = false,
 }: {
-  value: GridOrList;
-  onChange: (v: GridOrList) => void;
+  value: T;
+  onChange: (v: T) => void;
+  /// Offer the column browser too.
+  columns?: boolean;
 }) {
   return (
     <div className="segmented icons" role="radiogroup" aria-label="View">
@@ -15,6 +18,7 @@ export function ViewToggle({
         [
           ['grid', 'Grid', LayoutGrid],
           ['list', 'List', List],
+          ...(columns ? ([['columns', 'Column browser', Columns3]] as const) : []),
         ] as const
       ).map(([v, label, Icon]) => (
         <button
@@ -24,7 +28,7 @@ export function ViewToggle({
           aria-label={label}
           title={label}
           className={value === v ? 'on' : ''}
-          onClick={() => onChange(v)}
+          onClick={() => onChange(v as T)}
         >
           <Icon size={14} aria-hidden />
         </button>

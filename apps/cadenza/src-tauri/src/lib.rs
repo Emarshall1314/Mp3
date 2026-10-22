@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use cadenza_api::{
-    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
-    Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
+    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
+    BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
     LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
     ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
     SongSort, StoredArt, TrackEdit, TrackRow, TrackTags,
@@ -91,6 +91,11 @@ fn album(app: App<'_>, id: i64) -> Res<AlbumDetail> {
 #[tauri::command(async)]
 fn artists(app: App<'_>) -> Res<Vec<ArtistRow>> {
     app.artists().map_err(e)
+}
+
+#[tauri::command(async)]
+fn browse(app: App<'_>, genre: Option<String>, artist: Option<String>) -> Res<Browse> {
+    app.browse(genre.as_deref(), artist.as_deref()).map_err(e)
 }
 
 #[tauri::command(async)]
@@ -613,6 +618,7 @@ pub fn run() {
             set_output,
             set_dop,
             artist_page,
+            browse,
             home,
             lyrics,
             artwork_palette,

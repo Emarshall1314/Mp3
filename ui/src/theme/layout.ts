@@ -19,6 +19,7 @@ export type ColumnId =
   | 'plays'
   | 'time';
 export type GridOrList = 'grid' | 'list';
+export type AlbumsView = GridOrList | 'columns';
 export type Grouping = 'none' | 'album' | 'artist' | 'genre';
 export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal';
@@ -49,7 +50,7 @@ export interface Layout {
   playerPosition: 'top' | 'bottom';
   playerSize: 'compact' | 'standard' | 'large';
   playerControls: PlayerControl[];
-  views: { albums: GridOrList; recent: GridOrList; artists: GridOrList };
+  views: { albums: AlbumsView; recent: GridOrList; artists: GridOrList };
   columns: Column[];
   nowPlaying: NowPlayingStyle;
   /// The panel holding the queue, lyrics, info and signal path.
@@ -210,7 +211,7 @@ export function normaliseLayout(value: unknown): Layout {
     playerSize: pick(v.playerSize, ['compact', 'standard', 'large'], d.playerSize),
     playerControls: list(v.playerControls, ALL_CONTROLS, d.playerControls),
     views: {
-      albums: pick(views.albums, gl, d.views.albums),
+      albums: pick(views.albums, ['grid', 'list', 'columns'], d.views.albums),
       recent: pick(views.recent, gl, d.views.recent),
       artists: pick(views.artists, gl, d.views.artists),
     },

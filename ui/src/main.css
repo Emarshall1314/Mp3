@@ -2926,3 +2926,65 @@ kbd {
 .song-row .c-group {
   font-weight: 600;
 }
+
+/* ---------- column browser ---------- */
+
+.column-browser {
+  flex: 1;
+  display: grid;
+  grid-template-rows: minmax(160px, 45%) 1fr;
+  min-height: 0;
+  border-top: 1px solid var(--color-separator);
+}
+
+.browser-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.browser-column {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  border-right: 1px solid var(--color-separator);
+}
+
+.browser-column:last-child {
+  border-right: none;
+}
+
+.browser-column button {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-s);
+  text-align: left;
+  font-size: var(--font-size-100);
+}
+
+.browser-column button > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-column button:hover {
+  background: var(--color-hover);
+}
+
+.browser-column button.on {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.browser-column button.on .muted {
+  color: inherit;
+}
+
+.browser-songs {
+  padding: var(--space-2) var(--space-6);
+}

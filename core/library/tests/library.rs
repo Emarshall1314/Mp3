@@ -456,3 +456,38 @@ fn artist_pages_and_home_reflect_releases_and_plays() {
     let added = s.lib.albums(AlbumSort::Added, 0, 12).unwrap();
     assert_eq!(home.recently_added, added);
 }
+
+#[test]
+fn column_browser_narrows_by_genre_then_artist() {
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let all = s.lib.browse(None, None).unwrap();
+    let total: i64 = all.genres.iter().map(|g| g.album_count).sum();
+    assert_eq!(
+        total as usize,
+        all.albums.len(),
+        "every album is in one genre"
+    );
+    assert_eq!(
+        all.genres.last().map(|g| g.name.as_str()),
+        Some(""),
+        "no genre last"
+    );
+
+    let genre = all.genres.iter().find(|g| !g.name.is_empty()).unwrap();
+    let in_genre = s.lib.browse(Some(&genre.name), None).unwrap();
+    assert_eq!(in_genre.albums.len() as i64, genre.album_count);
+    assert_eq!(in_genre.genres, all.genres, "the genre column stays whole");
+
+    let artist = &in_genre.artists[0];
+    let narrowed = s.lib.browse(Some(&genre.name), Some(&artist.name)).unwrap();
+    assert_eq!(narrowed.albums.len() as i64, artist.album_count);
+    assert!(
+        narrowed
+            .albums
+            .iter()
+            .all(|a| a.albumartist.eq_ignore_ascii_case(&artist.name))
+    );
+    let by_artist = s.lib.browse(None, Some("gamma")).unwrap();
+    assert_eq!(by_artist.albums.len(), 2, "both Night Drive editions");
+}
