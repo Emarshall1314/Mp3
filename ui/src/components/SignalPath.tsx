@@ -37,33 +37,55 @@ export function SignalPath({ quality, fallback }: { quality: Quality; fallback: 
       {open && path && (
         <div className="popover signal-popover left" role="dialog" aria-label="Signal path">
           <h2 className="popover-title">Signal Path</h2>
-          <ol className="steps">
-            {path.steps.map((s, i) => (
-              <li key={i}>
-                <span className="step-label">{s.label}</span>
-                <span className="step-detail">{s.detail}</span>
-              </li>
-            ))}
-          </ol>
-          {path.bitPerfect ? (
-            <p className="verdict good">
-              <CheckCircle2 size={14} aria-hidden /> Bit-perfect: the device receives exactly the
-              file’s samples.
-            </p>
-          ) : (
-            <div className="verdict">
-              <p>
-                <Info size={14} aria-hidden /> Not bit-perfect:
-              </p>
-              <ul>
-                {path.reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <SignalPathDetails path={path} />
         </div>
       )}
+    </div>
+  );
+}
+
+/// Each step from file to device, and whether the device gets the file's exact samples.
+export function SignalPathDetails({ path }: { path: NonNullable<ReturnType<typeof signalPath>> }) {
+  return (
+    <>
+      <ol className="steps">
+        {path.steps.map((s, i) => (
+          <li key={i}>
+            <span className="step-label">{s.label}</span>
+            <span className="step-detail">{s.detail}</span>
+          </li>
+        ))}
+      </ol>
+      {path.bitPerfect ? (
+        <p className="verdict good">
+          <CheckCircle2 size={14} aria-hidden /> Bit-perfect: the device receives exactly the file’s
+          samples.
+        </p>
+      ) : (
+        <div className="verdict">
+          <p>
+            <Info size={14} aria-hidden /> Not bit-perfect:
+          </p>
+          <ul>
+            {path.reasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+/// The signal path of what's playing, for the dock.
+export function SignalPathPanel() {
+  const stream = useStore((s) => s.player?.stream ?? null);
+  const volume = useStore((s) => s.player?.volume ?? 1);
+  const path = stream ? signalPath(stream, volume) : null;
+  if (!path) return <p className="empty">Nothing is playing.</p>;
+  return (
+    <div className="signal-panel">
+      <SignalPathDetails path={path} />
     </div>
   );
 }

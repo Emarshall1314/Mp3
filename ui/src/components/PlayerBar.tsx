@@ -31,7 +31,7 @@ export function PlayerBar() {
   const player = useStore((s) => s.player);
   const navigate = useStore((s) => s.navigate);
   const toggleQueue = useStore((s) => s.toggleQueue);
-  const queueOpen = useStore((s) => s.queueOpen);
+  const queueOpen = useStore((s) => s.dock === 'queue');
   const layout = useLook((s) => s.look.layout);
   const shows = (c: PlayerControl) => layout.playerControls.includes(c);
   const [track, setTrack] = useState<TrackRow | null>(null);

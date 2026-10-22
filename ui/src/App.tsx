@@ -2,13 +2,13 @@ import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { api, onApiEvent } from './api';
 import { attempt, useStore } from './store';
-import { useAppearance } from './hooks/useAppearance';
+import { useAppearance, useLook } from './hooks/useAppearance';
 import { useCurrentTrack } from './hooks/useCurrentTrack';
 import { presetMenu } from './components/LayoutSettings';
 import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
-import { QueuePanel } from './components/QueuePanel';
+import { Dock } from './components/Dock';
 import { ContextMenu } from './components/ContextMenu';
 import { NowPlaying } from './components/NowPlaying';
 import { EditFailures, SongInfo } from './components/SongInfo';
@@ -117,48 +117,50 @@ export function App() {
   useShortcuts();
   const playing = useCurrentTrack();
   useAppearance(playing?.artHash ?? null);
-  const queueOpen = useStore((s) => s.queueOpen);
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);
   const toast = useStore((s) => s.toast);
+  const dockPosition = useLook((s) => s.look.layout.dock.position);
 
   return (
-    <div className={`app ${queueOpen ? 'with-queue' : ''}`}>
+    <div className="app">
       <Sidebar />
-      <main className="main">
-        <div className="toolbar">
-          <button
-            className="icon-button small"
-            aria-label="Back"
-            disabled={!back}
-            onClick={() => useStore.getState().goBack()}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            className="icon-button small"
-            aria-label="Forward"
-            disabled={!forward}
-            onClick={() => useStore.getState().goForward()}
-          >
-            <ChevronRight size={18} />
-          </button>
-          <span className="toolbar-spacer" />
-          <button
-            className="icon-button small"
-            aria-label="Layouts"
-            title="Layouts (Ctrl+Shift+L)"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              useStore.getState().openMenu(r.left, r.bottom + 4, presetMenu());
-            }}
-          >
-            <LayoutTemplate size={16} />
-          </button>
-        </div>
-        <Main />
-      </main>
-      {queueOpen && <QueuePanel />}
+      <div className="workspace" data-dock={dockPosition}>
+        <main className="main">
+          <div className="toolbar">
+            <button
+              className="icon-button small"
+              aria-label="Back"
+              disabled={!back}
+              onClick={() => useStore.getState().goBack()}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              className="icon-button small"
+              aria-label="Forward"
+              disabled={!forward}
+              onClick={() => useStore.getState().goForward()}
+            >
+              <ChevronRight size={18} />
+            </button>
+            <span className="toolbar-spacer" />
+            <button
+              className="icon-button small"
+              aria-label="Layouts"
+              title="Layouts (Ctrl+Shift+L)"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                useStore.getState().openMenu(r.left, r.bottom + 4, presetMenu());
+              }}
+            >
+              <LayoutTemplate size={16} />
+            </button>
+          </div>
+          <Main />
+        </main>
+        <Dock />
+      </div>
       <PlayerBar />
       <NowPlaying />
       <ContextMenu />

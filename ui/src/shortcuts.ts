@@ -123,6 +123,18 @@ export const ACTIONS: ShortcutAction[] = [
     keys: 'Ctrl+U',
     run: () => useStore.getState().toggleQueue(),
   },
+  {
+    id: 'infoPanel',
+    action: 'Song info panel',
+    keys: '',
+    run: () => useStore.getState().toggleDock('info'),
+  },
+  {
+    id: 'signalPanel',
+    action: 'Signal path panel',
+    keys: '',
+    run: () => useStore.getState().toggleDock('signal'),
+  },
   ...(isAndroid
     ? []
     : [

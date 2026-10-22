@@ -16,6 +16,8 @@ export type Route =
   | { name: 'sound' }
   | { name: 'settings' };
 
+export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal';
+
 export interface MenuItem {
   label: string;
   run: () => void;
@@ -39,7 +41,11 @@ interface Store {
   libraryVersion: number;
   libraryChanged: () => void;
 
-  queueOpen: boolean;
+  /// The dock's open tab (queue, lyrics, info, signal path), or closed.
+  dock: DockTab | null;
+  /// Opens the dock on `tab`, or closes it when it already shows that tab.
+  toggleDock: (tab: DockTab) => void;
+  setDock: (tab: DockTab | null) => void;
   toggleQueue: () => void;
 
   /// The full-screen Now Playing view, and which side panel it shows.
@@ -106,8 +112,10 @@ export const useStore = create<Store>((set, get) => ({
   libraryVersion: 0,
   libraryChanged: () => set({ libraryVersion: get().libraryVersion + 1 }),
 
-  queueOpen: false,
-  toggleQueue: () => set({ queueOpen: !get().queueOpen }),
+  dock: null,
+  toggleDock: (tab) => set({ dock: get().dock === tab ? null : tab }),
+  setDock: (dock) => set({ dock }),
+  toggleQueue: () => get().toggleDock('queue'),
 
   nowPlaying: false,
   setNowPlaying: (open) => set({ nowPlaying: open }),

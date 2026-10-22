@@ -70,10 +70,6 @@ h1 {
   height: 100%;
 }
 
-.app.with-queue {
-  grid-template-columns: var(--sidebar-width) 1fr var(--queue-width);
-}
-
 .main {
   grid-row: 1;
   grid-column: 2;
@@ -2501,7 +2497,7 @@ kbd {
   border-bottom: 1px solid var(--color-separator);
 }
 
-:root[data-player^='top'] :is(.sidebar, .main, .queue-panel) {
+:root[data-player^='top'] :is(.sidebar, .workspace) {
   grid-row: 2;
 }
 
@@ -2688,4 +2684,236 @@ kbd {
 .shortcut-key.recording {
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* ---------- workspace and dock (components/Dock.tsx) ---------- */
+
+.workspace {
+  grid-row: 1;
+  grid-column: 2;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace[data-dock='bottom'] {
+  flex-direction: column;
+}
+
+.workspace > .main {
+  flex: 1;
+}
+
+.dock {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  animation: panel-in var(--duration-slow) var(--ease-spring);
+}
+
+.dock[data-position='right'] {
+  border-left: 1px solid var(--color-separator);
+}
+
+.dock[data-position='left'] {
+  order: -1;
+  border-right: 1px solid var(--color-separator);
+}
+
+.dock[data-position='bottom'] {
+  border-top: 1px solid var(--color-separator);
+}
+
+.dock[data-position='floating'] {
+  position: absolute;
+  z-index: 50;
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-menu);
+  overflow: hidden;
+}
+
+.dock-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) 0 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.dock[data-position='floating'] .dock-header {
+  cursor: grab;
+  touch-action: none;
+}
+
+.dock-header .tabs {
+  flex: 1;
+  border-bottom: none;
+  padding: 0 var(--space-2);
+}
+
+.dock-header select {
+  font-size: var(--font-size-100);
+}
+
+.dock-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The queue fills the dock rather than being its own panel. */
+.dock .queue-panel {
+  flex: 1;
+  border: none;
+  background: none;
+  backdrop-filter: none;
+}
+
+.dock-edge {
+  position: absolute;
+  z-index: 1;
+  touch-action: none;
+}
+
+.dock[data-position='right'] .dock-edge,
+.dock[data-position='left'] .dock-edge {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.dock[data-position='right'] .dock-edge {
+  left: -3px;
+}
+
+.dock[data-position='left'] .dock-edge {
+  right: -3px;
+}
+
+.dock[data-position='bottom'] .dock-edge {
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.dock-edge:hover,
+.dock-corner:hover {
+  background: var(--color-accent);
+  opacity: 0.5;
+}
+
+.dock-corner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  border-top-left-radius: 4px;
+}
+
+.dock .empty {
+  padding: var(--space-4);
+  color: var(--color-text-secondary);
+}
+
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.info-panel h3 {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-200);
+}
+
+.info-panel p {
+  margin: 0;
+}
+
+.info-panel dl {
+  width: 100%;
+  margin: var(--space-4) 0 0;
+  text-align: left;
+  font-size: var(--font-size-100);
+}
+
+.info-panel dl > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.info-panel dt {
+  color: var(--color-text-secondary);
+}
+
+.info-panel dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-panel .path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.signal-panel {
+  padding: var(--space-2) var(--space-4);
+}
+
+/* Liquid glass and liquid rims apply to the dock like other panels. */
+:root[data-panels='liquid'] .dock {
+  backdrop-filter: blur(var(--blur-glass)) saturate(210%) brightness(1.05);
+  background-image: linear-gradient(
+    135deg,
+    var(--glass-sheen),
+    transparent 35%,
+    transparent 72%,
+    var(--glass-sheen)
+  );
+}
+
+:root[data-panels='liquid'][data-refraction] .dock {
+  backdrop-filter: url(#cadenza-liquid) blur(var(--blur-glass)) saturate(210%) brightness(1.05);
+}
+
+.dock-header .tabs button {
+  padding-inline: var(--space-2);
+}
+
+.dock .lyrics {
+  padding: 30% var(--space-4);
+}
+
+.dock .lyrics li {
+  font-size: 18px;
+}
+
+.dock .lyrics.empty {
+  padding: var(--space-4);
+}
+
+/* A floating panel sits over busy artwork: keep it readable even where blur isn't drawn. */
+.dock[data-position='floating'] {
+  background-color: var(--color-surface);
 }

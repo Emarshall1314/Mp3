@@ -313,6 +313,18 @@ export function LayoutSettings() {
             ]}
             onChange={views('artists')}
           />
+          <span>Side panel</span>
+          <Segmented
+            label="Side panel position"
+            value={layout.dock.position}
+            options={[
+              ['right', 'Right'],
+              ['left', 'Left'],
+              ['bottom', 'Bottom'],
+              ['floating', 'Floating'],
+            ]}
+            onChange={(position) => updateLayout({ dock: { ...layout.dock, position } })}
+          />
           <span>Now Playing</span>
           <Segmented
             label="Now Playing style"

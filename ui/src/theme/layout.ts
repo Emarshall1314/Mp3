@@ -27,6 +27,17 @@ export interface Column {
   width: number;
 }
 
+export interface Dock {
+  position: 'right' | 'left' | 'bottom' | 'floating';
+  /// Width (left, right) or height (bottom), px.
+  size: number;
+  /// Where it floats: px from the workspace's top left, and its size.
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Layout {
   /// Sidebar library items in order; ones not listed are hidden.
   nav: NavId[];
@@ -39,6 +50,8 @@ export interface Layout {
   views: { albums: GridOrList; recent: GridOrList; artists: GridOrList };
   columns: Column[];
   nowPlaying: NowPlayingStyle;
+  /// The panel holding the queue, lyrics, info and signal path.
+  dock: Dock;
 }
 
 export interface Preset {
@@ -104,6 +117,7 @@ export const DEFAULT_LAYOUT: Layout = {
     ['title', 'artist', 'album', 'year', 'genre', 'quality', 'plays', 'time'] as ColumnId[]
   ).map((id) => col(id)),
   nowPlaying: 'artwork',
+  dock: { position: 'right', size: 320, x: 80, y: 80, w: 340, h: 420 },
 };
 
 export const BUILT_IN_PRESETS: Preset[] = [
@@ -189,6 +203,30 @@ export function normaliseLayout(value: unknown): Layout {
     // The title column is always there: a list without it can't be read.
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
     nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal'], d.nowPlaying),
+    dock: normaliseDock(v.dock),
+  };
+}
+
+function normaliseDock(value: unknown): Dock {
+  const v = (value && typeof value === 'object' ? value : {}) as Partial<
+    Record<keyof Dock, unknown>
+  >;
+  const d = DEFAULT_LAYOUT.dock;
+  const num = (x: unknown, lo: number, hi: number, fallback: number) =>
+    typeof x === 'number' && Number.isFinite(x)
+      ? Math.round(Math.min(hi, Math.max(lo, x)))
+      : fallback;
+  return {
+    position: (['right', 'left', 'bottom', 'floating'] as const).includes(
+      v.position as Dock['position'],
+    )
+      ? (v.position as Dock['position'])
+      : d.position,
+    size: num(v.size, 200, 800, d.size),
+    x: num(v.x, 0, 4000, d.x),
+    y: num(v.y, 0, 4000, d.y),
+    w: num(v.w, 240, 1200, d.w),
+    h: num(v.h, 200, 1200, d.h),
   };
 }
 
