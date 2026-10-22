@@ -1,8 +1,8 @@
-//! Sample conversion between the decoder and the output: to f32, channel remixing, resampling.
+//! Sample conversion between the decoder and the output: to f64, channel remixing, resampling.
 //!
-//! Integer PCM converts to f32 exactly for depths up to 24 bits (f32 has a 24-bit mantissa), so
-//! shared-mode playback of 16/24-bit material at its native rate stays bit-transparent until
-//! volume or the sound server touch it. M2 adds an integer path for exclusive bit-perfect output.
+//! The pipeline runs in f64, which holds integer PCM of every depth up to 32 bits exactly. An
+//! untouched integer source therefore reaches the output on its integer grid, and the output's
+//! [`Quantizer`](crate::output::Quantizer) turns it back into the same integers: bit-perfect.
 
 use audioadapter_buffers::direct::InterleavedSlice;
 use cadenza_decode::{Chunk, SampleFormat};
@@ -10,14 +10,14 @@ use rubato::{Fft, FixedSync, Resampler as _};
 
 use crate::{Error, Result};
 
-pub(crate) fn to_f32(chunk: Chunk<'_>, format: SampleFormat, out: &mut Vec<f32>) {
+pub(crate) fn to_f64(chunk: Chunk<'_>, format: SampleFormat, out: &mut Vec<f64>) {
     out.clear();
     match (chunk, format) {
         (Chunk::Int(s), SampleFormat::Int(bits)) => {
             let scale = 1.0 / (1u64 << (bits.clamp(1, 32) - 1)) as f64;
-            out.extend(s.iter().map(|&v| (v as f64 * scale) as f32));
+            out.extend(s.iter().map(|&v| v as f64 * scale));
         }
-        (Chunk::Float(s), _) => out.extend_from_slice(s),
+        (Chunk::Float(s), _) => out.extend(s.iter().map(|&v| f64::from(v))),
         // DSD is converted to PCM before it reaches here.
         _ => {}
     }
@@ -25,14 +25,14 @@ pub(crate) fn to_f32(chunk: Chunk<'_>, format: SampleFormat, out: &mut Vec<f32>)
 
 /// Remaps channels: mono → duplicated, multichannel → stereo with ITU-R BS.775 coefficients
 /// (centre and surrounds at −3 dB, LFE dropped), otherwise channel-for-channel.
-pub(crate) fn remix(input: &[f32], from: u16, to: u16, out: &mut Vec<f32>) {
+pub(crate) fn remix(input: &[f64], from: u16, to: u16, out: &mut Vec<f64>) {
     out.clear();
     let (f, t) = (from.max(1) as usize, to.max(1) as usize);
     if f == t {
         out.extend_from_slice(input);
         return;
     }
-    const M3DB: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    const M3DB: f64 = std::f64::consts::FRAC_1_SQRT_2;
     for frame in input.chunks_exact(f) {
         match (f, t) {
             (1, _) => out.extend(std::iter::repeat_n(frame[0], t)),
@@ -48,7 +48,7 @@ pub(crate) fn remix(input: &[f32], from: u16, to: u16, out: &mut Vec<f32>) {
                     }
                 }
                 // Normalise so a full-scale signal on every channel cannot clip.
-                let norm = 1.0 / (1.0 + M3DB + M3DB * ((f - 4) as f32 / 2.0));
+                let norm = 1.0 / (1.0 + M3DB + M3DB * ((f - 4) as f64 / 2.0));
                 out.push(l * norm);
                 out.push(r * norm);
             }
@@ -63,11 +63,11 @@ pub(crate) fn remix(input: &[f32], from: u16, to: u16, out: &mut Vec<f32>) {
 
 /// A streaming fixed-ratio resampler (rubato's FFT resampler: synchronous, high quality).
 pub(crate) struct Resampler {
-    inner: Fft<f32>,
+    inner: Fft<f64>,
     channels: usize,
     chunk: usize,
-    pending: Vec<f32>,
-    out_buf: Vec<f32>,
+    pending: Vec<f64>,
+    out_buf: Vec<f64>,
     /// Leading output frames still to drop (the resampler's own delay).
     drop: usize,
     pub(crate) from: u32,
@@ -78,7 +78,7 @@ impl Resampler {
     pub(crate) fn new(from: u32, to: u32, channels: u16) -> Result<Self> {
         let chunk = 1024;
         let ch = channels.max(1) as usize;
-        let inner = Fft::<f32>::new(from as usize, to as usize, chunk, ch, FixedSync::Input)
+        let inner = Fft::<f64>::new(from as usize, to as usize, chunk, ch, FixedSync::Input)
             .map_err(|e| Error::Output(format!("resampler: {e}")))?;
         let drop = inner.output_delay();
         let out_max = inner.output_frames_max();
@@ -94,7 +94,7 @@ impl Resampler {
         })
     }
 
-    fn run_chunk(&mut self, input: &[f32], out: &mut Vec<f32>) -> Result<()> {
+    fn run_chunk(&mut self, input: &[f64], out: &mut Vec<f64>) -> Result<()> {
         let ch = self.channels;
         let adapter_in = InterleavedSlice::new(input, ch, self.chunk)
             .map_err(|e| Error::Output(e.to_string()))?;
@@ -112,12 +112,12 @@ impl Resampler {
     }
 
     /// Feeds input; appends whatever output is ready.
-    pub(crate) fn process(&mut self, input: &[f32], out: &mut Vec<f32>) -> Result<()> {
+    pub(crate) fn process(&mut self, input: &[f64], out: &mut Vec<f64>) -> Result<()> {
         self.pending.extend_from_slice(input);
         let step = self.chunk * self.channels;
         let mut consumed = 0;
         while self.pending.len() - consumed >= step {
-            let chunk: Vec<f32> = self.pending[consumed..consumed + step].to_vec();
+            let chunk: Vec<f64> = self.pending[consumed..consumed + step].to_vec();
             self.run_chunk(&chunk, out)?;
             consumed += step;
         }
@@ -128,7 +128,7 @@ impl Resampler {
     /// Pushes the remaining input through (padding with silence) at the end of the stream.
     pub(crate) fn flush(
         &mut self,
-        out: &mut Vec<f32>,
+        out: &mut Vec<f64>,
         expected_total_out: Option<u64>,
         produced_so_far: u64,
     ) -> Result<()> {
@@ -158,14 +158,14 @@ mod tests {
     #[test]
     fn integers_convert_exactly() {
         let mut out = Vec::new();
-        to_f32(
+        to_f64(
             Chunk::Int(&[-32768, 0, 16384, 32767]),
             SampleFormat::Int(16),
             &mut out,
         );
         assert_eq!(out, [-1.0, 0.0, 0.5, 32767.0 / 32768.0]);
-        to_f32(Chunk::Int(&[8_388_607]), SampleFormat::Int(24), &mut out);
-        assert_eq!(out[0] as f64, 8_388_607.0 / 8_388_608.0);
+        to_f64(Chunk::Int(&[i32::MAX]), SampleFormat::Int(32), &mut out);
+        assert_eq!(out[0] * 2_147_483_648.0, f64::from(i32::MAX));
     }
 
     #[test]
@@ -182,9 +182,9 @@ mod tests {
     fn resampling_keeps_length_and_tone() {
         let (from, to) = (44_100u32, 48_000u32);
         let n = 44_100usize;
-        let input: Vec<f32> = (0..n)
+        let input: Vec<f64> = (0..n)
             .flat_map(|i| {
-                let v = (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / from as f32).sin() * 0.5;
+                let v = (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / from as f64).sin() * 0.5;
                 [v, v]
             })
             .collect();
@@ -201,10 +201,10 @@ mod tests {
         let max_err = (2000..46_000)
             .map(|i| {
                 let ideal =
-                    (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / to as f32).sin() * 0.5;
+                    (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / to as f64).sin() * 0.5;
                 (out[i * 2] - ideal).abs()
             })
-            .fold(0.0f32, f32::max);
+            .fold(0.0f64, f64::max);
         assert!(max_err < 1e-3, "max error {max_err}");
     }
 }

@@ -163,7 +163,10 @@ pub fn default_output() -> Box<dyn OutputBackend> {
     #[cfg(target_os = "linux")]
     {
         let device = std::env::var("CADENZA_ALSA_DEVICE").unwrap_or_else(|_| "default".into());
-        Box::new(cadenza_engine::output::alsa::Alsa { device })
+        Box::new(cadenza_engine::output::alsa::Alsa {
+            device,
+            exclusive: false,
+        })
     }
     #[cfg(target_os = "android")]
     {

@@ -59,6 +59,11 @@ describe('format', () => {
         dsdRate: null,
         channels: 2,
         output: '',
+        outputRate: 192000,
+        outputChannels: 2,
+        outputFormat: { kind: 'float' },
+        exclusive: false,
+        bitPerfect: false,
         resampled: false,
       }),
     ).toBe('PCM · 32-bit float/192 kHz');

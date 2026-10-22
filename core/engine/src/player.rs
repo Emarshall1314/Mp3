@@ -10,8 +10,8 @@ use cadenza_decode::{Bounded, Decoder, DsdToPcm, SampleFormat};
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use crate::convert::{Resampler, remix, to_f32};
-use crate::output::{Output, OutputBackend};
+use crate::convert::{Resampler, remix, to_f64};
+use crate::output::{DeviceFormat, Output, OutputBackend, StreamRequest};
 use crate::queue::{Queue, QueueItem, Repeat};
 use crate::{Cmd, Error, Event, PlayerState, Result, Status, StreamInfo};
 
@@ -33,15 +33,15 @@ struct OutShared {
     error: Mutex<Option<String>>,
 }
 
-fn gain(volume: f32) -> f32 {
+fn gain(volume: f32) -> f64 {
     // Perceptual curve: the slider's midpoint is about −18 dB.
-    volume.clamp(0.0, 1.0).powi(3)
+    f64::from(volume.clamp(0.0, 1.0)).powi(3)
 }
 
-fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f32>, sh: Arc<OutShared>) {
+fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutShared>) {
     let ch = out.channels().max(1) as usize;
     let period = (out.rate() as usize / 100).max(64) * ch; // ~10 ms per write
-    let mut buf: Vec<f32> = Vec::with_capacity(period);
+    let mut buf: Vec<f64> = Vec::with_capacity(period);
     let mut consumed: u64 = 0;
     let mut seen_epoch = 0;
     let mut paused = false;
@@ -98,7 +98,7 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f32>, sh: Arc<OutS
         if target != 1.0 || current_gain != 1.0 {
             let frames = buf.len() / ch;
             for (f, frame) in buf.chunks_exact_mut(ch).enumerate() {
-                let g = current_gain + (target - current_gain) * (f + 1) as f32 / frames as f32;
+                let g = current_gain + (target - current_gain) * (f + 1) as f64 / frames as f64;
                 frame.iter_mut().for_each(|s| *s *= g);
             }
             current_gain = target;
@@ -124,25 +124,32 @@ fn set_error(sh: &OutShared, e: Error) {
 
 /// An open output plus its thread and ring.
 struct Stream {
-    ring: Producer<f32>,
+    ring: Producer<f64>,
     shared: Arc<OutShared>,
     thread: Option<JoinHandle<()>>,
     /// The format we asked for (the source's); the device may have granted another.
-    requested: (u32, u16),
+    requested: StreamRequest,
     rate: u32,
     channels: u16,
+    format: DeviceFormat,
+    exclusive: bool,
     pushed: u64,
     describe: String,
 }
 
 impl Stream {
-    fn open(backend: &dyn OutputBackend, rate: u32, channels: u16, volume: f32) -> Result<Self> {
-        let out = backend.open(rate, channels)?;
-        let (granted_rate, granted_channels, describe) =
-            (out.rate(), out.channels(), out.describe());
+    fn open(backend: &dyn OutputBackend, request: StreamRequest, volume: f32) -> Result<Self> {
+        let out = backend.open(request)?;
+        let (granted_rate, granted_channels, format, exclusive, describe) = (
+            out.rate(),
+            out.channels(),
+            out.format(),
+            out.exclusive(),
+            out.describe(),
+        );
         let capacity =
             (granted_rate as f64 * AHEAD.as_secs_f64()) as usize * granted_channels as usize;
-        let (producer, consumer) = RingBuffer::<f32>::new(capacity);
+        let (producer, consumer) = RingBuffer::<f64>::new(capacity);
         let shared = Arc::new(OutShared::default());
         shared
             .volume_bits
@@ -156,12 +163,24 @@ impl Stream {
             ring: producer,
             shared,
             thread: Some(thread),
-            requested: (rate, channels),
+            requested: request,
             rate: granted_rate,
             channels: granted_channels,
+            format,
+            exclusive,
             pushed: 0,
             describe,
         })
+    }
+
+    /// Whether `request` can follow on this stream without reopening (gaplessly). An exclusive
+    /// stream must also carry the new source's bit depth unchanged.
+    fn fits(&self, request: StreamRequest) -> bool {
+        (self.requested.rate, self.requested.channels) == (request.rate, request.channels)
+            && (!self.exclusive
+                || request
+                    .bits
+                    .is_none_or(|b| self.format.carries(b) && self.requested.bits.is_some()))
     }
 
     fn played(&self) -> u64 {
@@ -173,7 +192,7 @@ impl Stream {
     }
 
     /// Pushes as much of `samples` as fits; returns samples consumed.
-    fn push(&mut self, samples: &[f32]) -> usize {
+    fn push(&mut self, samples: &[f64]) -> usize {
         let ch = self.channels.max(1) as usize;
         let n = (self.ring.slots() / ch * ch).min(samples.len() / ch * ch);
         if n == 0 {
@@ -238,6 +257,19 @@ struct Source {
     info: StreamInfo,
 }
 
+impl Source {
+    fn request(&self) -> StreamRequest {
+        StreamRequest {
+            rate: self.rate,
+            channels: self.channels,
+            bits: match self.format {
+                SampleFormat::Int(b) if self.info.lossless => Some(b),
+                _ => None,
+            },
+        }
+    }
+}
+
 fn open_source(item: &QueueItem, index: usize) -> Result<Source> {
     let mut dec = cadenza_decode::open(&item.path)?;
     if item.start_frame.is_some() || item.end_frame.is_some() {
@@ -268,7 +300,12 @@ fn open_source(item: &QueueItem, index: usize) -> Result<Source> {
         dsd_rate: (original.format == SampleFormat::Dsd).then_some(original.sample_rate),
         channels: original.channels,
         output: String::new(),
+        output_rate: 0,
+        output_channels: 0,
+        output_format: DeviceFormat::Float,
+        exclusive: false,
         resampled: false,
+        bit_perfect: false,
     };
     Ok(Source {
         format: spec.format,
@@ -307,7 +344,7 @@ struct Player {
     reopen_with: Option<Source>,
     resampler: Option<Resampler>,
     resampled_out: u64,
-    pending: Vec<f32>,
+    pending: Vec<f64>,
     segments: VecDeque<Segment>,
     /// No more audio to decode; stop when everything queued has been heard.
     ending: bool,
@@ -317,8 +354,8 @@ struct Player {
     published_queue: Vec<i64>,
     emit: Box<dyn Fn(Event) + Send + Sync>,
     last_position: Instant,
-    f32_buf: Vec<f32>,
-    remix_buf: Vec<f32>,
+    f64_buf: Vec<f64>,
+    remix_buf: Vec<f64>,
 }
 
 pub(crate) fn run(
@@ -347,7 +384,7 @@ pub(crate) fn run(
         published_queue: Vec::new(),
         emit,
         last_position: Instant::now(),
-        f32_buf: Vec::new(),
+        f64_buf: Vec::new(),
         remix_buf: Vec::new(),
     };
     loop {
@@ -411,7 +448,20 @@ impl Player {
         let seg = self.segments.front()?;
         let mut info = seg.info.clone();
         info.output = stream.describe.clone();
+        info.output_rate = stream.rate;
+        info.output_channels = stream.channels;
+        info.output_format = stream.format;
+        info.exclusive = stream.exclusive;
         info.resampled = stream.rate != info.sample_rate && info.dsd_rate.is_none();
+        // Unchanged from file to device: exclusive, same rate and channels, a format that carries
+        // the source's integers, and nothing (volume included) touching the samples.
+        info.bit_perfect = stream.exclusive
+            && !info.resampled
+            && info.dsd_rate.is_none()
+            && stream.channels == info.channels
+            && info.lossless
+            && info.bits.is_some_and(|b| stream.format.carries(b))
+            && self.volume >= 1.0;
         Some(info)
     }
 
@@ -476,7 +526,7 @@ impl Player {
                             message: e.to_string(),
                         });
                     }
-                    if let Err(e) = self.ensure_stream(src.rate, src.channels, true) {
+                    if let Err(e) = self.ensure_stream(src.request(), true) {
                         (self.emit)(Event::Error {
                             track_id: Some(item.track_id),
                             message: e.to_string(),
@@ -534,24 +584,17 @@ impl Player {
         }
     }
 
-    /// Makes sure an output matching (rate, channels) is open and empty.
-    fn ensure_stream(&mut self, rate: u32, channels: u16, flush: bool) -> Result<()> {
-        let reuse = self
-            .stream
-            .as_ref()
-            .is_some_and(|s| s.requested == (rate, channels));
+    /// Makes sure an output fitting `request` is open and empty.
+    fn ensure_stream(&mut self, request: StreamRequest, flush: bool) -> Result<()> {
+        let rate = request.rate;
+        let reuse = self.stream.as_ref().is_some_and(|s| s.fits(request));
         if reuse {
             if flush && let Some(s) = self.stream.as_mut() {
                 s.flush();
             }
         } else {
             self.stream = None;
-            self.stream = Some(Stream::open(
-                self.backend.as_ref(),
-                rate,
-                channels,
-                self.volume,
-            )?);
+            self.stream = Some(Stream::open(self.backend.as_ref(), request, self.volume)?);
         }
         self.pending.clear();
         self.resampled_out = 0;
@@ -604,8 +647,8 @@ impl Player {
             let (out_rate, out_ch) = (stream.rate, stream.channels);
             match src.dec.next_chunk() {
                 Ok(Some(chunk)) => {
-                    to_f32(chunk, src.format, &mut self.f32_buf);
-                    remix(&self.f32_buf, src.channels, out_ch, &mut self.remix_buf);
+                    to_f64(chunk, src.format, &mut self.f64_buf);
+                    remix(&self.f64_buf, src.channels, out_ch, &mut self.remix_buf);
                     match self.resampler.as_mut() {
                         Some(r) => {
                             let before = self.pending.len();
@@ -665,9 +708,10 @@ impl Player {
                 }
             }
         }
-        let same_format = next_src
-            .as_ref()
-            .is_some_and(|n| (n.rate, n.channels) == (src.rate, src.channels));
+        let same_format = next_src.as_ref().is_some_and(|n| {
+            self.stream.as_ref().is_some_and(|s| s.fits(n.request()))
+                && (n.rate, n.channels) == (src.rate, src.channels)
+        });
         if !same_format && let Some(r) = self.resampler.as_mut() {
             // Close the resampled stream exactly: total out = total in × ratio.
             let expected = src
@@ -726,7 +770,7 @@ impl Player {
             let next = self.reopen_with.take();
             if let Some(n) = next {
                 self.stream = None;
-                match self.ensure_stream(n.rate, n.channels, false) {
+                match self.ensure_stream(n.request(), false) {
                     Ok(()) => {
                         let rate = self.stream.as_ref().map(|s| s.rate).unwrap_or(n.rate);
                         self.segments.clear();

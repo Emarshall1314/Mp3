@@ -20,7 +20,9 @@ use std::thread;
 use crossbeam_channel::{Sender, unbounded};
 use serde::Serialize;
 
-pub use output::{Capture, CapturedStream, Output, OutputBackend};
+pub use output::{
+    Capture, CapturedStream, DeviceFormat, Output, OutputBackend, Quantizer, StreamRequest,
+};
 pub use queue::{QueueItem, Repeat};
 
 #[derive(Debug, thiserror::Error)]
@@ -57,8 +59,15 @@ pub struct StreamInfo {
     pub channels: u16,
     /// The output as opened, e.g. "ALSA default · 44100 Hz · 2 ch · float".
     pub output: String,
+    pub output_rate: u32,
+    pub output_channels: u16,
+    pub output_format: DeviceFormat,
+    /// The output reaches the device directly, without the OS mixer.
+    pub exclusive: bool,
     /// True when the engine resampled to fit the output.
     pub resampled: bool,
+    /// The device receives exactly the file's samples.
+    pub bit_perfect: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -7,7 +7,7 @@ use std::ffi::{CStr, c_char, c_void};
 use std::ptr;
 use std::time::{Duration, Instant};
 
-use super::{Output, OutputBackend};
+use super::{DeviceFormat, Output, OutputBackend, StreamRequest};
 use crate::{Error, Result};
 
 #[repr(C)]
@@ -98,8 +98,8 @@ fn check(result: AResult, what: &str) -> Result<()> {
 pub struct AAudio;
 
 impl OutputBackend for AAudio {
-    fn open(&self, rate: u32, channels: u16) -> Result<Box<dyn Output>> {
-        let stream = open_stream(rate, channels)?;
+    fn open(&self, request: StreamRequest) -> Result<Box<dyn Output>> {
+        let stream = open_stream(request.rate, request.channels)?;
         Ok(Box::new(stream))
     }
 }
@@ -110,6 +110,7 @@ pub struct AAudioOutput {
     rate: u32,
     channels: u16,
     paused: bool,
+    floats: Vec<f32>,
 }
 
 // SAFETY: the stream handle is used from one thread at a time (moved into the output thread);
@@ -138,6 +139,7 @@ fn open_stream(rate: u32, channels: u16) -> Result<AAudioOutput> {
             rate: AAudioStream_getSampleRate(stream).max(1) as u32,
             channels: AAudioStream_getChannelCount(stream).max(1) as u16,
             paused: false,
+            floats: Vec::new(),
         };
         // `out` closes the stream on drop from here on.
         if AAudioStream_getFormat(stream) != AAUDIO_FORMAT_PCM_FLOAT {
@@ -186,18 +188,8 @@ impl AAudioOutput {
         *self = new;
         Ok(())
     }
-}
 
-impl Output for AAudioOutput {
-    fn rate(&self) -> u32 {
-        self.rate
-    }
-
-    fn channels(&self) -> u16 {
-        self.channels
-    }
-
-    fn write(&mut self, interleaved: &[f32]) -> Result<()> {
+    fn write_floats(&mut self, interleaved: &[f32]) -> Result<()> {
         let ch = self.channels.max(1) as usize;
         let mut offset = 0;
         while offset < interleaved.len() {
@@ -221,6 +213,33 @@ impl Output for AAudioOutput {
             }
         }
         Ok(())
+    }
+}
+
+impl Output for AAudioOutput {
+    fn rate(&self) -> u32 {
+        self.rate
+    }
+
+    fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    fn format(&self) -> DeviceFormat {
+        DeviceFormat::Float
+    }
+
+    fn exclusive(&self) -> bool {
+        false
+    }
+
+    fn write(&mut self, interleaved: &[f64]) -> Result<()> {
+        let mut floats = std::mem::take(&mut self.floats);
+        floats.clear();
+        floats.extend(interleaved.iter().map(|&v| v as f32));
+        let result = self.write_floats(&floats);
+        self.floats = floats;
+        result
     }
 
     fn delay_frames(&self) -> u64 {

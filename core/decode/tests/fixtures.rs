@@ -406,3 +406,19 @@ fn corrupt_files_fail_without_panicking() {
         }
     }
 }
+
+#[test]
+fn lossless_flag_matches_the_codec() {
+    let mut wrong = Vec::new();
+    for e in ok_entries() {
+        let Ok(dec) = open(&e.file()) else { continue };
+        if dec.spec().lossless != e.lossless {
+            wrong.push(format!(
+                "{}: decoder says lossless={}",
+                e.id,
+                dec.spec().lossless
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

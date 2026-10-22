@@ -121,8 +121,17 @@ export interface StreamInfo {
   dsdRate: number | null;
   channels: number;
   output: string;
+  outputRate: number;
+  outputChannels: number;
+  outputFormat: DeviceFormat;
+  /** The output reaches the device directly, without the OS mixer. */
+  exclusive: boolean;
   resampled: boolean;
+  /** The device receives exactly the file's samples. */
+  bitPerfect: boolean;
 }
+
+export type DeviceFormat = { kind: 'float' } | { kind: 'int'; bits: number };
 
 export interface PlayerState {
   status: Status;

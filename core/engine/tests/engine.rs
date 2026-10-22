@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cadenza_decode::{Chunk, SampleFormat};
-use cadenza_engine::{Capture, Engine, Event, QueueItem, Status};
+use cadenza_engine::{Capture, DeviceFormat, Engine, Event, QueueItem, Status};
 use cadenza_testkit::{Entry, manifest};
 
 fn entry(id: &str) -> &'static Entry {
@@ -26,8 +26,8 @@ fn item(e: &Entry) -> QueueItem {
     }
 }
 
-/// The file decoded straight to f32, as the engine should deliver it.
-fn reference(e: &Entry) -> Vec<f32> {
+/// The file decoded straight to f64, as the engine should deliver it.
+fn reference(e: &Entry) -> Vec<f64> {
     let mut dec = cadenza_decode::open(&e.file()).unwrap();
     let fmt = dec.spec().format;
     let mut out = Vec::new();
@@ -35,9 +35,9 @@ fn reference(e: &Entry) -> Vec<f32> {
         match (c, fmt) {
             (Chunk::Int(s), SampleFormat::Int(bits)) => {
                 let scale = 1.0 / (1u64 << (bits - 1)) as f64;
-                out.extend(s.iter().map(|&v| (v as f64 * scale) as f32));
+                out.extend(s.iter().map(|&v| v as f64 * scale));
             }
-            (Chunk::Float(s), _) => out.extend_from_slice(s),
+            (Chunk::Float(s), _) => out.extend(s.iter().map(|&v| f64::from(v))),
             _ => panic!("unexpected chunk"),
         }
     }
@@ -129,7 +129,7 @@ fn gapless_album_reaches_the_output_sample_for_sample() {
         1,
         "one output stream for one format: no reopen between tracks"
     );
-    let expected: Vec<f32> = parts.iter().flat_map(|e| reference(e)).collect();
+    let expected: Vec<f64> = parts.iter().flat_map(|e| reference(e)).collect();
     assert_eq!(
         streams[0].samples.len(),
         expected.len(),
@@ -345,4 +345,112 @@ fn unplayable_tracks_are_skipped_with_an_error() {
         s.status == Status::Stopped
     });
     assert_eq!(h.errors().len(), 1);
+}
+
+/// The file's integer samples, straight from the decoder.
+fn integers(e: &Entry) -> (u8, Vec<i32>) {
+    let mut dec = cadenza_decode::open(&e.file()).unwrap();
+    let SampleFormat::Int(bits) = dec.spec().format else {
+        panic!("{} is not integer PCM", e.id)
+    };
+    let mut out = Vec::new();
+    while let Some(c) = dec.next_chunk().unwrap() {
+        let Chunk::Int(s) = c else { panic!() };
+        out.extend_from_slice(s);
+    }
+    (bits, out)
+}
+
+fn playback(capture: Capture, tracks: &[&Entry]) -> (Harness, cadenza_engine::StreamInfo) {
+    let h = harness(capture);
+    h.engine
+        .set_queue(tracks.iter().map(|e| item(e)).collect(), 0, true);
+    h.wait("start", Duration::from_secs(5), |s| {
+        s.status != Status::Stopped || s.queue_length > 0
+    });
+    h.wait("end", Duration::from_secs(30), |s| {
+        s.status == Status::Stopped
+    });
+    // The first state event that carried stream info: what the first track played as.
+    let events = h.events.lock().unwrap().clone();
+    let info = events
+        .iter()
+        .find_map(|e| match e {
+            Event::State(s) => s.stream.clone(),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no stream info: {events:?}"));
+    (h, info)
+}
+
+#[test]
+fn exclusive_output_is_bit_perfect_for_every_integer_depth() {
+    for (id, device_bits) in [
+        ("formats/flac_s16_44100", 16),
+        ("formats/flac_s24_96000", 24),
+        ("formats/wav_s32_384000", 32),
+        ("formats/wavpack_s32_384000", 32),
+        ("formats/flac_s16_48000", 32),
+    ] {
+        let e = entry(id);
+        let mut cap = Capture::new();
+        cap.exclusive = Some(DeviceFormat::Int { bits: device_bits });
+        let (h, info) = playback(cap, &[e]);
+        assert!(info.bit_perfect, "{id}: {info:?}");
+        let (bits, ints) = integers(e);
+        let scale = (1u64 << (device_bits - 1)) as f64;
+        let shift = device_bits - bits;
+        let got: Vec<i64> = h.capture.snapshot()[0]
+            .samples
+            .iter()
+            .map(|&v| {
+                let x = v * scale;
+                assert_eq!(x.fract(), 0.0, "{id}: off the integer grid");
+                x as i64
+            })
+            .collect();
+        let want: Vec<i64> = ints.iter().map(|&v| i64::from(v) << shift).collect();
+        assert!(got == want, "{id}: samples differ");
+    }
+}
+
+#[test]
+fn shared_output_volume_and_lossy_sources_are_not_bit_perfect() {
+    let (_, info) = playback(Capture::new(), &[entry("formats/flac_s16_44100")]);
+    assert!(!info.bit_perfect && !info.exclusive);
+    let mut cap = Capture::new();
+    cap.exclusive = Some(DeviceFormat::Int { bits: 32 });
+    let (_, info) = playback(cap.clone(), &[entry("formats/mp3-cbr_s16_44100")]);
+    assert!(!info.bit_perfect, "lossy");
+    let h = harness(cap);
+    h.engine.set_volume(0.5);
+    h.engine
+        .set_queue(vec![item(entry("formats/flac_s16_44100"))], 0, true);
+    h.wait("volume applied", Duration::from_secs(5), |s| {
+        s.stream.is_some() && s.volume < 1.0
+    });
+    assert!(!h.engine.state().stream.unwrap().bit_perfect, "volume");
+}
+
+#[test]
+fn exclusive_output_reopens_only_when_the_depth_would_not_fit() {
+    let tracks = [
+        entry("formats/flac_s16_44100"),
+        entry("formats/aiff_s16_44100"),
+        entry("formats/wav_s16_44100"),
+    ];
+    // A 32-bit device carries 16-bit tracks: one stream, gapless.
+    let mut cap = Capture::new();
+    cap.exclusive = Some(DeviceFormat::Int { bits: 32 });
+    let (h, _) = playback(cap, &tracks);
+    assert_eq!(h.capture.snapshot().len(), 1);
+    // Shared output never reopens for depth alone.
+    let (h, _) = playback(
+        Capture::new(),
+        &[
+            entry("formats/flac_s16_44100"),
+            entry("formats/flac_s16_44100"),
+        ],
+    );
+    assert_eq!(h.capture.snapshot().len(), 1);
 }

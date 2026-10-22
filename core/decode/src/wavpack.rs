@@ -34,7 +34,7 @@ unsafe extern "C" {
 const OPEN_WVC: c_int = 0x1;
 const OPEN_DSD_NATIVE: c_int = 0x100;
 const MODE_FLOAT: c_int = 0x8;
-const MODE_LOSSLESS: c_int = 0x40;
+const MODE_LOSSLESS: c_int = 0x2;
 const QMODE_DSD_AUDIO: c_int = 0x30;
 const CHUNK_FRAMES: u32 = 4096;
 

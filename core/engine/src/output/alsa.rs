@@ -1,27 +1,67 @@
-//! ALSA output. M1 uses shared mode through `default` (PipeWire/PulseAudio on desktops, or
-//! `plughw` without a sound server); M2 adds exclusive `hw:` devices.
+//! ALSA output.
+//!
+//! - **Shared** (`default`, normally PipeWire or PulseAudio): float samples, and the sound server
+//!   mixes and resamples.
+//! - **Exclusive** (`hw:`): Cadenza owns the device. Rate switching follows the source, ALSA's own
+//!   resampling is disabled, and the integer format is chosen to carry the source's bit depth
+//!   unchanged, so an untouched source is bit-perfect.
 
 use alsa::pcm::{Access, Format, HwParams, PCM};
 use alsa::{Direction, ValueOr};
 
-use super::{Output, OutputBackend};
+use super::{DeviceFormat, Output, OutputBackend, Quantizer, StreamRequest};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct Alsa {
     pub device: String,
+    pub exclusive: bool,
 }
 
 impl Default for Alsa {
     fn default() -> Self {
         Self {
             device: "default".into(),
+            exclusive: false,
         }
     }
 }
 
+/// Linux's EBUSY.
+const EBUSY: i32 = 16;
+
 fn err(e: alsa::Error) -> Error {
-    Error::Output(format!("alsa: {e}"))
+    if e.errno() == EBUSY {
+        Error::Output(
+            "the device is in use by another program (usually the sound server): \
+             release it or use shared mode"
+                .into(),
+        )
+    } else {
+        Error::Output(format!("alsa: {e}"))
+    }
+}
+
+/// Formats to try for an exclusive stream, best first: the smallest that carries the source's
+/// integers exactly, then wider ones; narrower ones only as a last resort (dithered).
+fn exclusive_formats(bits: Option<u8>) -> [Format; 4] {
+    match bits {
+        Some(b) if b <= 16 => [Format::S16LE, Format::S243LE, Format::S24LE, Format::S32LE],
+        Some(b) if b <= 24 => [Format::S243LE, Format::S24LE, Format::S32LE, Format::S16LE],
+        // 32-bit integer, float and lossy sources: as many bits as the device takes.
+        _ => [Format::S32LE, Format::S243LE, Format::S24LE, Format::S16LE],
+    }
+}
+
+/// Bytes per sample and significant bits.
+fn layout(format: Format) -> Option<(usize, u8)> {
+    match format {
+        Format::S16LE => Some((2, 16)),
+        Format::S243LE => Some((3, 24)),
+        Format::S24LE => Some((4, 24)),
+        Format::S32LE => Some((4, 32)),
+        _ => None,
+    }
 }
 
 pub struct AlsaOutput {
@@ -29,6 +69,12 @@ pub struct AlsaOutput {
     device: String,
     rate: u32,
     channels: u16,
+    format: Format,
+    exclusive: bool,
+    quantizer: Option<Quantizer>,
+    ints: Vec<i32>,
+    bytes: Vec<u8>,
+    floats: Vec<f32>,
     paused: bool,
     can_pause: bool,
 }
@@ -38,6 +84,7 @@ impl std::fmt::Debug for AlsaOutput {
         f.debug_struct("AlsaOutput")
             .field("device", &self.device)
             .field("rate", &self.rate)
+            .field("format", &self.format)
             .finish()
     }
 }
@@ -46,16 +93,38 @@ impl std::fmt::Debug for AlsaOutput {
 unsafe impl Send for AlsaOutput {}
 
 impl OutputBackend for Alsa {
-    fn open(&self, rate: u32, channels: u16) -> Result<Box<dyn Output>> {
+    fn open(&self, request: StreamRequest) -> Result<Box<dyn Output>> {
         let pcm = PCM::new(&self.device, Direction::Playback, false).map_err(err)?;
-        let (granted_rate, granted_channels, can_pause) = {
+        let (rate, channels, format, can_pause) = {
             let hwp = HwParams::any(&pcm).map_err(err)?;
             hwp.set_access(Access::RWInterleaved).map_err(err)?;
-            hwp.set_format(Format::float()).map_err(err)?;
-            if hwp.set_channels(channels as u32).is_err() {
+            let format = if self.exclusive {
+                // Never let ALSA's plug layer resample behind our back.
+                hwp.set_rate_resample(false).map_err(err)?;
+                exclusive_formats(request.bits)
+                    .into_iter()
+                    .find(|f| hwp.test_format(*f).is_ok())
+                    .ok_or_else(|| {
+                        Error::Output(format!(
+                            "{} takes no 16/24/32-bit integer format",
+                            self.device
+                        ))
+                    })?
+            } else {
+                Format::float()
+            };
+            hwp.set_format(format).map_err(err)?;
+            if hwp.set_channels(u32::from(request.channels)).is_err() {
                 hwp.set_channels(2).map_err(err)?;
             }
-            hwp.set_rate(rate, ValueOr::Nearest).map_err(err)?;
+            // The source's rate if the device has it; otherwise the nearest, and the player
+            // resamples.
+            if hwp.test_rate(request.rate).is_ok() {
+                hwp.set_rate(request.rate, ValueOr::Nearest).map_err(err)?;
+            } else {
+                hwp.set_rate_near(request.rate, ValueOr::Nearest)
+                    .map_err(err)?;
+            }
             // 200 ms buffer in 20 ms periods: robust against scheduling hiccups, still
             // responsive for pause and seek (which drop the buffer).
             hwp.set_buffer_time_near(200_000, ValueOr::Nearest)
@@ -67,17 +136,52 @@ impl OutputBackend for Alsa {
             (
                 h.get_rate().map_err(err)?,
                 h.get_channels().map_err(err)? as u16,
+                h.get_format().map_err(err)?,
                 h.can_pause(),
             )
         };
         Ok(Box::new(AlsaOutput {
             pcm,
             device: self.device.clone(),
-            rate: granted_rate,
-            channels: granted_channels,
+            rate,
+            channels,
+            format,
+            exclusive: self.exclusive,
+            quantizer: layout(format).map(|(_, bits)| Quantizer::new(bits)),
+            ints: Vec::new(),
+            bytes: Vec::new(),
+            floats: Vec::new(),
             paused: false,
             can_pause,
         }))
+    }
+}
+
+impl AlsaOutput {
+    fn write_bytes(&mut self, frame_bytes: usize) -> Result<()> {
+        let io = self.pcm.io_bytes();
+        let mut offset = 0;
+        while offset < self.bytes.len() {
+            match io.writei(&self.bytes[offset..]) {
+                Ok(frames) => offset += frames * frame_bytes,
+                // Underrun (EPIPE) or suspend: recover and retry; the gap is a dropout, not a stop.
+                Err(e) => self.pcm.try_recover(e, true).map_err(err)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn write_floats(&mut self) -> Result<()> {
+        let io = self.pcm.io_f32().map_err(err)?;
+        let ch = self.channels.max(1) as usize;
+        let mut offset = 0;
+        while offset < self.floats.len() {
+            match io.writei(&self.floats[offset..]) {
+                Ok(frames) => offset += frames * ch,
+                Err(e) => self.pcm.try_recover(e, true).map_err(err)?,
+            }
+        }
+        Ok(())
     }
 }
 
@@ -90,18 +194,35 @@ impl Output for AlsaOutput {
         self.channels
     }
 
-    fn write(&mut self, interleaved: &[f32]) -> Result<()> {
-        let io = self.pcm.io_f32().map_err(err)?;
-        let ch = self.channels.max(1) as usize;
-        let mut offset = 0;
-        while offset < interleaved.len() {
-            match io.writei(&interleaved[offset..]) {
-                Ok(frames) => offset += frames * ch,
-                // Underrun (EPIPE) or suspend: recover and retry; the gap is a dropout, not a stop.
-                Err(e) => self.pcm.try_recover(e, true).map_err(err)?,
+    fn format(&self) -> DeviceFormat {
+        match layout(self.format) {
+            Some((_, bits)) => DeviceFormat::Int { bits },
+            None => DeviceFormat::Float,
+        }
+    }
+
+    fn exclusive(&self) -> bool {
+        self.exclusive
+    }
+
+    fn write(&mut self, interleaved: &[f64]) -> Result<()> {
+        let (Some(q), Some((width, _))) = (self.quantizer.as_mut(), layout(self.format)) else {
+            self.floats.clear();
+            self.floats.extend(interleaved.iter().map(|&v| v as f32));
+            return self.write_floats();
+        };
+        self.ints.clear();
+        q.convert(interleaved, &mut self.ints);
+        self.bytes.clear();
+        for &v in &self.ints {
+            match width {
+                // S32_LE, and S24_LE: the 24-bit value in the low bytes of a 32-bit word.
+                4 => self.bytes.extend_from_slice(&v.to_le_bytes()),
+                3 => self.bytes.extend_from_slice(&v.to_le_bytes()[..3]),
+                _ => self.bytes.extend_from_slice(&(v as i16).to_le_bytes()),
             }
         }
-        Ok(())
+        self.write_bytes(width * self.channels.max(1) as usize)
     }
 
     fn delay_frames(&self) -> u64 {
@@ -136,8 +257,16 @@ impl Output for AlsaOutput {
 
     fn describe(&self) -> String {
         format!(
-            "ALSA {} · {} Hz · {} ch · float",
-            self.device, self.rate, self.channels
+            "ALSA {} · {} · {} Hz · {} ch · {}",
+            self.device,
+            if self.exclusive {
+                "exclusive"
+            } else {
+                "shared"
+            },
+            self.rate,
+            self.channels,
+            self.format
         )
     }
 }
