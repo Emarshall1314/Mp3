@@ -12,6 +12,7 @@ cadenza-decode = { path = "../decode" }
 crossbeam-channel = "0.5"
 rtrb = "0.4"
 rubato = "5.0"
+realfft = "3.5"
 audioadapter-buffers = "5.2"
 serde.workspace = true
 thiserror = "2"

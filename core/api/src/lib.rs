@@ -15,8 +15,10 @@ use std::thread;
 
 use serde::Serialize;
 
+pub use cadenza_engine::dsp::{CrossfeedLevel, EqBand, FilterKind, ImportedEq};
 pub use cadenza_engine::{
-    DeviceFormat, Event as PlayerEvent, OutputDevice, PlayerState, Repeat, Status, StreamInfo,
+    DeviceFormat, DspSettings, Event as PlayerEvent, OutputDevice, PlayerState, Repeat, Status,
+    StreamInfo,
 };
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistRow, LibraryStats, Root, SavedSearch, ScanPhase,
@@ -222,6 +224,7 @@ impl Cadenza {
             again: AtomicBool::new(false),
             emit,
         });
+        engine.set_dsp(saved.current_dsp());
         let me = Self {
             library,
             engine,
@@ -472,10 +475,44 @@ impl Cadenza {
         change(&mut settings);
         self.settings.save(&settings)?;
         self.engine.set_output(backend_for(&settings));
+        self.engine.set_dsp(settings.current_dsp());
         if let Ok(mut s) = self.current.lock() {
             *s = settings;
         }
         Ok(())
+    }
+
+    // ---- DSP ------------------------------------------------------------------------------
+
+    /// The DSP profile of the current output device.
+    pub fn dsp(&self) -> DspSettings {
+        self.settings().current_dsp()
+    }
+
+    /// Replaces the current output device's DSP profile; heard at once.
+    pub fn set_dsp(&self, dsp: DspSettings) -> Result<()> {
+        let mut settings = self.settings();
+        settings
+            .dsp
+            .insert(settings.output_device.clone(), dsp.clone());
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        self.engine.set_dsp(dsp);
+        Ok(())
+    }
+
+    /// Reads an AutoEq `ParametricEQ.txt` (the caller applies it with [`Self::set_dsp`]).
+    pub fn import_autoeq(&self, path: &Path) -> Result<ImportedEq> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Error::Other(format!("{}: {e}", path.display())))?;
+        cadenza_engine::dsp::parse_autoeq(&text).map_err(Error::Other)
+    }
+
+    /// The EQ's response in dB at `freqs`, for drawing it.
+    pub fn eq_curve(&self, preamp_db: f64, bands: &[EqBand], freqs: &[f64]) -> Vec<f64> {
+        cadenza_engine::dsp::eq_curve(preamp_db, bands, freqs)
     }
 
     pub fn settings(&self) -> Settings {

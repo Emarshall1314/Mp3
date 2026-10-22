@@ -346,6 +346,7 @@ dependencies = [
  "cadenza-testkit",
  "crossbeam-channel",
  "dbus",
+ "realfft",
  "rtrb",
  "rubato",
  "serde",

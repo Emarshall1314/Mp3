@@ -64,6 +64,7 @@ describe('format', () => {
         outputFormat: { kind: 'float' },
         exclusive: false,
         bitPerfect: false,
+        dsp: [],
         resampled: false,
       }),
     ).toBe('PCM · 32-bit float/192 kHz');

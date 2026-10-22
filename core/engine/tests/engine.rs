@@ -580,3 +580,70 @@ fn dsd_albums_stay_gapless_on_devices_without_dsd() {
     );
     assert_eq!(streams[0].samples.len() / 2, 2 * 176_400);
 }
+
+#[test]
+fn dsp_changes_the_signal_and_reports_itself() {
+    use cadenza_engine::DspSettings;
+    use cadenza_engine::dsp::{EqBand, FilterKind};
+
+    let e = entry("formats/flac_s16_44100");
+    let mut cap = Capture::new();
+    cap.exclusive = Some(DeviceFormat::Int { bits: 24 });
+    let h = harness(cap);
+    h.engine.set_dsp(DspSettings {
+        preamp_db: -6.0,
+        eq_enabled: true,
+        eq: vec![EqBand {
+            kind: FilterKind::Peak,
+            freq: 1000.0,
+            gain_db: 3.0,
+            q: 1.0,
+        }],
+        limiter: true,
+        ..DspSettings::default()
+    });
+    h.engine.set_queue(vec![item(e)], 0, true);
+    h.wait("queued", Duration::from_secs(5), |s| s.queue_length > 0);
+    h.wait("end", Duration::from_secs(20), |s| {
+        s.status == Status::Stopped
+    });
+    let events = h.events.lock().unwrap().clone();
+    let info = events
+        .iter()
+        .find_map(|e| match e {
+            Event::State(s) => s.stream.clone(),
+            _ => None,
+        })
+        .unwrap();
+    assert!(!info.bit_perfect);
+    assert_eq!(info.dsp, ["Preamp -6.0 dB", "EQ · 1 band", "Limiter"]);
+    // Every frame arrives (the chain's held-back tail is flushed at the end), processed.
+    let out = &h.capture.snapshot()[0].samples;
+    let reference = reference(e);
+    let latency = (44_100f64 * 0.0015).ceil() as usize * 2;
+    assert_eq!(out.len(), reference.len() + latency);
+    assert!(out[..] != reference[..]);
+    assert!(out.iter().all(|v| v.abs() <= 0.97));
+}
+
+#[test]
+fn turning_dsp_off_restores_bit_perfect_playback() {
+    use cadenza_engine::DspSettings;
+
+    let e = entry("formats/flac_s24_96000");
+    let mut cap = Capture::new();
+    cap.exclusive = Some(DeviceFormat::Int { bits: 24 });
+    let h = harness(cap);
+    h.engine.set_dsp(DspSettings {
+        limiter: true,
+        ..DspSettings::default()
+    });
+    h.engine.set_dsp(DspSettings::default());
+    h.engine.set_queue(vec![item(e)], 0, true);
+    h.wait("queued", Duration::from_secs(5), |s| s.queue_length > 0);
+    h.wait("end", Duration::from_secs(20), |s| {
+        s.status == Status::Stopped
+    });
+    let out = &h.capture.snapshot()[0].samples;
+    assert!(out[..] == reference(e)[..]);
+}

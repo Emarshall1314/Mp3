@@ -11,6 +11,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::convert::{Resampler, remix, to_f64};
+use crate::dsp::{Chain, DspSettings};
 use crate::output::{DeviceFormat, DsdPacker, Output, OutputBackend, StreamRequest};
 use crate::queue::{Queue, QueueItem, Repeat};
 use crate::{Cmd, Error, Event, PlayerState, Result, Status, StreamInfo};
@@ -31,6 +32,10 @@ struct OutShared {
     finished: AtomicBool,
     volume_bits: AtomicU32,
     error: Mutex<Option<String>>,
+    /// A replacement DSP chain for the output thread (`Some(None)` removes the chain).
+    chain: Mutex<Option<Option<Chain>>>,
+    /// The player has nothing more for this stream: play out the chain's held-back tail.
+    drain: AtomicBool,
 }
 
 fn gain(volume: f32) -> f64 {
@@ -55,9 +60,18 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
         }
     };
     let mut current_gain = volume();
+    let mut chain: Option<Chain> = None;
+    // Frames inside the chain not yet written (its latency), until the tail is flushed.
+    let mut held = 0u64;
     loop {
         if sh.quit.load(Ordering::Acquire) {
             break;
+        }
+        if let Ok(mut slot) = sh.chain.try_lock()
+            && let Some(new) = slot.take()
+        {
+            chain = new;
+            held = chain.as_ref().map_or(0, |c| c.latency() as u64);
         }
         let epoch = sh.epoch.load(Ordering::Acquire);
         if epoch != seen_epoch {
@@ -69,6 +83,10 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
             consumed += (n / ch) as u64;
             if let Err(e) = out.flush() {
                 set_error(&sh, e);
+            }
+            if let Some(c) = chain.as_mut() {
+                c.reset();
+                held = c.latency() as u64;
             }
             seen_epoch = epoch;
             sh.played.store(consumed, Ordering::Release);
@@ -87,8 +105,21 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
         }
         let available = ring.slots() / ch * ch;
         if available == 0 {
+            if held > 0
+                && sh.drain.load(Ordering::Acquire)
+                && let Some(c) = chain.as_mut()
+            {
+                // End of the stream: push silence through to release the chain's tail.
+                buf.clear();
+                buf.resize(held as usize * ch, 0.0);
+                c.process(&mut buf);
+                if let Err(e) = out.write(&buf) {
+                    set_error(&sh, e);
+                }
+                held = 0;
+            }
             sh.played.store(
-                consumed.saturating_sub(out.delay_frames()),
+                consumed.saturating_sub(out.delay_frames() + held),
                 Ordering::Release,
             );
             thread::sleep(Duration::from_millis(2));
@@ -101,6 +132,10 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
             buf.extend_from_slice(a);
             buf.extend_from_slice(b);
             chunk.commit_all();
+        }
+        if let Some(c) = chain.as_mut() {
+            c.process(&mut buf);
+            held = c.latency() as u64;
         }
         // Volume with a per-buffer linear ramp, so changes never click.
         let target = volume();
@@ -118,7 +153,7 @@ fn output_thread(mut out: Box<dyn Output>, mut ring: Consumer<f64>, sh: Arc<OutS
         }
         consumed += (n / ch) as u64;
         sh.played.store(
-            consumed.saturating_sub(out.delay_frames()),
+            consumed.saturating_sub(out.delay_frames() + held),
             Ordering::Release,
         );
     }
@@ -142,6 +177,8 @@ struct Stream {
     channels: u16,
     format: DeviceFormat,
     exclusive: bool,
+    /// DSP stages installed on this stream.
+    dsp: Vec<String>,
     pushed: u64,
     describe: String,
 }
@@ -177,6 +214,7 @@ impl Stream {
             channels: granted_channels,
             format,
             exclusive,
+            dsp: Vec::new(),
             pushed: 0,
             describe,
         })
@@ -233,6 +271,25 @@ impl Stream {
 
     fn set_paused(&self, paused: bool) {
         self.shared.paused.store(paused, Ordering::Release);
+    }
+
+    /// Builds the DSP chain for this stream and hands it to the output thread. Returns warnings.
+    fn install_dsp(&mut self, settings: &DspSettings) -> Vec<String> {
+        // DSD reaches the device untouched.
+        let (chain, warnings) = if self.format.is_dsd() {
+            (None, Vec::new())
+        } else {
+            Chain::build(settings, self.rate, self.channels)
+        };
+        self.dsp = chain.as_ref().map(|c| c.stages.clone()).unwrap_or_default();
+        if let Ok(mut slot) = self.shared.chain.lock() {
+            *slot = Some(chain);
+        }
+        warnings
+    }
+
+    fn set_draining(&self, draining: bool) {
+        self.shared.drain.store(draining, Ordering::Release);
     }
 
     fn set_volume(&self, v: f32) {
@@ -318,6 +375,7 @@ fn open_source(item: &QueueItem, index: usize, pcm_only: bool) -> Result<Source>
         exclusive: false,
         resampled: false,
         bit_perfect: false,
+        dsp: Vec::new(),
     };
     Ok(Source {
         format: spec.format,
@@ -373,6 +431,7 @@ struct Player {
     /// The current output refused DSD: convert DSD sources to PCM from the start, so DSD albums
     /// stay gapless on it.
     dsd_unsupported: bool,
+    dsp: DspSettings,
 }
 
 pub(crate) fn run(
@@ -405,6 +464,7 @@ pub(crate) fn run(
         remix_buf: Vec::new(),
         packer: None,
         dsd_unsupported: false,
+        dsp: DspSettings::default(),
     };
     loop {
         let busy = p.status == Status::Playing && p.stream.is_some();
@@ -471,6 +531,7 @@ impl Player {
         info.output_channels = stream.channels;
         info.output_format = stream.format;
         info.exclusive = stream.exclusive;
+        info.dsp.clone_from(&stream.dsp);
         info.resampled = stream.rate != info.sample_rate && info.dsd_rate.is_none();
         if info.dsd_rate.is_some() {
             // DSD is bit-perfect only when it reaches the device as DSD (DoP or native).
@@ -485,6 +546,7 @@ impl Player {
             && stream.channels == info.channels
             && info.lossless
             && info.bits.is_some_and(|b| stream.format.carries(b))
+            && stream.dsp.is_empty()
             && self.volume >= 1.0;
         Some(info)
     }
@@ -638,7 +700,13 @@ impl Player {
             }
         } else {
             self.stream = None;
-            self.stream = Some(Stream::open(self.backend.as_ref(), request, self.volume)?);
+            let mut stream = Stream::open(self.backend.as_ref(), request, self.volume)?;
+            let warnings = stream.install_dsp(&self.dsp);
+            self.stream = Some(stream);
+            self.warn(warnings);
+        }
+        if let Some(s) = self.stream.as_ref() {
+            s.set_draining(false);
         }
         self.pending.clear();
         self.resampled_out = 0;
@@ -654,6 +722,15 @@ impl Player {
             None
         };
         Ok(())
+    }
+
+    fn warn(&self, warnings: Vec<String>) {
+        for message in warnings {
+            (self.emit)(Event::Error {
+                track_id: None,
+                message,
+            });
+        }
     }
 
     fn stop_output(&mut self) {
@@ -684,10 +761,11 @@ impl Player {
                     return;
                 }
             }
-            if self.reopen_with.is_some()
-                || self.ending
-                || stream.space_frames() < stream.rate as usize / 50
-            {
+            if self.reopen_with.is_some() || self.ending {
+                stream.set_draining(true);
+                return;
+            }
+            if stream.space_frames() < stream.rate as usize / 50 {
                 return;
             }
             let Some(src) = self.source.as_mut() else {
@@ -1088,6 +1166,14 @@ impl Player {
                     }
                     _ => self.publish(),
                 }
+            }
+            Cmd::SetDsp(settings) => {
+                self.dsp = *settings;
+                let dsp = self.dsp.clone();
+                if let Some(warnings) = self.stream.as_mut().map(|s| s.install_dsp(&dsp)) {
+                    self.warn(warnings);
+                }
+                self.publish();
             }
             Cmd::Quit => {}
         }

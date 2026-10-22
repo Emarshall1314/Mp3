@@ -1,7 +1,10 @@
 //! Per-device settings (this machine's outputs, not the library): `settings.json` in the data
 //! folder. Written atomically, so a crash never leaves a half-written file.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use cadenza_engine::DspSettings;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,11 +18,21 @@ pub struct Settings {
     /// Devices that get DSD as DoP. Off unless the owner turns it on: a DAC without DoP support
     /// would play it as full-scale noise.
     pub dop_devices: Vec<String>,
+    /// DSP profile per output device id: headphones and speakers want different EQ.
+    pub dsp: BTreeMap<String, DspSettings>,
 }
 
 impl Settings {
     pub fn dop(&self, device: &str) -> bool {
         self.dop_devices.iter().any(|d| d == device)
+    }
+
+    /// The current output device's DSP profile.
+    pub fn current_dsp(&self) -> DspSettings {
+        self.dsp
+            .get(&self.output_device)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -28,6 +41,7 @@ impl Default for Settings {
         Self {
             output_device: cadenza_engine::output::DEFAULT_DEVICE.to_owned(),
             dop_devices: Vec::new(),
+            dsp: BTreeMap::new(),
         }
     }
 }

@@ -10,6 +10,7 @@
 //! then the output is reopened; that is the only non-gapless case.
 
 mod convert;
+pub mod dsp;
 pub mod output;
 mod player;
 mod queue;
@@ -20,6 +21,7 @@ use std::thread;
 use crossbeam_channel::{Sender, unbounded};
 use serde::Serialize;
 
+pub use dsp::DspSettings;
 pub use output::{
     Capture, CapturedStream, DeviceFormat, Output, OutputBackend, OutputDevice, Quantizer,
     StreamRequest,
@@ -72,6 +74,8 @@ pub struct StreamInfo {
     pub resampled: bool,
     /// The device receives exactly the file's samples.
     pub bit_perfect: bool,
+    /// DSP stages running on this stream, in order (empty: none).
+    pub dsp: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -158,6 +162,7 @@ pub(crate) enum Cmd {
     Repeat(Repeat),
     Shuffle(bool),
     SetOutput(Box<dyn OutputBackend>),
+    SetDsp(Box<DspSettings>),
     Quit,
 }
 
@@ -263,6 +268,10 @@ impl Engine {
     }
     pub fn set_shuffle(&self, on: bool) {
         self.send(Cmd::Shuffle(on));
+    }
+    /// Replaces the DSP settings; heard within milliseconds.
+    pub fn set_dsp(&self, settings: DspSettings) {
+        self.send(Cmd::SetDsp(Box::new(settings)));
     }
     /// Switches outputs; playback continues on the new one from the same position.
     pub fn set_output(&self, backend: Box<dyn OutputBackend>) {

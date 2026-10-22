@@ -129,6 +129,8 @@ export interface StreamInfo {
   resampled: boolean;
   /** The device receives exactly the file's samples. */
   bitPerfect: boolean;
+  /** DSP stages running on this stream, in order. */
+  dsp: string[];
 }
 
 export type DeviceFormat = { kind: 'float' } | { kind: 'int'; bits: number };

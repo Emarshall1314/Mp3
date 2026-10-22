@@ -7,8 +7,9 @@
 use std::sync::Arc;
 
 use cadenza_api::{
-    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, LibraryStats,
-    Outputs, PlayerState, Repeat, Root, SavedSearch, ScanStatus, SearchResults, SongSort, TrackRow,
+    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistRow, BuildInfo, Cadenza, DspSettings, EqBand,
+    ImportedEq, LibraryStats, Outputs, PlayerState, Repeat, Root, SavedSearch, ScanStatus,
+    SearchResults, SongSort, TrackRow,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -181,6 +182,26 @@ fn set_dop(app: App<'_>, id: String, on: bool) -> Res<()> {
 }
 
 #[tauri::command]
+fn dsp(app: App<'_>) -> DspSettings {
+    app.dsp()
+}
+
+#[tauri::command(async)]
+fn set_dsp(app: App<'_>, settings: DspSettings) -> Res<()> {
+    app.set_dsp(settings).map_err(e)
+}
+
+#[tauri::command(async)]
+fn import_autoeq(app: App<'_>, path: String) -> Res<ImportedEq> {
+    app.import_autoeq(std::path::Path::new(&path)).map_err(e)
+}
+
+#[tauri::command]
+fn eq_curve(app: App<'_>, preamp_db: f64, bands: Vec<EqBand>, freqs: Vec<f64>) -> Vec<f64> {
+    app.eq_curve(preamp_db, &bands, &freqs)
+}
+
+#[tauri::command]
 fn play_index(app: App<'_>, index: usize) {
     app.play_index(index);
 }
@@ -306,6 +327,10 @@ pub fn run() {
             outputs,
             set_output,
             set_dop,
+            dsp,
+            set_dsp,
+            import_autoeq,
+            eq_curve,
         ])
         .run(tauri::generate_context!());
     if let Err(err) = result {
