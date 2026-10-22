@@ -11,6 +11,7 @@ import { Artwork } from './Artwork';
 import { LyricsView } from './LyricsView';
 import { QueuePanel } from './QueuePanel';
 import { SignalPathPanel } from './SignalPath';
+import { DockedSongInfo } from './SongInfo';
 
 const TABS: { tab: DockTab; label: string }[] = [
   { tab: 'queue', label: 'Queue' },
@@ -116,7 +117,19 @@ export function Dock() {
   const setTab = useStore((s) => s.setDock);
   const dock = useLook((s) => s.look.layout.dock);
   const trackId = useStore((s) => s.player?.trackId ?? null);
+  const songInfo = useStore((s) => s.songInfo);
+  const tagsDocked = useLook((s) => s.look.layout.tagEditorDocked);
+
+  // Get Info… opens in the panel when the tag editor is docked.
+  useEffect(() => {
+    if (songInfo && tagsDocked) setTab('tags');
+  }, [songInfo, tagsDocked, setTab]);
+  useEffect(() => {
+    if (tab === 'tags' && !tagsDocked) setTab(songInfo ? null : 'queue');
+  }, [tab, tagsDocked, songInfo, setTab]);
+
   if (!tab) return null;
+  const tabs = tagsDocked ? [...TABS, { tab: 'tags' as DockTab, label: 'Tags' }] : TABS;
 
   const floating = dock.position === 'floating';
   const style: React.CSSProperties = floating
@@ -148,7 +161,7 @@ export function Dock() {
         }
       >
         <div className="tabs" role="tablist">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.tab}
               role="tab"
@@ -187,6 +200,7 @@ export function Dock() {
         {tab === 'lyrics' && <LyricsView trackId={trackId} />}
         {tab === 'info' && <InfoPanel />}
         {tab === 'signal' && <SignalPathPanel />}
+        {tab === 'tags' && <DockedSongInfo />}
       </div>
       {floating ? (
         <span

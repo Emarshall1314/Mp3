@@ -16,7 +16,7 @@ export type Route =
   | { name: 'sound' }
   | { name: 'settings' };
 
-export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal';
+export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 
 export interface MenuItem {
   label: string;

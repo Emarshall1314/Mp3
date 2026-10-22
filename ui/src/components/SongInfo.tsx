@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Maximize2, PanelRight, X } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
 import type { Fields, PictureEdit, TrackRow, TrackTags } from '../types';
 import { useModal } from '../hooks/useModal';
+import { updateLayout, useLook } from '../hooks/useAppearance';
 import { Artwork } from './Artwork';
 import { TagActionsPanel } from './TagActionsPanel';
 import { ArtworkEditor } from './ArtworkEditor';
@@ -115,6 +116,27 @@ const parse = (field: string, text: string): string[] => {
   return parts.map((p) => p.trim()).filter(Boolean);
 };
 
+/// The dimmed backdrop of the modal sheet; nothing when docked.
+function Backdrop({
+  docked,
+  onOutside,
+  children,
+}: {
+  docked: boolean;
+  onOutside: () => void;
+  children: React.ReactNode;
+}) {
+  if (docked) return <>{children}</>;
+  return (
+    <div
+      className="sheet-backdrop"
+      onMouseDown={(e) => e.target === e.currentTarget && onOutside()}
+    >
+      {children}
+    </div>
+  );
+}
+
 const MIXED = Symbol('mixed');
 type Shown = string | typeof MIXED;
 
@@ -122,11 +144,28 @@ type Shown = string | typeof MIXED;
 export function SongInfo() {
   const ids = useStore((s) => s.songInfo);
   const close = useStore((s) => s.closeSongInfo);
-  if (!ids) return null;
+  const docked = useLook((s) => s.look.layout.tagEditorDocked);
+  if (!ids || docked) return null;
   return <SongInfoDialog key={ids.join(',')} ids={ids} onClose={close} />;
 }
 
-function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }) {
+/// Song Info inside the side panel (its Tags tab), when docked.
+export function DockedSongInfo() {
+  const ids = useStore((s) => s.songInfo);
+  const close = useStore((s) => s.closeSongInfo);
+  if (!ids) return <p className="empty">Choose Get Info… on songs to edit their tags here.</p>;
+  return <SongInfoDialog key={ids.join(',')} ids={ids} onClose={close} docked />;
+}
+
+function SongInfoDialog({
+  ids,
+  onClose,
+  docked = false,
+}: {
+  ids: number[];
+  onClose: () => void;
+  docked?: boolean;
+}) {
   const [tags, setTags] = useState<TrackTags[] | null>(null);
   const [rows, setRows] = useState<TrackRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +188,8 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
     if (dirty) setConfirmDiscard(true);
     else onClose();
   }, [dirty, onClose]);
-  useModal(true, ref, escape);
+  // Over the page it's a modal; in the panel the page stays usable.
+  useModal(!docked, ref, escape);
   useEffect(() => {
     if (confirmDiscard)
       ref.current?.querySelector<HTMLElement>('.sheet-footer [data-autofocus]')?.focus();
@@ -264,12 +304,12 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
   const readOnly = tags?.filter((t) => t.readOnly) ?? [];
 
   return (
-    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && escape()}>
+    <Backdrop docked={docked} onOutside={escape}>
       <div
         ref={ref}
-        className="sheet song-info"
-        role="dialog"
-        aria-modal="true"
+        className={docked ? 'song-info docked' : 'sheet song-info'}
+        role={docked ? 'region' : 'dialog'}
+        aria-modal={docked ? undefined : true}
         aria-label={many ? `Info for ${ids.length} songs` : 'Song Info'}
       >
         <header className="sheet-header">
@@ -282,6 +322,17 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
                 : [first?.artist, first?.album].filter(Boolean).join(' — ')}
             </p>
           </div>
+          <button
+            className="icon-button"
+            aria-label={docked ? 'Open over the page' : 'Dock in the side panel'}
+            title={docked ? 'Open over the page' : 'Dock in the side panel'}
+            onClick={() => {
+              updateLayout({ tagEditorDocked: !docked });
+              if (!docked) useStore.getState().setDock('tags');
+            }}
+          >
+            {docked ? <Maximize2 size={16} /> : <PanelRight size={16} />}
+          </button>
           <button className="icon-button" aria-label="Close" onClick={escape}>
             <X size={18} />
           </button>
@@ -424,7 +475,7 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
           )}
         </footer>
       </div>
-    </div>
+    </Backdrop>
   );
 }
 

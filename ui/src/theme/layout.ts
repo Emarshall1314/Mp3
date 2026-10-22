@@ -59,6 +59,8 @@ export interface Layout {
   shelves: ShelfId[];
   /// The song list grouped (and sorted) by album, artist or genre.
   grouping: Grouping;
+  /// Song Info opens in the side panel instead of over the page.
+  tagEditorDocked: boolean;
 }
 
 export interface Preset {
@@ -133,6 +135,7 @@ export const DEFAULT_LAYOUT: Layout = {
   dock: { position: 'right', size: 320, x: 80, y: 80, w: 340, h: 420 },
   shelves: ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
   grouping: 'none',
+  tagEditorDocked: false,
 };
 
 export const BUILT_IN_PRESETS: Preset[] = [
@@ -144,6 +147,8 @@ export const BUILT_IN_PRESETS: Preset[] = [
       nav: ['songs', 'albums', 'artists', 'recent', 'home'],
       playerSize: 'compact',
       views: { albums: 'list', recent: 'list', artists: 'list' },
+      tagEditorDocked: true,
+      dock: { ...DEFAULT_LAYOUT.dock, size: 460 },
       columns: (
         [
           'title',
@@ -219,6 +224,7 @@ export function normaliseLayout(value: unknown): Layout {
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
     nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal', 'visualizer'], d.nowPlaying),
     dock: normaliseDock(v.dock),
+    tagEditorDocked: typeof v.tagEditorDocked === 'boolean' ? v.tagEditorDocked : d.tagEditorDocked,
     grouping: pick(v.grouping, ['none', 'album', 'artist', 'genre'], d.grouping),
     shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),
   };

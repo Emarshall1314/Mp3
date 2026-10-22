@@ -1944,20 +1944,20 @@ kbd {
   font: inherit;
 }
 
-.sheet input[size] {
+:is(.sheet, .song-info.docked) input[size] {
   width: 5em;
 }
 
-.sheet textarea {
+:is(.sheet, .song-info.docked) textarea {
   resize: vertical;
 }
 
-.sheet input.changed,
-.sheet textarea.changed {
+:is(.sheet, .song-info.docked) input.changed,
+:is(.sheet, .song-info.docked) textarea.changed {
   border-color: var(--color-accent);
 }
 
-.sheet input.clearing::placeholder {
+:is(.sheet, .song-info.docked) input.clearing::placeholder {
   color: var(--color-accent);
 }
 
@@ -2898,7 +2898,8 @@ kbd {
 }
 
 .dock-header .tabs button {
-  padding-inline: var(--space-2);
+  padding-inline: 6px;
+  font-size: var(--font-size-100);
 }
 
 .dock .lyrics {
@@ -3001,4 +3002,37 @@ kbd {
 .visualizer-still {
   color: var(--color-text-secondary);
   font-size: var(--font-size-100);
+}
+
+/* Song Info docked in the side panel. */
+.song-info.docked {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.song-info.docked .sheet-header,
+.song-info.docked .sheet-body,
+.song-info.docked .sheet-footer {
+  padding-inline: var(--space-3);
+}
+
+.song-info.docked .tabs {
+  padding-inline: var(--space-2);
+}
+
+.song-info.docked input[type='text'],
+.song-info.docked textarea {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-s);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.dock-body:has(.song-info.docked) {
+  overflow: hidden;
 }
