@@ -105,6 +105,7 @@ export const api = {
   setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
   setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   themes: () => invoke<SavedTheme[]>('themes'),
+  safeMode: () => invoke<boolean>('safe_mode'),
   saveTheme: (
     id: string | null,
     theme: SavedTheme['theme'] | Omit<SavedTheme['theme'], 'format' | 'version'>,

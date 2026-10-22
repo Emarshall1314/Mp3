@@ -49,6 +49,10 @@ export function ThemeEditor({
   const accentSource = useLook((s) => s.look.accentSource);
   const checks = contrastChecks(draft.tokens);
   const failing = checks.filter((c) => c.ratio < c.needed);
+  // Colours the browser can't read would leave parts of the app without a colour.
+  const invalid = THEME_TOKENS.filter(
+    (t) => t.kind === 'color' && !parseColor(draft.tokens[t.name] ?? ''),
+  ).map((t) => t.label);
 
   const save = async () => {
     const saved = await attempt(
@@ -117,6 +121,12 @@ export function ThemeEditor({
           </p>
         )}
         <section className="contrast" aria-live="polite">
+          {invalid.length > 0 && (
+            <p className="contrast-warning">
+              <AlertTriangle size={14} aria-hidden /> Not a colour: {invalid.join(', ')}. Fix these
+              to save the theme.
+            </p>
+          )}
           {failing.length === 0 ? (
             <p className="contrast-ok">
               <Check size={14} aria-hidden /> Text contrast meets WCAG AA.
@@ -179,7 +189,11 @@ export function ThemeEditor({
         <button className="pill" onClick={cancel}>
           Cancel
         </button>
-        <button className="pill primary" disabled={!draft.name.trim()} onClick={() => void save()}>
+        <button
+          className="pill primary"
+          disabled={!draft.name.trim() || invalid.length > 0}
+          onClick={() => void save()}
+        >
           Save Theme
         </button>
       </footer>

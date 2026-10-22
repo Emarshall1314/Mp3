@@ -16,8 +16,9 @@ vi.mock('./api', () => ({
   ),
 }));
 
-const { handleShortcut } = await import('./shortcuts');
+const { handleShortcut, comboOf, showCombo } = await import('./shortcuts');
 const { useStore } = await import('./store');
+const { useLook } = await import('./hooks/useAppearance');
 
 function press(key: string, init: KeyboardEventInit = {}, target: HTMLElement = document.body) {
   const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
@@ -72,5 +73,25 @@ describe('shortcuts', () => {
     press('l', { ctrlKey: true });
     expect(useStore.getState().nowPlaying).toBe(true);
     expect(useStore.getState().nowPlayingPanel).toBe('lyrics');
+  });
+
+  it('follows remapped keys', () => {
+    const look = useLook.getState().look;
+    useLook.setState({ look: { ...look, shortcuts: { next: 'Alt+N', playPause: '' } } });
+    press('n', { altKey: true });
+    press('ArrowRight', { ctrlKey: true });
+    press(' ');
+    expect(calls).toEqual(['next()']);
+    useLook.setState({ look });
+  });
+
+  it('describes key combinations', () => {
+    expect(
+      comboOf({ key: 'l', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }),
+    ).toBe('Ctrl+Shift+L');
+    expect(
+      comboOf({ key: 'Shift', ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }),
+    ).toBeNull();
+    expect(showCombo('Ctrl+ArrowRight')).toBe('Ctrl+→');
   });
 });

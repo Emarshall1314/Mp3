@@ -36,6 +36,13 @@ fn build_info() -> BuildInfo {
     cadenza_api::build_info()
 }
 
+/// `cadenza --safe-mode`: start without the owner's custom CSS, to undo CSS that hides the way
+/// back to Settings.
+#[tauri::command]
+fn safe_mode() -> bool {
+    std::env::args().any(|a| a == "--safe-mode")
+}
+
 #[tauri::command(async)]
 fn roots(app: App<'_>) -> Res<Vec<Root>> {
     app.roots().map_err(e)
@@ -619,6 +626,7 @@ pub fn run() {
             settings,
             set_crossfade,
             set_appearance,
+            safe_mode,
             themes,
             save_theme,
             import_theme,

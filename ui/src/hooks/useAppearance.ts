@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { api, onAppearance, onThemesChanged } from '../api';
+import { api, isAndroid, onAppearance, onThemesChanged } from '../api';
 import {
   type Look,
   type Rgb,
@@ -28,6 +28,8 @@ interface LookState {
   palette: Rgb[];
   /// A theme being edited, shown in place of the chosen one.
   preview: ThemeDef | null;
+  /// Started with `--safe-mode`, or Ctrl+Alt+Shift+S pressed: the owner's CSS is off.
+  safeMode: boolean;
   /// What is on screen now.
   scheme: Scheme;
   theme: ThemeDef;
@@ -39,6 +41,7 @@ export const useLook = create<LookState>(() => ({
   saved: [],
   palette: [],
   preview: null,
+  safeMode: false,
   scheme: 'light',
   theme: themeFor(normaliseLook(null), 'light', []),
 }));
@@ -50,11 +53,40 @@ export const toThemeDef = (s: SavedTheme): ThemeDef => ({
   tokens: s.theme.tokens,
 });
 
-let applied: string[] = [];
+/// A `<style>` at the end of <head>, made once; later ones win over earlier ones.
+function styleElement(id: string): HTMLStyleElement {
+  let el = document.getElementById(id) as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement('style');
+    el.id = id;
+    document.head.appendChild(el);
+  }
+  return el;
+}
 
-/// Puts the look on <html>: the theme's tokens with the look settings applied as inline custom
-/// properties, `data-*` attributes for styles that need selectors, and `data-reduce-motion` /
-/// `data-reduce-transparency` when the app setting or the desktop's own preference asks.
+/// Values that can't end their declaration (theme drafts in the editor aren't validated yet).
+const safeValue = (v: string) => !/[;{}<>\\]|\/\*/.test(v);
+
+/// Set by `cadenza --safe-mode`, or for this session with Ctrl+Alt+Shift+S.
+let customCssOff = false;
+
+export function turnOffCustomCss() {
+  customCssOff = true;
+  useLook.setState({ safeMode: true });
+  apply();
+}
+
+void api
+  .safeMode()
+  .then((on) => {
+    if (on) turnOffCustomCss();
+  })
+  .catch(() => undefined);
+
+/// Puts the look on the page: the theme's tokens with the look settings applied, as a
+/// `:root` style sheet (so the owner's CSS, after it, can override any token); `data-*`
+/// attributes for styles that need selectors; `data-reduce-motion` / `data-reduce-transparency`
+/// when the app setting or the desktop's own preference asks; then the owner's CSS.
 function apply() {
   const s = useLook.getState();
   const a = s.appearance;
@@ -64,11 +96,14 @@ function apply() {
   const reduceTransparency = a.reduceTransparency || matchMedia(transparencyQuery).matches;
   const { vars, attrs } = buildLook(s.look, theme, s.palette, reduceTransparency);
   const root = document.documentElement;
-  for (const name of applied) if (!(name in vars)) root.style.removeProperty(name);
-  for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
-  applied = Object.keys(vars);
-  root.style.colorScheme = theme.scheme;
-  root.style.fontSize = `${s.look.fontSize}%`;
+  const declarations = Object.entries(vars)
+    .filter(([, v]) => safeValue(v))
+    .map(([k, v]) => `  ${k}: ${v};`)
+    .join('\n');
+  styleElement('cadenza-theme').textContent =
+    `:root {\n${declarations}\n  color-scheme: ${theme.scheme};\n  font-size: ${s.look.fontSize}%;\n}\n`;
+  styleElement('cadenza-custom-css').textContent =
+    customCssOff || isAndroid ? '' : s.look.customCss;
   for (const [name, value] of Object.entries(attrs)) root.setAttribute(name, value);
   const flag = (name: string, on: boolean) => {
     if (on) root.setAttribute(name, '');
