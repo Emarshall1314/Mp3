@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use cadenza_api::{
-    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, ArtistPage, ArtistRow, BuildInfo, Cadenza,
-    DspSettings, EqBand, Home, ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs,
+    AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
+    Cadenza, DspSettings, EqBand, Home, ImportedEq, LibraryStats, LoudnessStatus, Lyrics, Outputs,
     PlayerState, Repeat, ReplayGainSettings, Root, SavedSearch, ScanStatus, SearchResults,
     Settings, SongSort, TrackRow,
 };
@@ -205,6 +205,14 @@ fn settings(app: App<'_>) -> Settings {
 #[tauri::command(async)]
 fn set_crossfade(app: App<'_>, seconds: f64) -> Res<()> {
     app.set_crossfade(seconds).map_err(e)
+}
+
+/// Saves the appearance and tells every window (main and mini player) to apply it.
+#[tauri::command(async)]
+fn set_appearance(app: App<'_>, handle: AppHandle, appearance: Appearance) -> Res<()> {
+    app.set_appearance(appearance).map_err(e)?;
+    let _ = handle.emit("cadenza://appearance", appearance);
+    Ok(())
 }
 
 #[tauri::command]
@@ -442,6 +450,7 @@ pub fn run() {
             loudness_status,
             settings,
             set_crossfade,
+            set_appearance,
             analyze_loudness,
             import_autoeq,
             eq_curve,

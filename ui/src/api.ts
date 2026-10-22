@@ -6,6 +6,7 @@ import type {
   AlbumRow,
   AlbumSort,
   ApiEvent,
+  Appearance,
   ArtistPage,
   ArtistRow,
   BuildInfo,
@@ -78,6 +79,8 @@ export const api = {
   replayGain: () => invoke<ReplayGainSettings>('replay_gain'),
   setReplayGain: (settings: ReplayGainSettings) => invoke<null>('set_replay_gain', { settings }),
   setCrossfade: (seconds: number) => invoke<null>('set_crossfade', { seconds }),
+  toggleMiniPlayer: () => invoke<null>('toggle_mini_player'),
+  setAppearance: (appearance: Appearance) => invoke<null>('set_appearance', { appearance }),
   loudnessStatus: () => invoke<LoudnessStatus>('loudness_status'),
   analyzeLoudness: () => invoke<null>('analyze_loudness'),
   importAutoeq: (path: string) => invoke<ImportedEq>('import_autoeq', { path }),
@@ -93,6 +96,14 @@ export const api = {
 
 export function onApiEvent(handler: (e: ApiEvent) => void): Promise<UnlistenFn> {
   return listen<ApiEvent>('cadenza://event', (msg) => handler(msg.payload));
+}
+
+/// Android has no separate windows: no mini player, no tray.
+export const isAndroid = /Android/.test(navigator.userAgent);
+
+/// Appearance changes, from whichever window made them.
+export function onAppearance(handler: (a: Appearance) => void): Promise<UnlistenFn> {
+  return listen<Appearance>('cadenza://appearance', (msg) => handler(msg.payload));
 }
 
 /// Artwork thumbnail URL served by the shell's `cadenza` scheme. Webviews that cannot load

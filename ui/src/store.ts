@@ -13,7 +13,8 @@ export type Route =
   | { name: 'songs' }
   | { name: 'search'; query: string }
   | { name: 'folders' }
-  | { name: 'sound' };
+  | { name: 'sound' }
+  | { name: 'settings' };
 
 export interface MenuItem {
   label: string;

@@ -27,7 +27,7 @@ pub use cadenza_library::{
     SongSort, TrackRow,
 };
 pub use loudness::LoudnessStatus;
-pub use settings::Settings;
+pub use settings::{Appearance, Settings, Theme};
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
 use cadenza_library::Library;
@@ -605,6 +605,16 @@ impl Cadenza {
             *s = settings;
         }
         self.engine.set_crossfade(seconds);
+        Ok(())
+    }
+
+    pub fn set_appearance(&self, appearance: Appearance) -> Result<()> {
+        let mut settings = self.settings();
+        settings.appearance = appearance;
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
         Ok(())
     }
 

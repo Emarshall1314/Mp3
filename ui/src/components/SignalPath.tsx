@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { CheckCircle2, Info } from 'lucide-react';
 import { codecName, qualityLabel, signalPath } from '../format';
 import { useStore } from '../store';
 import type { Quality } from '../types';
 import { QualityBadge } from './QualityBadge';
+import { usePopover } from '../hooks/usePopover';
 
 /// The quality badge in the player bar; clicking it shows each step from file to device and
 /// whether the device gets the file's exact samples.
@@ -13,19 +14,7 @@ export function SignalPath({ quality, fallback }: { quality: Quality; fallback: 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
-    };
-  }, [open]);
+  usePopover(open, setOpen, ref);
 
   const path = stream ? signalPath(stream, volume) : null;
   return (

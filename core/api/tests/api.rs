@@ -157,3 +157,23 @@ fn replay_gain_measures_untagged_albums_and_plays_at_album_gain() {
     assert!(gains.iter().all(|(_, g)| *g == gains[0].1), "{gains:?}");
     assert!((-20.0..20.0).contains(&gains[0].1), "{gains:?}");
 }
+
+#[test]
+fn appearance_is_saved_across_restarts() {
+    use cadenza_api::{Appearance, Theme};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    let open = || Cadenza::open(&data, Some(Box::new(Capture::new())), |_| {}).unwrap();
+    let app = open();
+    assert_eq!(app.settings().appearance, Appearance::default());
+    let chosen = Appearance {
+        theme: Theme::Dark,
+        reduce_motion: true,
+        reduce_transparency: false,
+    };
+    app.set_appearance(chosen).unwrap();
+    assert_eq!(app.settings().appearance, chosen);
+    drop(app);
+    assert_eq!(open().settings().appearance, chosen);
+}

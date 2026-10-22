@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ListMusic,
@@ -50,11 +50,37 @@ export function NowPlaying() {
     };
   }, [open, hash]);
 
+  const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const opener = document.activeElement;
+    dialog.current?.querySelector<HTMLElement>('.np-top button')?.focus();
+    // Modal: Esc closes, Tab cycles within the view.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !useStore.getState().menu) setOpen(false);
+      if (e.key !== 'Tab' || !dialog.current) return;
+      const focusable = [
+        ...dialog.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      ];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      const inside = dialog.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
   }, [open, setOpen]);
 
   if (!open) return null;
@@ -63,7 +89,13 @@ export function NowPlaying() {
   const playing = player?.status === 'playing';
 
   return (
-    <div className="now-playing-view" role="dialog" aria-label="Now Playing">
+    <div
+      ref={dialog}
+      className="now-playing-view"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Now Playing"
+    >
       <div className="np-bg" aria-hidden>
         {colors.map((c, i) => (
           <span key={i} className={`np-blob b${i}`} style={{ background: `rgb(${c.join(' ')})` }} />

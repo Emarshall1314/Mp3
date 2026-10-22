@@ -13,8 +13,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { api } from '../api';
+import { api, isAndroid } from '../api';
 import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { TrackRow } from '../types';
@@ -135,14 +134,16 @@ export function PlayerBar() {
       <div className="player-extras">
         <VolumeControl />
         <OutputPicker />
-        <button
-          className="icon-button"
-          aria-label="Mini player"
-          title="Mini player"
-          onClick={() => void attempt(invoke<null>('toggle_mini_player'))}
-        >
-          <PictureInPicture2 size={18} />
-        </button>
+        {!isAndroid && (
+          <button
+            className="icon-button"
+            aria-label="Mini player"
+            title="Mini player (Ctrl+M)"
+            onClick={() => void attempt(api.toggleMiniPlayer())}
+          >
+            <PictureInPicture2 size={18} />
+          </button>
+        )}
         <button
           className={`icon-button ${queueOpen ? 'active' : ''}`}
           aria-pressed={queueOpen}

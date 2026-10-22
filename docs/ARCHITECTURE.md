@@ -266,8 +266,12 @@ Cloud layout (inside an app-scoped folder):
   player bar and dock positions, consumed by a layout engine (resizable split panes + floating panels).
 - **Platform shells:** desktop uses a sidebar layout; mobile (narrow and touch) uses a tab bar, a
   floating mini player and a swipe-up Now Playing.
-- **Motion:** CSS springs via `linear()` easing. Reduce Motion and Reduce Transparency media queries
-  are honoured, and both are also manual toggles.
+- **Motion:** CSS springs via `linear()` easing (`--ease-spring`) for view, panel and menu entrances
+  and button presses. Reduce Motion and Reduce Transparency are app settings that add to the
+  desktop's own preferences (D40): either one sets an attribute on `<html>`, and the stylesheet keys
+  off the attributes only.
+- **Keyboard:** shortcuts come from one table that both handles keys and lists them in Settings.
+  Long lists and grids are one Tab stop each, with arrow keys inside (D42).
 - **Artwork** is served by a custom `cadenza://art/<hash>?s=<size>` protocol from the thumbnail
   cache (sizes 64/128/256/512/1024, WebP). The artwork gradient for Now Playing uses palette extraction
   in the core.
@@ -371,3 +375,9 @@ The spike APK is built by CI (or locally once `dl.google.com` is reachable) and 
 | D34 | Output device, DoP, DSP profiles (one per output device), ReplayGain and crossfade live in `settings.json` in the data folder | They describe this machine's audio hardware, not the library, so they are not synced; writes are atomic (temp file + rename) |
 | D35 | Loudness is measured with EBU R128 (`ebur128`, MIT) and stored in the library with the audio hash it was measured from | Tags always win; a measurement stays valid only while the audio is unchanged. Files are never written |
 | D36 | Crossfade never applies within an album and needs the same rate and channel count on both sides | Albums stay gapless; mixing before the shared resampler keeps one resampler per stream. Other changes happen without a fade, and the Sound page says so |
+| D37 | Lyrics: a sidecar `.lrc` beside the file wins, then embedded synced lyrics (ID3 SYLT converted to LRC), then embedded plain lyrics, parsed as LRC when they carry timestamps | A sidecar is how owners add or fix lyrics without touching files. LRC parsing handles repeated stamps, `[offset:]` and word stamps |
+| D38 | MPRIS through `souvlaki` 0.8 (MIT, `dbus` backend); position is sent on state changes and seeks, not every tick | Media keys and desktop widgets on every Linux desktop; MPRIS clients interpolate position themselves |
+| D39 | Artwork palettes are computed in the core from the 128 px thumbnail: up to four distinct colours, weighted towards saturated ones | Cheap (a few ms) and cached with the thumbnails; grey-heavy covers still give a usable gradient, and the UI falls back to calm defaults |
+| D40 | Appearance (Auto/Light/Dark, Reduce Motion, Reduce Transparency) lives in `settings.json`; the reduce switches add to the desktop's preferences and never turn them off | Per machine, like the other display-adjacent settings. The main window and mini player apply changes from a `cadenza://appearance` event |
+| D41 | Artist sections come from the `releasetype` tag (MusicBrainz primary + secondary types; live, soundtrack and compilation win). Untagged releases count as Albums, or Compilations when flagged. Top Songs need at least one play | Tagged libraries sort themselves; untagged ones still read sensibly. An empty Top Songs is hidden rather than filled with unplayed songs |
+| D42 | Lists (Songs) and grids (Albums) are a single Tab stop with arrow keys inside; album cards are two stops (open, play), their title and artist links reachable by the context menu | Tabbing past a 200k-song list must not take 200k presses |

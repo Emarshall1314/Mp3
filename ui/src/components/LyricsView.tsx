@@ -35,9 +35,16 @@ export function LyricsView({ trackId }: { trackId: number | null }) {
   useEffect(() => {
     if (current < 0) return;
     const el = list.current?.children[current] as HTMLElement | undefined;
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const still = document.documentElement.hasAttribute('data-reduce-motion');
+    el?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
   }, [current]);
 
+  if (trackId === null)
+    return (
+      <div className="lyrics empty">
+        <p>Nothing is playing.</p>
+      </div>
+    );
   if (lyrics === undefined) return <div className="lyrics" aria-busy="true" />;
   if (lyrics === null)
     return (

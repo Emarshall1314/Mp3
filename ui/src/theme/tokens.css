@@ -34,6 +34,7 @@
   --row-height: 34px;
   --duration-fast: 120ms;
   --duration-normal: 240ms;
+  --duration-slow: 420ms;
   --ease-spring: linear(0, 0.38 9%, 0.81 20%, 1.02 31%, 1.06 39%, 1.02 52%, 0.99 66%, 1);
 
   /* Default Light */
@@ -72,7 +73,12 @@
   }
 }
 
+:root[data-appearance='light'] {
+  color-scheme: light;
+}
+
 :root[data-appearance='dark'] {
+  color-scheme: dark;
   --color-bg: #1c1c1e;
   --color-surface: #242426;
   --color-surface-glass: rgb(36 36 38 / 72%);
@@ -88,16 +94,14 @@
   --shadow-menu: 0 8px 28px rgb(0 0 0 / 50%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-fast: 0ms;
-    --duration-normal: 0ms;
-  }
+/* Set by the app from its own setting or the desktop's preference (useAppearance). */
+:root[data-reduce-motion] {
+  --duration-fast: 0ms;
+  --duration-normal: 0ms;
+  --duration-slow: 0ms;
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  :root {
-    --blur-glass: 0px;
-    --color-surface-glass: var(--color-surface);
-  }
+:root[data-reduce-transparency] {
+  --blur-glass: 0px;
+  --color-surface-glass: var(--color-surface);
 }

@@ -7,6 +7,7 @@ import {
   ListMusic,
   Mic2,
   Search,
+  Settings,
   SlidersHorizontal,
   Sparkles,
   X,
@@ -120,6 +121,13 @@ export function Sidebar() {
         >
           <FolderOpen size={16} aria-hidden />
           Music Folders
+        </button>
+        <button
+          className={`nav-item ${route.name === 'settings' ? 'active' : ''}`}
+          onClick={() => navigate({ name: 'settings' })}
+        >
+          <Settings size={16} aria-hidden />
+          Settings
         </button>
         {scan.running && scan.progress && (
           <p className="scan-status" role="status">

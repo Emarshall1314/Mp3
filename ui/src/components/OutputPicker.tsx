@@ -3,6 +3,7 @@ import { Check, Speaker } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
 import type { Outputs } from '../types';
+import { usePopover } from '../hooks/usePopover';
 
 /// Output device menu in the player bar. The list is fetched each time it opens, so devices
 /// plugged in since are there.
@@ -15,18 +16,11 @@ export function OutputPicker() {
     if (!open) return;
     let live = true;
     void api.outputs().then((o) => live && setOutputs(o));
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
     return () => {
       live = false;
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
     };
   }, [open]);
+  usePopover(open, setOpen, ref);
 
   const missing =
     outputs && !outputs.devices.some((d) => d.id === outputs.current) ? outputs.current : null;

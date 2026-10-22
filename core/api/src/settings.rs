@@ -23,6 +23,27 @@ pub struct Settings {
     pub replay_gain: ReplayGainSettings,
     /// Crossfade between tracks, in seconds (0: off).
     pub crossfade_s: f64,
+    pub appearance: Appearance,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    /// Follow the desktop's light/dark preference.
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+/// How the app looks. The reduce switches add to the desktop's own accessibility preferences:
+/// on, they always apply; off, the desktop's preference still does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Appearance {
+    pub theme: Theme,
+    pub reduce_motion: bool,
+    pub reduce_transparency: bool,
 }
 
 impl Settings {
@@ -47,6 +68,7 @@ impl Default for Settings {
             dsp: BTreeMap::new(),
             replay_gain: ReplayGainSettings::default(),
             crossfade_s: 0.0,
+            appearance: Appearance::default(),
         }
     }
 }

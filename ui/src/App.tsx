@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, onApiEvent } from './api';
 import { useStore } from './store';
+import { useAppearance } from './hooks/useAppearance';
+import { handleShortcut } from './shortcuts';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
 import { QueuePanel } from './components/QueuePanel';
@@ -15,6 +17,7 @@ import { SearchView } from './views/SearchView';
 import { FoldersView } from './views/FoldersView';
 import { HomeView } from './views/HomeView';
 import { SoundView } from './views/SoundView';
+import { SettingsView } from './views/SettingsView';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -55,28 +58,10 @@ function useCoreEvents() {
   }, []);
 }
 
-/// Space plays/pauses, ⌘/Ctrl+F focuses search, Alt+←/→ navigate (outside text fields).
 function useShortcuts() {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const typing =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLSelectElement ||
-        e.target instanceof HTMLTextAreaElement;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        document.querySelector<HTMLInputElement>('.search-field input')?.focus();
-      } else if (!typing && e.key === ' ') {
-        e.preventDefault();
-        void api.toggle();
-      } else if (e.altKey && e.key === 'ArrowLeft') {
-        useStore.getState().goBack();
-      } else if (e.altKey && e.key === 'ArrowRight') {
-        useStore.getState().goForward();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
   }, []);
 }
 
@@ -103,12 +88,15 @@ function Main() {
       return <FoldersView />;
     case 'sound':
       return <SoundView />;
+    case 'settings':
+      return <SettingsView />;
   }
 }
 
 export function App() {
   useCoreEvents();
   useShortcuts();
+  useAppearance();
   const queueOpen = useStore((s) => s.queueOpen);
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);

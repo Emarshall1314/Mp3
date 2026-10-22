@@ -66,10 +66,44 @@ export function AlbumGrid({
     }
   }, [first, last, pages, load, count]);
 
+  // Arrow keys move focus between albums, a row at a time up and down.
+  // Focuses the album now if its row is rendered, else after scrolling renders it.
+  const focusIndex = useRef<number | null>(null);
+  const focusPending = () => {
+    if (focusIndex.current === null) return;
+    const el = scroller.current?.querySelector<HTMLElement>(
+      `.album-art-button[data-index="${focusIndex.current}"]`,
+    );
+    if (el) {
+      el.focus({ preventScroll: true });
+      focusIndex.current = null;
+    }
+  };
+  useEffect(focusPending);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const at = (e.target as HTMLElement).dataset.index;
+    if (at === undefined || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const i = Number(at);
+    const delta: Record<string, number> = {
+      ArrowRight: 1,
+      ArrowLeft: -1,
+      ArrowDown: cols,
+      ArrowUp: -cols,
+    };
+    const d = delta[e.key];
+    if (d === undefined) return;
+    e.preventDefault();
+    const to = i + d;
+    if (to < 0 || to >= count) return;
+    focusIndex.current = to;
+    v.scrollToIndex(Math.floor(to / cols), { align: 'auto' });
+    focusPending();
+  };
+
   const album = (i: number): AlbumRow | undefined => pages.get(Math.floor(i / PAGE))?.[i % PAGE];
 
   return (
-    <div className="scroll" ref={scroller}>
+    <div className="scroll" ref={scroller} onKeyDown={onKeyDown}>
       <div style={{ height: v.getTotalSize(), position: 'relative' }}>
         {items.map((row) => (
           <div
@@ -87,7 +121,7 @@ export function AlbumGrid({
               .map((i) => {
                 const a = album(i);
                 return a ? (
-                  <AlbumCard key={a.id} album={a} size={size} />
+                  <AlbumCard key={a.id} album={a} size={size} index={i} />
                 ) : (
                   <div key={`p${i}`} className="album-card placeholder" style={{ width: size }} />
                 );
@@ -99,13 +133,23 @@ export function AlbumGrid({
   );
 }
 
-export function AlbumCard({ album, size }: { album: AlbumRow; size: number }) {
+/// `index` marks the card's place in a grid for arrow-key movement.
+export function AlbumCard({
+  album,
+  size,
+  index,
+}: {
+  album: AlbumRow;
+  size: number;
+  index?: number;
+}) {
   const navigate = useStore((s) => s.navigate);
   const items = useMemo(() => () => albumMenu(album), [album]);
   return (
     <div className="album-card" style={{ width: size }} onContextMenu={menuHandler(items)}>
       <button
         className="album-art-button"
+        data-index={index}
         onClick={() => navigate({ name: 'album', id: album.id })}
         aria-label={`${album.title} by ${album.albumartist}`}
       >
@@ -121,11 +165,16 @@ export function AlbumCard({ album, size }: { album: AlbumRow; size: number }) {
       >
         <Play size={18} fill="currentColor" />
       </button>
-      <button className="link title" onClick={() => navigate({ name: 'album', id: album.id })}>
+      <button
+        className="link title"
+        tabIndex={-1}
+        onClick={() => navigate({ name: 'album', id: album.id })}
+      >
         {album.title || 'Unknown Album'}
       </button>
       <button
         className="link subtitle"
+        tabIndex={-1}
         onClick={() => navigate({ name: 'artist', artist: album.albumartist })}
       >
         {album.albumartist || 'Unknown Artist'}

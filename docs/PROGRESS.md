@@ -2,11 +2,11 @@
 
 ## Status (2026-10-22)
 
-**M2 (Hi-res engine) is done for Linux**, on top of M1 (Foundation). `cargo xtask ci` passes.
-None of the M2 output work has run on real audio hardware yet: this environment has no sound card.
-Bit-perfect, DoP and native DSD are verified byte for byte through ALSA's `file` plugin. Exclusive
-mode on a real DAC, the PipeWire hand-over and DoP on a real DAC need checking on the owner's
-machine; see `docs/demos/M2.md`. The Android spike is still blocked; see Known issues.
+**M3 (Design polish) is done for Linux**, on top of M1 (Foundation) and M2 (Hi-res engine).
+`cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
+media keys need a real desktop session to see, so check them on the owner's machine with
+`docs/demos/M3.md`. None of the M2 output work has run on real audio hardware yet (see
+`docs/demos/M2.md`). The Android spike is still blocked; see Known issues.
 
 ### Done
 - **M0 bootstrap**:
@@ -125,6 +125,42 @@ machine; see `docs/demos/M2.md`. The Android spike is still blocked; see Known i
   - The resampler's final flush only counted the last of several chained tracks.
 - Demo script: `docs/demos/M2.md`.
 
+### M3: Design polish
+- **Home** (the start page): Recently Played, Recently Added and Most Played shelves. Shelves with
+  nothing in them are hidden.
+- **Artist page**: artwork header, Play/Shuffle, Top Songs by play count, releases grouped as
+  Albums, EPs, Singles, Live, Compilations and Soundtracks (from the release-type tag, D41), and
+  Appears On. Album pages gain a "More by" shelf.
+- **Now Playing**: full screen, opened from the player bar artwork.
+  - Large artwork over a slowly drifting gradient made from the artwork's colours (D39).
+  - The artwork springs smaller while paused.
+  - A lyrics or queue panel beside it.
+- **Lyrics** from a `.lrc` beside the file or embedded tags (D37). Synced lyrics follow playback
+  with the current line centred, and clicking a line seeks to it.
+- **Desktop integration**:
+  - MPRIS: media keys and the desktop's media widget show and control playback (D38).
+  - A tray icon with the current track and transport.
+  - An always-on-top mini player window.
+- **Appearance** (Settings): Auto/Light/Dark theme, Reduce Motion and Reduce Transparency (D40).
+  The translucent sidebar, player bar, queue and menus turn solid with Reduce Transparency.
+- **Motion**: spring curves for view, panel and menu entrances and button presses. Reduce Motion
+  makes them instant and stops the Now Playing background.
+- **Keyboard**:
+  - Shortcuts for playback, seeking, volume, search, navigation, lyrics, queue, mini player and
+    Settings, listed in Settings.
+  - Arrow keys in the Songs list, album grids and menus; one Tab stop per list (D42).
+  - Shift+F10 or the Menu key opens the focused item's actions.
+  - Now Playing keeps focus inside until closed. Menus and popovers return focus when closed.
+- **Fixes found along the way**:
+  - Changes made while the app was closed were only noticed by the 30-minute sweep; the library
+    now rescans on start.
+  - The artist list stretched to half the window.
+  - With a forced dark theme, drop-down menus drew light on light.
+  - The mini player button showed on Android, where there is no mini player.
+- **Tests**: LRC parsing, lyric sources, palettes, artist pages and Home queries (library),
+  appearance saved across restarts (api), keyboard shortcuts (UI).
+- Demo script: `docs/demos/M3.md`.
+
 ### Next
 1. **Android spike**:
    - Done: CI builds and signs an arm64 APK (`cadenza-android` artifact).
@@ -134,14 +170,20 @@ machine; see `docs/demos/M2.md`. The Android spike is still blocked; see Known i
      - Storage access to the music folder: the folder picker and media permissions.
      - A MediaSession foreground service, so playback continues with the screen off.
      - Running the §11 criteria on the owner's phone.
-2. **M2 on real hardware**: run `docs/demos/M2.md` against a USB DAC (exclusive, rate switching,
-   DoP/native DSD, PipeWire hand-over).
-3. **M3 design polish**: Now Playing, themes, motion.
+2. **M2 and M3 on real hardware**: run `docs/demos/M2.md` against a USB DAC and `docs/demos/M3.md`
+   on the owner's desktop (tray, media keys).
+3. **M4: Tags and metadata** (tag editing, artwork tools).
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
 - **Untested on hardware.** Exclusive output, device reservation, DoP and native DSD have only run
   against ALSA's `null` and `file` devices (see Status).
+- **Untested on a real desktop.** MPRIS was checked over D-Bus (`busctl`), not with media keys. The
+  tray icon needs a StatusNotifier host (KDE, or GNOME with the AppIndicator extension); desktops
+  without one show no icon, and the mini player and player bar still work.
+- **Mini player** opens at the window manager's chosen spot each time; its position isn't saved.
+- **Lyrics** are read only: no editing and no online lookup.
+- **Themes** are Light and Dark only; custom themes come in M5.
 - **Device list.** It is read when the output menu opens; plugging in a DAC while the menu is open
   doesn't update it. A device that disappears mid-playback stops playback with an error.
 - **Volume** is software only. Below 100% it ends bit-perfect playback, which the signal path says.
@@ -154,9 +196,7 @@ These are shown or absent in the UI, never faked:
 - **Not yet built:**
   - Tag editing (M4).
   - Setting ratings (ratings stored in files are shown).
-  - MPRIS media keys.
   - Playlists.
-  - The Now Playing screen (M3).
   - Android's USB bit-perfect path (API 34 mixer attributes).
   - An allocator guard on the output thread.
   - A seek-latency benchmark.
@@ -177,4 +217,4 @@ These are shown or absent in the UI, never faked:
 
 ## Decisions
 See ARCHITECTURE.md §13. Added during M0: D14–D19. Added during M1: D20–D28. Added during M2:
-D29–D36.
+D29–D36. Added during M3: D37–D42.

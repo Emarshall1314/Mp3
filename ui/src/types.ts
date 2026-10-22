@@ -248,6 +248,15 @@ export interface Settings {
   dsp: Record<string, DspSettings>;
   replayGain: ReplayGainSettings;
   crossfadeS: number;
+  appearance: Appearance;
+}
+
+export type Theme = 'auto' | 'light' | 'dark';
+
+export interface Appearance {
+  theme: Theme;
+  reduceMotion: boolean;
+  reduceTransparency: boolean;
 }
 
 export interface LoudnessStatus {

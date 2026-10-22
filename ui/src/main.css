@@ -424,7 +424,7 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 .album-card:hover .play-overlay,
-.play-overlay:focus-visible {
+.album-card:has(:focus-visible) .play-overlay {
   opacity: 1;
 }
 
@@ -1613,14 +1613,12 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--color-text-secondary);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .np-blob {
-    animation: none;
-  }
+:root[data-reduce-motion] .np-blob {
+  animation: none;
+}
 
-  .np-art {
-    transition: none;
-  }
+:root[data-reduce-motion] .np-art {
+  transition: none;
 }
 
 /* ---------- home and artist pages ---------- */
@@ -1670,4 +1668,105 @@ input[type='range']::-webkit-slider-thumb {
 
 .result-song .plays {
   color: var(--color-text-secondary);
+}
+
+/* ---------- motion ----------
+ * Entrances and presses use the spring curve. Reduce Motion sets every duration to 0, which
+ * turns these into instant changes. */
+
+.view {
+  animation: view-in var(--duration-slow) var(--ease-spring);
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.queue-panel {
+  animation: panel-in var(--duration-slow) var(--ease-spring);
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.context-menu,
+.popover {
+  animation: pop-in var(--duration-normal) var(--ease-spring);
+}
+
+.context-menu {
+  transform-origin: top left;
+}
+
+.popover {
+  transform-origin: bottom right;
+}
+
+.popover.left {
+  transform-origin: bottom left;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.pill,
+.icon-button,
+.album-art-button {
+  transition: transform var(--duration-normal) var(--ease-spring);
+}
+
+.play-overlay {
+  transition:
+    opacity var(--duration-fast),
+    transform var(--duration-normal) var(--ease-spring);
+}
+
+.pill:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.album-art-button:active,
+.play-overlay:active {
+  transform: scale(0.94);
+  transition-duration: var(--duration-fast);
+}
+
+.album-card .album-art-button:hover .artwork {
+  transform: scale(1.03);
+}
+
+/* ---------- settings ---------- */
+
+.shortcut-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-100);
+}
+
+.shortcut-table td {
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.shortcut-table td:first-child {
+  width: 40%;
+  padding-right: var(--space-4);
+}
+
+kbd {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-100);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--color-badge);
+  white-space: nowrap;
 }

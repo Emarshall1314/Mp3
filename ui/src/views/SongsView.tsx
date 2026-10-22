@@ -67,6 +67,39 @@ export function SongsView() {
     }
   }, [first, last, pages, sort, desc, count]);
 
+  // One row is in the Tab order (the selected one, else the first visible); arrows move.
+  const focusSelected = useRef(false);
+  useEffect(() => {
+    if (!focusSelected.current || selected === null) return;
+    const el = scroller.current?.querySelector<HTMLElement>(`[aria-rowindex="${selected + 1}"]`);
+    if (el) {
+      el.focus({ preventScroll: true });
+      focusSelected.current = false;
+    }
+  });
+  const moveTo = (i: number) => {
+    const to = Math.max(0, Math.min((count ?? 1) - 1, i));
+    setSelected(to);
+    v.scrollToIndex(to, { align: 'auto' });
+    focusSelected.current = true;
+  };
+  const onRowKey = (e: React.KeyboardEvent, i: number) => {
+    const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 0) / ROW) - 1);
+    const to: Record<string, number> = {
+      ArrowDown: i + 1,
+      ArrowUp: i - 1,
+      PageDown: i + page,
+      PageUp: i - page,
+      Home: 0,
+      End: (count ?? 1) - 1,
+    };
+    if (e.key === 'Enter') play(i);
+    else if (e.key in to && !e.shiftKey && !e.ctrlKey && !e.altKey) moveTo(to[e.key] ?? i);
+    else return;
+    e.preventDefault();
+  };
+  const tabRow = selected !== null && selected >= first && selected <= last ? selected : first;
+
   if (count === 0) return <EmptyLibrary />;
   const row = (i: number) => pages.get(Math.floor(i / PAGE))?.[i % PAGE];
   const play = (i: number) => void attempt(api.playSongs(sort, desc, i));
@@ -125,12 +158,12 @@ export function SongsView() {
                   role="row"
                   aria-rowindex={it.index + 1}
                   aria-selected={selected === it.index}
-                  tabIndex={0}
+                  tabIndex={it.index === tabRow ? 0 : -1}
                   className={`song-row ${it.index % 2 ? 'odd' : ''} ${t && t.id === playingId ? 'playing' : ''} ${selected === it.index ? 'selected' : ''}`}
                   style={{ transform: `translateY(${it.start}px)`, height: ROW }}
                   onClick={() => setSelected(it.index)}
                   onDoubleClick={() => play(it.index)}
-                  onKeyDown={(e) => e.key === 'Enter' && play(it.index)}
+                  onKeyDown={(e) => onRowKey(e, it.index)}
                   onContextMenu={t ? menuHandler(() => trackMenu(t)) : undefined}
                 >
                   {t ? (

@@ -4,11 +4,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { api, onApiEvent } from './api';
 import type { PlayerState, TrackRow } from './types';
 import { Artwork } from './components/Artwork';
+import { useAppearance } from './hooks/useAppearance';
 
 /// The always-on-top mini player window: artwork, title, transport. Drag it by its body.
 export function MiniPlayer() {
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [track, setTrack] = useState<TrackRow | null>(null);
+  useAppearance();
 
   useEffect(() => {
     void api.player().then(setPlayer);
