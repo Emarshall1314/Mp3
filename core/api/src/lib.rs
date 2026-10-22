@@ -25,9 +25,12 @@ pub use cadenza_engine::{
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, EditBatch, EditChange, Home,
     LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
-    ScanReport, SearchResults, SongSort, TrackRow,
+    ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
-pub use edit::{EditFailure, EditReport, EditStatus, LegacyFix, PictureInfo, TrackEdit, TrackTags};
+pub use edit::{
+    EditFailure, EditReport, EditStatus, LegacyFix, PictureEdit, PictureInfo, PictureRef,
+    TrackEdit, TrackTags,
+};
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
 
@@ -668,6 +671,16 @@ impl Cadenza {
     /// Writes back the values a batch replaced, where the files still hold what it wrote.
     pub fn undo_edit(&self, batch: i64) -> Result<i64> {
         self.editor.undo(batch, self.settings().tag_backups)
+    }
+
+    /// Reads an image file into the artwork cache, for a picture edit ([`PictureEdit`]).
+    pub fn import_artwork(&self, path: &Path) -> Result<cadenza_library::StoredArt> {
+        self.editor.import(path)
+    }
+
+    /// Saves a track's front cover as cover.jpg (or .png) in its folder.
+    pub fn save_cover_to_folder(&self, track_id: i64) -> Result<PathBuf> {
+        self.editor.save_cover(track_id)
     }
 
     /// Keep a copy of each file in the data folder before its tags are changed.

@@ -199,16 +199,47 @@ export interface TrackTags {
   path: string;
   format: string;
   fields: Fields;
-  pictures: { pictureType: number; mime: string; description: string; bytes: number }[];
+  pictures: PictureInfo[];
   /** Text stored in a legacy encoding: values equal to `stored` read correctly as `decoded`. */
   legacy: { stored: string; decoded: string; encoding: string }[];
   /** Why this song's tags can't be changed, if so. */
   readOnly: string | null;
 }
 
+export interface PictureInfo {
+  pictureType: number;
+  mime: string;
+  description: string;
+  bytes: number;
+  /** In the artwork cache; null for a damaged image. */
+  hash: string | null;
+  width: number;
+  height: number;
+}
+
+export interface PictureRef {
+  pictureType: number;
+  hash: string;
+  description: string;
+}
+
+export type PictureEdit =
+  | { kind: 'replace'; pictures: PictureRef[] }
+  | { kind: 'setFront'; hash: string }
+  | { kind: 'removeAll' };
+
+export interface StoredArt {
+  hash: string;
+  mime: string;
+  width: number;
+  height: number;
+  bytes: number;
+}
+
 export interface TrackEdit {
   trackId: number;
   fields: Fields;
+  pictures?: PictureEdit;
 }
 
 export interface EditStatus {

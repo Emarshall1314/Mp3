@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 use serde::Serialize;
 
-pub use art::THUMB_SIZES;
+pub use art::{StoredArt, THUMB_SIZES};
 pub use history::{EditBatch, EditChange};
 pub use lyrics::{LyricLine, Lyrics};
 pub use pages::{ArtistPage, Home, ReleaseSection};
@@ -708,6 +708,12 @@ impl Library {
     /// thumbnail.
     pub fn artwork_palette(&self, hash: &str) -> Result<Vec<[u8; 3]>> {
         art::palette(&self.art.thumbnail(hash, 128)?)
+    }
+
+    /// Puts image bytes in the artwork cache (by content hash); `None` if they aren't a complete,
+    /// readable image.
+    pub fn store_artwork(&self, bytes: &[u8]) -> Result<Option<StoredArt>> {
+        self.art.store(bytes)
     }
 
     /// The full-resolution original for an artwork hash.

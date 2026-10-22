@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
-import type { Fields, TrackRow, TrackTags } from '../types';
+import type { Fields, PictureEdit, TrackRow, TrackTags } from '../types';
 import { useModal } from '../hooks/useModal';
 import { Artwork } from './Artwork';
 import { TagActionsPanel } from './TagActionsPanel';
+import { ArtworkEditor } from './ArtworkEditor';
 
 type Kind = 'text' | 'long' | 'number' | 'check';
 interface FieldDef {
@@ -73,6 +74,7 @@ const TABS = [
   'Credits',
   'Sorting',
   'Lyrics',
+  'Artwork',
   'All Tags',
   'Table',
   'Actions',
@@ -140,12 +142,17 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
 
   /// Per-song edits from the Table tab, by track id.
   const [table, setTable] = useState<Record<number, Record<string, string>>>({});
-  const dirty = Object.keys(draft).length > 0 || Object.keys(table).length > 0;
+  const [pictures, setPictures] = useState<PictureEdit | null>(null);
+  const dirty = Object.keys(draft).length > 0 || Object.keys(table).length > 0 || pictures !== null;
   const escape = useCallback(() => {
     if (dirty) setConfirmDiscard(true);
     else onClose();
   }, [dirty, onClose]);
   useModal(true, ref, escape);
+  useEffect(() => {
+    if (confirmDiscard)
+      ref.current?.querySelector<HTMLElement>('.sheet-footer [data-autofocus]')?.focus();
+  }, [confirmDiscard]);
 
   /// A field's value across the songs: shared, or MIXED.
   const shown = useCallback(
@@ -214,15 +221,17 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
       });
     }
   };
-  const changeCount = Object.entries(pending).reduce(
-    (n, [id, fields]) =>
-      n +
-      Object.entries(fields).filter(
-        ([f, text]) =>
-          show(parse(f, text)) !== show(tags?.find((t) => t.trackId === Number(id))?.fields[f]),
-      ).length,
-    0,
-  );
+  const changeCount =
+    (pictures ? 1 : 0) +
+    Object.entries(pending).reduce(
+      (n, [id, fields]) =>
+        n +
+        Object.entries(fields).filter(
+          ([f, text]) =>
+            show(parse(f, text)) !== show(tags?.find((t) => t.trackId === Number(id))?.fields[f]),
+        ).length,
+      0,
+    );
 
   const save = async () => {
     if (!dirty || invalid || !editable.length) return;
@@ -231,9 +240,9 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
         const fields: Fields = {};
         for (const [field, text] of Object.entries({ ...draft, ...table[t.trackId] }))
           fields[field] = parse(field, text);
-        return { trackId: t.trackId, fields };
+        return pictures ? { trackId: t.trackId, fields, pictures } : { trackId: t.trackId, fields };
       })
-      .filter((e) => Object.keys(e.fields).length > 0);
+      .filter((e) => Object.keys(e.fields).length > 0 || e.pictures);
     const name = rows[0]?.title;
     const description = ids.length === 1 && name ? `Edit “${name}”` : `Edit ${edits.length} songs`;
     setSaving(true);
@@ -330,6 +339,9 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
             </>
           )}
           {tags && tab === 'Table' && <TableEditor tags={tags} table={table} setCell={setCell} />}
+          {tags && tab === 'Artwork' && (
+            <ArtworkEditor tags={tags} edit={pictures} setEdit={setPictures} />
+          )}
           {tags && tab === 'Actions' && (
             <TagActionsPanel
               tags={tags}
@@ -339,7 +351,22 @@ function SongInfoDialog({ ids, onClose }: { ids: number[]; onClose: () => void }
             />
           )}
           {tags && tab === 'Changes' && (
-            <ChangesList tags={tags} pending={pending} revert={revert} many={ids.length > 1} />
+            <>
+              {pictures && (
+                <p className="changes-artwork">
+                  Artwork:{' '}
+                  {pictures.kind === 'removeAll'
+                    ? 'all pictures removed'
+                    : pictures.kind === 'setFront'
+                      ? 'a new front cover'
+                      : `${pictures.pictures.length} ${pictures.pictures.length === 1 ? 'picture' : 'pictures'} as arranged under Artwork`}{' '}
+                  <button className="link" onClick={() => setPictures(null)}>
+                    Revert
+                  </button>
+                </p>
+              )}
+              <ChangesList tags={tags} pending={pending} revert={revert} many={ids.length > 1} />
+            </>
           )}
           {tags && tab === 'All Tags' && (
             <AllTags fields={allFields} shown={shown} draft={draft} set={set} />
@@ -668,7 +695,7 @@ function ChangesList({
       }))
       .filter((r) => r.before !== r.after),
   );
-  if (rows.length === 0) return <p className="muted">No changes yet.</p>;
+  if (rows.length === 0) return <p className="muted">No changes to fields.</p>;
   return (
     <table className="changes-list">
       <tbody>

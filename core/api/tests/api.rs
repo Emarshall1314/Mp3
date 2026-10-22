@@ -230,6 +230,7 @@ fn tag_edits_reach_files_and_library_and_can_be_undone() {
     let edit = |title: &str| TrackEdit {
         track_id: track.id,
         fields: [("title".to_owned(), vec![title.to_owned()])].into(),
+        pictures: None,
     };
     let scans_before = scans();
     let batch = app.edit_tracks(vec![edit("Renamed ✓")], "Rename").unwrap();
@@ -282,4 +283,94 @@ fn tag_edits_reach_files_and_library_and_can_be_undone() {
         cadenza_tags::read(&path).unwrap().get("title"),
         Some("Changed elsewhere")
     );
+}
+
+#[test]
+fn artwork_edits_replace_the_cover_and_can_be_undone() {
+    use cadenza_api::{PictureEdit, TrackEdit};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let music = tmp.path().join("music");
+    copy_dir(
+        &fixtures_dir().join("library/Alpha Band"),
+        &music.join("Alpha Band"),
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let app = Cadenza::open(
+        &tmp.path().join("data"),
+        Some(Box::new(Capture::new())),
+        move |e| sink.lock().unwrap().push(e),
+    )
+    .unwrap();
+    app.add_root(&music).unwrap();
+    wait("first scan", Duration::from_secs(20), || {
+        app.scan_status().last_report.is_some()
+    });
+    let finished = || {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| matches!(e, ApiEvent::EditFinished { .. }))
+            .count()
+    };
+    let track = app
+        .songs(cadenza_api::SongSort::Title, false, 0, 1)
+        .unwrap()[0]
+        .clone();
+    let before = app.track_tags(&[track.id]).unwrap()[0].pictures.clone();
+
+    // A new image from another fixture, through a file as a user would pick it.
+    let other = cadenza_testkit::manifest()
+        .entries
+        .iter()
+        .find(|e| e.id == "artwork/flac_many_types")
+        .unwrap();
+    let picture = cadenza_tags::read(&other.file())
+        .unwrap()
+        .pictures
+        .remove(0);
+    let image = tmp.path().join("new-cover.img");
+    std::fs::write(&image, &picture.data).unwrap();
+    let stored = app.import_artwork(&image).unwrap();
+    assert!(
+        app.import_artwork(&tmp.path().join("music/Alpha Band"))
+            .is_err()
+    );
+
+    let batch = app
+        .edit_tracks(
+            vec![TrackEdit {
+                track_id: track.id,
+                fields: Default::default(),
+                pictures: Some(PictureEdit::SetFront {
+                    hash: stored.hash.clone(),
+                }),
+            }],
+            "New cover",
+        )
+        .unwrap();
+    wait("cover edit", Duration::from_secs(20), || finished() == 1);
+    let now = app.track_tags(&[track.id]).unwrap()[0].pictures.clone();
+    assert_eq!(now[0].picture_type, 3);
+    assert_eq!(now[0].hash.as_deref(), Some(stored.hash.as_str()));
+    assert_eq!(app.edit_changes(batch).unwrap()[0].field, "pictures");
+
+    app.undo_edit(batch).unwrap();
+    wait("undo", Duration::from_secs(20), || finished() == 2);
+    let restored = app.track_tags(&[track.id]).unwrap()[0].pictures.clone();
+    assert_eq!(restored, before, "the original artwork is back");
+
+    let cover = app.save_cover_to_folder(track.id);
+    if before.is_empty() {
+        assert!(cover.is_err());
+    } else {
+        let path = cover.unwrap();
+        assert!(path.exists());
+        assert!(
+            app.save_cover_to_folder(track.id).is_err(),
+            "never overwrites"
+        );
+    }
 }

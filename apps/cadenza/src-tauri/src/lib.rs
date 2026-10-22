@@ -10,7 +10,8 @@ use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, BuildInfo,
     Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
     LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Repeat, ReplayGainSettings, Root,
-    SavedSearch, ScanStatus, SearchResults, Settings, SongSort, TrackEdit, TrackRow, TrackTags,
+    SavedSearch, ScanStatus, SearchResults, Settings, SongSort, StoredArt, TrackEdit, TrackRow,
+    TrackTags,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -242,6 +243,20 @@ fn edit_changes(app: App<'_>, batch: i64) -> Res<Vec<EditChange>> {
 #[tauri::command(async)]
 fn undo_edit(app: App<'_>, batch: i64) -> Res<i64> {
     app.undo_edit(batch).map_err(e)
+}
+
+/// An image file into the artwork cache, for a picture edit.
+#[tauri::command(async)]
+fn import_artwork(app: App<'_>, path: String) -> Res<StoredArt> {
+    let path = tauri_plugin_cadenza_android::local_path(&path)?;
+    app.import_artwork(std::path::Path::new(&path)).map_err(e)
+}
+
+#[tauri::command(async)]
+fn save_cover_to_folder(app: App<'_>, track_id: i64) -> Res<String> {
+    app.save_cover_to_folder(track_id)
+        .map(|p| p.display().to_string())
+        .map_err(e)
 }
 
 #[tauri::command(async)]
@@ -561,6 +576,8 @@ pub fn run() {
             edit_changes,
             undo_edit,
             set_tag_backups,
+            import_artwork,
+            save_cover_to_folder,
             storage_access,
             request_storage_access,
             pick_music_folder,

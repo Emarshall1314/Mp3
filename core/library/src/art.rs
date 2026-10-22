@@ -14,7 +14,10 @@ use crate::{Error, Result};
 pub const THUMB_SIZES: &[u32] = &[64, 128, 256, 512, 1024];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StoredArt {
+/// An image in the artwork cache.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredArt {
     pub hash: String,
     pub mime: &'static str,
     pub width: u32,

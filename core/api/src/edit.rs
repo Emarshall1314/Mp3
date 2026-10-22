@@ -24,7 +24,41 @@ use crate::{ApiEvent, Emit, Error, Result, Scanner};
 pub struct TrackEdit {
     pub track_id: i64,
     pub fields: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub pictures: Option<PictureEdit>,
 }
+
+/// A change to a track's embedded pictures. Images are referenced by their artwork-cache hash
+/// (see [`TrackTags::pictures`] and `Cadenza::import_artwork`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PictureEdit {
+    /// Exactly these pictures, in this order.
+    Replace {
+        pictures: Vec<PictureRef>,
+    },
+    /// This image as the front cover; the track's other pictures stay.
+    SetFront {
+        hash: String,
+    },
+    RemoveAll,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureRef {
+    pub picture_type: u8,
+    pub hash: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// The history "field" for pictures: each as "type:hash:description".
+const PICTURES: &str = "pictures";
 
 /// A track's tags as the file holds them now.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -59,6 +93,11 @@ pub struct PictureInfo {
     pub mime: String,
     pub description: String,
     pub bytes: usize,
+    /// In the artwork cache, for display and for keeping the picture in an edit; `None` if the
+    /// image is damaged.
+    pub hash: Option<String>,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -92,6 +131,9 @@ struct Job {
     track_id: i64,
     fields: BTreeMap<String, Vec<String>>,
     expect: BTreeMap<String, Vec<String>>,
+    pictures: Option<PictureEdit>,
+    /// For undo: the pictures the file must still hold (as recorded).
+    expect_pictures: Option<Vec<String>>,
 }
 
 pub(crate) struct Editor {
@@ -167,11 +209,17 @@ impl Editor {
                 pictures: tags
                     .pictures
                     .iter()
-                    .map(|p| PictureInfo {
-                        picture_type: p.picture_type,
-                        mime: p.mime.clone(),
-                        description: p.description.clone(),
-                        bytes: p.data.len(),
+                    .map(|p| {
+                        let stored = self.library.store_artwork(&p.data).ok().flatten();
+                        PictureInfo {
+                            picture_type: p.picture_type,
+                            mime: p.mime.clone(),
+                            description: p.description.clone(),
+                            bytes: p.data.len(),
+                            width: stored.as_ref().map_or(0, |s| s.width),
+                            height: stored.as_ref().map_or(0, |s| s.height),
+                            hash: stored.map(|s| s.hash),
+                        }
                     })
                     .collect(),
                 read_only,
@@ -189,11 +237,13 @@ impl Editor {
     ) -> Result<i64> {
         let jobs = edits
             .into_iter()
-            .filter(|e| !e.fields.is_empty())
+            .filter(|e| !e.fields.is_empty() || e.pictures.is_some())
             .map(|e| Job {
                 track_id: e.track_id,
                 fields: e.fields,
                 expect: BTreeMap::new(),
+                pictures: e.pictures,
+                expect_pictures: None,
             })
             .collect();
         self.run(jobs, description, None, backups)
@@ -221,9 +271,18 @@ impl Editor {
                 track_id,
                 fields: BTreeMap::new(),
                 expect: BTreeMap::new(),
+                pictures: None,
+                expect_pictures: None,
             });
-            job.fields.insert(change.field.clone(), change.old);
-            job.expect.insert(change.field, change.new);
+            if change.field == PICTURES {
+                job.pictures = Some(PictureEdit::Replace {
+                    pictures: change.old.iter().filter_map(|s| parse_picture(s)).collect(),
+                });
+                job.expect_pictures = Some(change.new);
+            } else {
+                job.fields.insert(change.field.clone(), change.old);
+                job.expect.insert(change.field, change.new);
+            }
         }
         if jobs.is_empty() {
             return Err(Error::Other(if gone > 0 {
@@ -367,13 +426,23 @@ impl Editor {
                 .join(batch.to_string())
                 .join(format!("{}-{name}", job.track_id))
         });
+        let old_pictures = self.signature(&before.pictures);
+        if let Some(expected) = &job.expect_pictures
+            && &old_pictures != expected
+        {
+            return Err(fail("the artwork has changed since; left as it is".into()));
+        }
+        let pictures = match &job.pictures {
+            Some(edit) => Some(self.resolve(edit, &before.pictures).map_err(fail)?),
+            None => None,
+        };
         let edit = Edit {
             fields: job.fields.clone(),
-            pictures: None,
+            pictures,
         };
         let after = cadenza_tags::write(&track.path, &edit, &WriteOptions { backup })
             .map_err(|e| fail(e.to_string()))?;
-        let changes: Vec<(String, Vec<String>, Vec<String>)> = job
+        let mut changes: Vec<(String, Vec<String>, Vec<String>)> = job
             .fields
             .keys()
             .map(|field| {
@@ -383,6 +452,12 @@ impl Editor {
             })
             .filter(|(_, old, new)| old != new)
             .collect();
+        if job.pictures.is_some() {
+            let new_pictures = self.signature(&after.pictures);
+            if new_pictures != old_pictures {
+                changes.push((PICTURES.to_owned(), old_pictures, new_pictures));
+            }
+        }
         if !changes.is_empty() {
             self.library
                 .record_edit(batch, job.track_id, changes)
@@ -390,6 +465,126 @@ impl Editor {
         }
         Ok(())
     }
+}
+
+impl Editor {
+    /// Pictures as recorded in history: "type:hash:description", the image kept in the
+    /// artwork cache so an undo can put it back. Damaged images record as "type:?:...".
+    fn signature(&self, pictures: &[cadenza_tags::Picture]) -> Vec<String> {
+        pictures
+            .iter()
+            .map(|p| {
+                let hash = self
+                    .library
+                    .store_artwork(&p.data)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| "?".to_owned(), |s| s.hash);
+                format!("{}:{hash}:{}", p.picture_type, p.description)
+            })
+            .collect()
+    }
+
+    /// The pictures an edit asks for, read from the artwork cache.
+    fn resolve(
+        &self,
+        edit: &PictureEdit,
+        current: &[cadenza_tags::Picture],
+    ) -> std::result::Result<Vec<cadenza_tags::Picture>, String> {
+        let load = |r: &PictureRef| -> std::result::Result<cadenza_tags::Picture, String> {
+            let path = self
+                .library
+                .artwork_original(&r.hash)
+                .map_err(|_| "an image for this edit is no longer in Cadenza's cache".to_owned())?;
+            let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+            let mime = match path.extension().and_then(|e| e.to_str()) {
+                Some("png") => "image/png",
+                Some("webp") => "image/webp",
+                Some("gif") => "image/gif",
+                Some("bmp") => "image/bmp",
+                _ => "image/jpeg",
+            };
+            Ok(cadenza_tags::Picture {
+                picture_type: r.picture_type,
+                mime: mime.to_owned(),
+                description: r.description.clone(),
+                data,
+            })
+        };
+        Ok(match edit {
+            PictureEdit::Replace { pictures } => pictures
+                .iter()
+                .map(load)
+                .collect::<std::result::Result<_, _>>()?,
+            PictureEdit::SetFront { hash } => {
+                let front = load(&PictureRef {
+                    picture_type: 3,
+                    hash: hash.clone(),
+                    description: String::new(),
+                })?;
+                std::iter::once(front)
+                    .chain(current.iter().filter(|p| p.picture_type != 3).cloned())
+                    .collect()
+            }
+            PictureEdit::RemoveAll => Vec::new(),
+        })
+    }
+
+    /// Reads an image file into the artwork cache, for use in a picture edit.
+    pub(crate) fn import(&self, path: &std::path::Path) -> Result<cadenza_library::StoredArt> {
+        let meta = std::fs::metadata(path).map_err(|e| Error::Other(e.to_string()))?;
+        if meta.len() >= 16 << 20 {
+            return Err(Error::Other("the image must be smaller than 16 MB".into()));
+        }
+        let bytes = std::fs::read(path).map_err(|e| Error::Other(e.to_string()))?;
+        self.library.store_artwork(&bytes)?.ok_or_else(|| {
+            Error::Other("that file isn't a complete JPEG, PNG, WebP, GIF or BMP image".into())
+        })
+    }
+
+    /// Writes a track's front cover beside it, as cover.jpg (or .png...), unless an image of that
+    /// name is already there. Returns the new file's path.
+    pub(crate) fn save_cover(&self, track_id: i64) -> Result<PathBuf> {
+        let track = self
+            .library
+            .playable(&[track_id])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Other("the song is no longer in the library".into()))?;
+        let tags = cadenza_tags::read(&track.path).map_err(|e| Error::Other(e.to_string()))?;
+        let cover = tags
+            .front_cover()
+            .ok_or_else(|| Error::Other("this song has no artwork".into()))?;
+        let ext = if cover.data.starts_with(&[0x89, b'P', b'N', b'G']) {
+            "png"
+        } else {
+            "jpg"
+        };
+        let dir = track
+            .path
+            .parent()
+            .ok_or_else(|| Error::Other("the song has no folder".into()))?;
+        let dest = dir.join(format!("cover.{ext}"));
+        if dest.exists() {
+            return Err(Error::Other(format!("{} already exists", dest.display())));
+        }
+        std::fs::write(&dest, &cover.data).map_err(|e| Error::Other(e.to_string()))?;
+        Ok(dest)
+    }
+}
+
+fn parse_picture(s: &str) -> Option<PictureRef> {
+    let mut parts = s.splitn(3, ':');
+    let picture_type = parts.next()?.parse().ok()?;
+    let hash = parts.next()?;
+    if hash == "?" {
+        return None;
+    }
+    Some(PictureRef {
+        picture_type,
+        hash: hash.to_owned(),
+        description: parts.next().unwrap_or_default().to_owned(),
+    })
 }
 
 fn format_name(format: cadenza_tags::TagFormat) -> &'static str {

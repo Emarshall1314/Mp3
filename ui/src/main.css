@@ -2021,6 +2021,10 @@ kbd {
   margin-bottom: var(--space-3);
 }
 
+.sheet.song-info {
+  height: min(700px, calc(100vh - 48px));
+}
+
 .sheet.song-info:has(.table-editor) {
   width: min(1100px, calc(100vw - 48px));
 }
@@ -2137,4 +2141,51 @@ kbd {
 
 .changes-list .song {
   font-weight: 600;
+}
+
+.picture-list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+}
+
+.picture-list li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.picture-list img,
+.artwork-summary img {
+  border-radius: var(--radius-s);
+  object-fit: cover;
+  box-shadow: var(--shadow-artwork);
+}
+
+.picture-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.picture-fields select {
+  align-self: flex-start;
+}
+
+.artwork-summary {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.artwork-summary .artwork-placeholder {
+  border-radius: var(--radius-s);
+  background: var(--color-placeholder);
+}
+
+.changes-artwork {
+  margin: 0 0 var(--space-3);
 }
