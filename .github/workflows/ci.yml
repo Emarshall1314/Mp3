@@ -98,7 +98,7 @@ jobs:
           apk=dist/cadenza-arm64.apk
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           manifest=$("$tools/aapt2" dump xmltree --file AndroidManifest.xml "$apk")
-          for want in app.cadenza.android.PlaybackService mediaPlayback \
+          for want in app.cadenza.android.PlaybackService foregroundServiceType \
             android.permission.MANAGE_EXTERNAL_STORAGE \
             android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK; do
             echo "$manifest" | grep -q "$want" || { echo "::error::manifest lacks $want"; exit 1; }
