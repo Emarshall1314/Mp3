@@ -2207,3 +2207,28 @@ kbd {
 .rename-plan .before {
   text-decoration: none;
 }
+
+.stars {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.stars button {
+  padding: 1px;
+  color: var(--color-text-secondary);
+  opacity: 0.35;
+}
+
+.stars button.on {
+  color: var(--color-accent);
+  opacity: 1;
+}
+
+.stars:not(.rated) {
+  opacity: 0;
+}
+
+.track-row:hover .stars,
+.stars:focus-within {
+  opacity: 1;
+}

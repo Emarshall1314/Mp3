@@ -270,6 +270,16 @@ fn organise(app: App<'_>, ids: Vec<i64>, pattern: String) -> Res<i64> {
 }
 
 #[tauri::command(async)]
+fn rate(app: App<'_>, ids: Vec<i64>, rating: Option<i64>) -> Res<Option<i64>> {
+    app.rate(&ids, rating).map_err(e)
+}
+
+#[tauri::command(async)]
+fn set_ratings_to_files(app: App<'_>, on: bool) -> Res<()> {
+    app.set_ratings_to_files(on).map_err(e)
+}
+
+#[tauri::command(async)]
 fn set_tag_backups(app: App<'_>, on: bool) -> Res<()> {
     app.set_tag_backups(on).map_err(e)
 }
@@ -586,6 +596,8 @@ pub fn run() {
             edit_changes,
             undo_edit,
             set_tag_backups,
+            rate,
+            set_ratings_to_files,
             preview_organise,
             organise,
             import_artwork,

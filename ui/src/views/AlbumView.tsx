@@ -7,6 +7,7 @@ import { attempt, useStore } from '../store';
 import type { AlbumDetail, AlbumRow } from '../types';
 import { Artwork } from '../components/Artwork';
 import { QualityBadge } from '../components/QualityBadge';
+import { Stars } from '../components/Stars';
 import { AlbumCard } from './AlbumGrid';
 
 /// Album page: big artwork, title, artist link, meta + badge, Play/Shuffle, tracklist, footer.
@@ -131,7 +132,7 @@ export function AlbumView({ id }: { id: number }) {
                     {featured && <span className="featured">{featured}</span>}
                   </div>
                   <span className="track-rating">
-                    {t.rating ? '★'.repeat(Math.round(t.rating / 20)) : ''}
+                    <Stars trackId={t.id} rating={t.rating} />
                   </span>
                   <span className="time">{duration(t.durationMs)}</span>
                 </div>

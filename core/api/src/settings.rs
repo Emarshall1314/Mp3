@@ -26,6 +26,8 @@ pub struct Settings {
     pub appearance: Appearance,
     /// Copy each file to `<data>/backups` before writing its tags.
     pub tag_backups: bool,
+    /// Also write ratings into the files' tags (otherwise they stay in Cadenza's library).
+    pub ratings_to_files: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +74,7 @@ impl Default for Settings {
             crossfade_s: 0.0,
             appearance: Appearance::default(),
             tag_backups: false,
+            ratings_to_files: false,
         }
     }
 }

@@ -338,6 +338,7 @@ export interface Settings {
   crossfadeS: number;
   appearance: Appearance;
   tagBackups: boolean;
+  ratingsToFiles: boolean;
 }
 
 export type Theme = 'auto' | 'light' | 'dark';

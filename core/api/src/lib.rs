@@ -694,6 +694,43 @@ impl Cadenza {
         self.editor.organise(ids, pattern)
     }
 
+    /// Rates tracks (0–100, `None` clears). With "ratings in files" on, the rating is also
+    /// written to the files, as an undoable batch whose id is returned.
+    pub fn rate(&self, ids: &[i64], rating: Option<i64>) -> Result<Option<i64>> {
+        self.library.set_rating(ids, rating)?;
+        (self.scanner.emit)(ApiEvent::LibraryChanged);
+        if !self.settings().ratings_to_files {
+            return Ok(None);
+        }
+        let value = rating.map(|r| r.clamp(0, 100).to_string());
+        let edits = ids
+            .iter()
+            .map(|&track_id| TrackEdit {
+                track_id,
+                fields: [("rating".to_owned(), value.clone().into_iter().collect())].into(),
+                pictures: None,
+            })
+            .collect();
+        let description = if ids.len() == 1 {
+            "Rate 1 song".to_owned()
+        } else {
+            format!("Rate {} songs", ids.len())
+        };
+        self.editor
+            .start(edits, &description, self.settings().tag_backups)
+            .map(Some)
+    }
+
+    pub fn set_ratings_to_files(&self, on: bool) -> Result<()> {
+        let mut settings = self.settings();
+        settings.ratings_to_files = on;
+        self.settings.save(&settings)?;
+        if let Ok(mut s) = self.current.lock() {
+            *s = settings;
+        }
+        Ok(())
+    }
+
     /// Keep a copy of each file in the data folder before its tags are changed.
     pub fn set_tag_backups(&self, on: bool) -> Result<()> {
         let mut settings = self.settings();

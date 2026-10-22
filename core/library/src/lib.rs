@@ -680,6 +680,23 @@ impl Library {
         Ok(found)
     }
 
+    /// Sets tracks' ratings (0–100; `None` clears). Ratings are Cadenza's own: rescans never
+    /// overwrite them, and they reach the files only when the API writes them there.
+    pub fn set_rating(&self, ids: &[i64], rating: Option<i64>) -> Result<()> {
+        let ids = ids.to_vec();
+        let rating = rating.map(|r| r.clamp(0, 100));
+        self.db.write(move |tx| {
+            let mut s = tx.prepare_cached(
+                "INSERT INTO user_data (track_uid, rating) SELECT uid, ?1 FROM tracks WHERE id = ?2
+                 ON CONFLICT(track_uid) DO UPDATE SET rating = excluded.rating",
+            )?;
+            for id in ids {
+                s.execute(params![rating, id])?;
+            }
+            Ok(())
+        })
+    }
+
     /// Records a finished (or substantially played) listen.
     pub fn record_play(&self, track_id: i64, played_ms: i64, completed: bool) -> Result<()> {
         self.db.write(move |tx| {
