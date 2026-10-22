@@ -32,7 +32,7 @@ pub(crate) fn read<R: Read + Seek>(r: &mut R, magic: &[u8; 4]) -> Result<FileTag
     })
 }
 
-fn id3_via_aiff(tag: &[u8]) -> Result<Option<lofty::id3::v2::Id3v2Tag>> {
+pub(crate) fn id3_via_aiff(tag: &[u8]) -> Result<Option<lofty::id3::v2::Id3v2Tag>> {
     let pad = tag.len() & 1;
     let mut buf = Vec::with_capacity(tag.len() + 20);
     buf.extend_from_slice(b"FORM");

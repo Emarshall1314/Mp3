@@ -391,12 +391,14 @@ dependencies = [
 name = "cadenza-tags"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "cadenza-testkit",
  "chardetng",
  "encoding_rs",
  "lofty",
  "serde",
  "sha1_smol",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

@@ -4,14 +4,19 @@
 //! `ApeTag`), never its lossy generic `Tag`, and mapped onto Cadenza's canonical field names
 //! (see [`fields`]). Anything unrecognised becomes a `custom:<NAME>` field rather than being
 //! dropped. DSF/DFF, which lofty does not support, are handled in [`dsd`].
+//!
+//! Writing ([`write`]) changes only the edited fields, through the same concrete types, and
+//! replaces a file only once the edited copy has been verified.
 
 mod ape;
+pub mod audio;
 mod dsd;
 pub mod fields;
 mod id3;
 mod legacy;
 mod mp4;
 mod vorbis;
+mod write;
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -25,6 +30,7 @@ use lofty::probe::Probe;
 use serde::Serialize;
 
 pub use legacy::LegacyText;
+pub use write::{Edit, WriteOptions, remove_stale_temps, write};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -34,6 +40,12 @@ pub enum Error {
     Unsupported,
     #[error("malformed file: {0}")]
     Malformed(String),
+    #[error("the file is read-only")]
+    ReadOnly,
+    #[error("{0}")]
+    Unwritable(String),
+    #[error("the edited file didn't read back as intended, so the original was kept: {0}")]
+    Verify(String),
 }
 
 impl From<lofty::error::FileParseError> for Error {
@@ -235,7 +247,21 @@ pub fn read(path: &Path) -> Result<FileTags> {
     let file_type = probe.file_type().ok_or(Error::Unsupported)?;
     let mut reader = probe.into_inner();
     let opts = ParseOptions::new().read_cover_art(true);
-    read_typed(&mut reader, file_type, opts)
+    match read_typed(&mut reader, file_type, opts) {
+        // A frame lofty can't parse (a date like "Spring 1999" in TDRC, written by another
+        // tagger) fails the whole file; read it again skipping such frames.
+        Err(Error::Malformed(_)) => {
+            reader.seek(SeekFrom::Start(0))?;
+            read_typed(&mut reader, file_type, parse_relaxed())
+        }
+        other => other,
+    }
+}
+
+pub(crate) fn parse_relaxed() -> ParseOptions {
+    ParseOptions::new()
+        .read_cover_art(true)
+        .parsing_mode(lofty::config::ParsingMode::Relaxed)
 }
 
 fn read_typed<R: Read + Seek>(r: &mut R, ft: FileType, opts: ParseOptions) -> Result<FileTags> {

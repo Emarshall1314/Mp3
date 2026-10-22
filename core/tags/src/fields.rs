@@ -306,6 +306,10 @@ pub const ID3_TXXX: &[(&str, &str)] = &[
     ("REPLAYGAIN_ALBUM_PEAK", "replaygain_album_peak"),
     ("DISCSUBTITLE", "discsubtitle"),
     ("MOOD", "mood"),
+    // ID3v2.3 has no TSOA/TSOP/TSOT; these TXXX frames stand in (see `write::id3`).
+    ("ALBUMSORT", "albumsort"),
+    ("ARTISTSORT", "artistsort"),
+    ("TITLESORT", "titlesort"),
 ];
 
 /// Involved-people roles (TIPL/IPLS) that are fields of their own; any other role is a performer.
