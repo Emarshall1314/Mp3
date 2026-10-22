@@ -5,3 +5,4 @@ node_modules/
 /apps/cadenza/src-tauri/gen/schemas
 *.log
 .DS_Store
+*.tsbuildinfo

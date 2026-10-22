@@ -56,7 +56,11 @@ pub fn build_info() -> BuildInfo {
 
 /// Everything the UI is told about without asking.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ApiEvent {
     Player {
         event: PlayerEvent,
@@ -378,9 +382,9 @@ impl Cadenza {
         self.engine.state()
     }
 
-    /// The queue as track rows, in play order.
-    pub fn queue(&self) -> Result<Vec<TrackRow>> {
-        let ids = self.engine.state().queue;
+    /// Queue entries `offset..offset + limit` as track rows, in play order.
+    pub fn queue_window(&self, offset: usize, limit: usize) -> Result<Vec<TrackRow>> {
+        let ids = self.engine.queue_ids(offset, limit);
         Ok(self.library.tracks(&ids)?)
     }
 

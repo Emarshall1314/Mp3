@@ -4,7 +4,7 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
 /// Case-, accent- and article-insensitive sort key: "The Beatles" sorts as "beatles",
-/// "Björk" next to "bjork".
+/// "Björk" next to "bjork". Empty values ("Unknown Artist") sort after everything else.
 pub(crate) fn sort_key(s: &str) -> String {
     let folded: String = s
         .nfkd()
@@ -12,6 +12,10 @@ pub(crate) fn sort_key(s: &str) -> String {
         .collect::<String>()
         .to_lowercase();
     let t = folded.trim();
+    if t.is_empty() {
+        // U+10FFFF is the largest scalar value, so its UTF-8 bytes compare after any other text.
+        return '\u{10FFFF}'.to_string();
+    }
     for article in ["the ", "a ", "an "] {
         if let Some(rest) = t.strip_prefix(article)
             && !rest.trim().is_empty()
@@ -59,6 +63,8 @@ mod tests {
         assert_eq!(sort_key("Björk"), "bjork");
         assert_eq!(sort_key("The"), "the");
         assert_eq!(sort_key("  An Album "), "album");
+        assert!(sort_key("  ") > sort_key("zzz"));
+        assert!(sort_key("") > sort_key("日本"));
     }
 
     #[test]

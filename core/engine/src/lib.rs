@@ -65,7 +65,10 @@ pub struct StreamInfo {
 #[serde(rename_all = "camelCase")]
 pub struct PlayerState {
     pub status: Status,
-    pub queue: Vec<i64>,
+    /// Entries in the queue; fetch them in windows with [`Engine::queue_ids`].
+    pub queue_length: usize,
+    /// Changes whenever the queue's contents or order change.
+    pub queue_version: u64,
     pub index: Option<usize>,
     pub track_id: Option<i64>,
     pub position_ms: u64,
@@ -80,7 +83,8 @@ impl Default for PlayerState {
     fn default() -> Self {
         Self {
             status: Status::Stopped,
-            queue: Vec::new(),
+            queue_length: 0,
+            queue_version: 0,
             index: None,
             track_id: None,
             position_ms: 0,
@@ -94,7 +98,11 @@ impl Default for PlayerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Event {
     /// Status, queue, current track or settings changed.
     State(PlayerState),
@@ -142,6 +150,7 @@ pub(crate) enum Cmd {
 pub struct Engine {
     tx: Sender<Cmd>,
     state: Arc<Mutex<PlayerState>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -158,12 +167,18 @@ impl Engine {
     ) -> Self {
         let (tx, rx) = unbounded();
         let state = Arc::new(Mutex::new(PlayerState::default()));
-        let shared = Arc::clone(&state);
+        let queue_ids = Arc::new(Mutex::new(Vec::new()));
+        let shared = (Arc::clone(&state), Arc::clone(&queue_ids));
         let thread = thread::Builder::new()
             .name("cadenza-player".into())
-            .spawn(move || player::run(rx, backend, shared, Box::new(on_event)))
+            .spawn(move || player::run(rx, backend, shared.0, shared.1, Box::new(on_event)))
             .ok();
-        Self { tx, state, thread }
+        Self {
+            tx,
+            state,
+            queue_ids,
+            thread,
+        }
     }
 
     fn send(&self, cmd: Cmd) {
@@ -172,6 +187,14 @@ impl Engine {
 
     pub fn state(&self) -> PlayerState {
         self.state.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Track ids of queue entries `offset..offset + limit` (play order).
+    pub fn queue_ids(&self, offset: usize, limit: usize) -> Vec<i64> {
+        self.queue_ids
+            .lock()
+            .map(|q| q.iter().skip(offset).take(limit).copied().collect())
+            .unwrap_or_default()
     }
 
     pub fn set_queue(&self, items: Vec<QueueItem>, start: usize, play: bool) {

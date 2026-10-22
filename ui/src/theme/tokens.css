@@ -28,6 +28,10 @@
   --radius-pill: 999px;
 
   --blur-glass: 30px;
+  --sidebar-width: 236px;
+  --queue-width: 320px;
+  --player-height: 76px;
+  --row-height: 34px;
   --duration-fast: 120ms;
   --duration-normal: 240ms;
   --ease-spring: linear(0, 0.38 9%, 0.81 20%, 1.02 31%, 1.06 39%, 1.02 52%, 0.99 66%, 1);
@@ -41,7 +45,12 @@
   --color-separator: rgb(0 0 0 / 10%);
   --color-accent: #e8344e;
   --color-accent-text: #ffffff;
+  --color-hover: rgb(0 0 0 / 5%);
+  --color-selected: rgb(0 0 0 / 8%);
+  --color-placeholder: #e3e3e8;
+  --color-badge: rgb(0 0 0 / 7%);
   --shadow-artwork: 0 4px 16px rgb(0 0 0 / 14%);
+  --shadow-menu: 0 8px 28px rgb(0 0 0 / 18%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -55,6 +64,11 @@
     --color-separator: rgb(255 255 255 / 12%);
     --color-accent: #ff4d63;
     --shadow-artwork: 0 4px 16px rgb(0 0 0 / 45%);
+    --color-hover: rgb(255 255 255 / 6%);
+    --color-selected: rgb(255 255 255 / 10%);
+    --color-placeholder: #3a3a3c;
+    --color-badge: rgb(255 255 255 / 10%);
+    --shadow-menu: 0 8px 28px rgb(0 0 0 / 50%);
   }
 }
 
@@ -67,11 +81,23 @@
   --color-separator: rgb(255 255 255 / 12%);
   --color-accent: #ff4d63;
   --shadow-artwork: 0 4px 16px rgb(0 0 0 / 45%);
+  --color-hover: rgb(255 255 255 / 6%);
+  --color-selected: rgb(255 255 255 / 10%);
+  --color-placeholder: #3a3a3c;
+  --color-badge: rgb(255 255 255 / 10%);
+  --shadow-menu: 0 8px 28px rgb(0 0 0 / 50%);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;
     --duration-normal: 0ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --blur-glass: 0px;
+    --color-surface-glass: var(--color-surface);
   }
 }

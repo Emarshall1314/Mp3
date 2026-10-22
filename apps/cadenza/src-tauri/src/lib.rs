@@ -131,8 +131,13 @@ fn player(app: App<'_>) -> PlayerState {
 }
 
 #[tauri::command(async)]
-fn queue(app: App<'_>) -> Res<Vec<TrackRow>> {
-    app.queue().map_err(e)
+fn queue_window(app: App<'_>, offset: usize, limit: usize) -> Res<Vec<TrackRow>> {
+    app.queue_window(offset, limit).map_err(e)
+}
+
+#[tauri::command(async)]
+fn tracks(app: App<'_>, ids: Vec<i64>) -> Res<Vec<TrackRow>> {
+    app.tracks(&ids).map_err(e)
 }
 
 #[tauri::command]
@@ -241,6 +246,13 @@ pub fn run() {
                     let _ = handle.emit("cadenza://event", event);
                 },
             )?;
+            // `cadenza --add-folder <path>`: add a music folder from the command line or a script.
+            let args: Vec<String> = std::env::args().collect();
+            for pair in args.windows(2).filter(|w| w[0] == "--add-folder") {
+                if let Err(err) = cadenza.add_root(std::path::Path::new(&pair[1])) {
+                    eprintln!("cadenza: cannot add {}: {err}", pair[1]);
+                }
+            }
             app.manage(Arc::new(cadenza));
             Ok(())
         })
@@ -267,7 +279,8 @@ pub fn run() {
             play_next,
             play_later,
             player,
-            queue,
+            queue_window,
+            tracks,
             toggle,
             next,
             previous,

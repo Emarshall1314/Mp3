@@ -22,5 +22,9 @@ serde_json.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.8"
 
+[features]
+# Set by the Tauri CLI for production builds: serve the bundled UI instead of the dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
 [lints]
 workspace = true

@@ -316,8 +316,9 @@ fn queue_edits_during_playback_take_effect() {
     });
     h.engine.insert_next(vec![c]);
     h.wait("queue updated", Duration::from_secs(2), |s| {
-        s.queue == [1, 3, 2]
+        s.queue_length == 3
     });
+    assert_eq!(h.engine.queue_ids(0, 10), [1, 3, 2]);
     h.wait("end", Duration::from_secs(10), |s| {
         s.status == Status::Stopped
     });

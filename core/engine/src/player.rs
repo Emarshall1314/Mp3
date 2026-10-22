@@ -312,6 +312,9 @@ struct Player {
     /// No more audio to decode; stop when everything queued has been heard.
     ending: bool,
     state: Arc<Mutex<PlayerState>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
+    queue_version: u64,
+    published_queue: Vec<i64>,
     emit: Box<dyn Fn(Event) + Send + Sync>,
     last_position: Instant,
     f32_buf: Vec<f32>,
@@ -322,6 +325,7 @@ pub(crate) fn run(
     rx: Receiver<Cmd>,
     backend: Box<dyn OutputBackend>,
     state: Arc<Mutex<PlayerState>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
     emit: Box<dyn Fn(Event) + Send + Sync>,
 ) {
     let mut p = Player {
@@ -338,6 +342,9 @@ pub(crate) fn run(
         segments: VecDeque::new(),
         ending: false,
         state,
+        queue_ids,
+        queue_version: 0,
+        published_queue: Vec::new(),
         emit,
         last_position: Instant::now(),
         f32_buf: Vec::new(),
@@ -386,7 +393,8 @@ impl Player {
         let seg = self.segments.front();
         PlayerState {
             status: self.status,
-            queue: self.queue.items.iter().map(|i| i.track_id).collect(),
+            queue_length: self.queue.items.len(),
+            queue_version: self.queue_version,
             index: self.queue.current,
             track_id: self.queue.current_item().map(|i| i.track_id),
             position_ms: self.position_ms(),
@@ -407,7 +415,17 @@ impl Player {
         Some(info)
     }
 
-    fn publish(&self) {
+    fn publish(&mut self) {
+        // Ship the (possibly 200 000-entry) id list only when it changed, and only to the
+        // shared vector: state events carry its length and version.
+        let ids: Vec<i64> = self.queue.items.iter().map(|i| i.track_id).collect();
+        if ids != self.published_queue {
+            self.queue_version += 1;
+            if let Ok(mut q) = self.queue_ids.lock() {
+                q.clone_from(&ids);
+            }
+            self.published_queue = ids;
+        }
         let snap = self.snapshot();
         if let Ok(mut s) = self.state.lock() {
             *s = snap.clone();
