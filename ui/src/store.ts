@@ -40,6 +40,12 @@ interface Store {
   queueOpen: boolean;
   toggleQueue: () => void;
 
+  /// The full-screen Now Playing view, and which side panel it shows.
+  nowPlaying: boolean;
+  setNowPlaying: (open: boolean) => void;
+  nowPlayingPanel: 'lyrics' | 'queue' | null;
+  setNowPlayingPanel: (p: 'lyrics' | 'queue' | null) => void;
+
   loudness: LoudnessStatus | null;
   setLoudness: (s: LoudnessStatus) => void;
   /// Bumped when output or sound settings change elsewhere (the output menu).
@@ -89,6 +95,11 @@ export const useStore = create<Store>((set, get) => ({
 
   queueOpen: false,
   toggleQueue: () => set({ queueOpen: !get().queueOpen }),
+
+  nowPlaying: false,
+  setNowPlaying: (open) => set({ nowPlaying: open }),
+  nowPlayingPanel: 'lyrics',
+  setNowPlayingPanel: (p) => set({ nowPlayingPanel: p }),
 
   loudness: null,
   setLoudness: (s) => set({ loudness: s }),

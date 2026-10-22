@@ -257,6 +257,11 @@ impl Cadenza {
             _watcher: Mutex::new(None),
         };
         me.restart_watcher();
+        // Catch up with changes made while Cadenza was closed (incremental: seconds even for a
+        // large library). The watcher only sees changes from now on.
+        if !me.library.roots()?.is_empty() {
+            me.scanner.request();
+        }
         Ok(me)
     }
 

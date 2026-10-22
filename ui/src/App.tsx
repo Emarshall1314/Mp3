@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
 import { QueuePanel } from './components/QueuePanel';
 import { ContextMenu } from './components/ContextMenu';
+import { NowPlaying } from './components/NowPlaying';
 import { AlbumsView } from './views/AlbumsView';
 import { AlbumView } from './views/AlbumView';
 import { SongsView } from './views/SongsView';
@@ -136,6 +137,7 @@ export function App() {
       </main>
       {queueOpen && <QueuePanel />}
       <PlayerBar />
+      <NowPlaying />
       <ContextMenu />
       {toast && (
         <div className="toast" role="status">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ListMusic,
   PictureInPicture2,
@@ -19,6 +19,7 @@ import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
+import { usePosition } from '../hooks/usePosition';
 import { OutputPicker } from './OutputPicker';
 import { SignalPath } from './SignalPath';
 
@@ -52,7 +53,14 @@ export function PlayerBar() {
       <div className="now-playing">
         {shown ? (
           <>
-            <Artwork hash={shown.artHash} size={48} alt="" />
+            <button
+              className="np-open"
+              aria-label="Open Now Playing"
+              title="Now Playing"
+              onClick={() => useStore.getState().setNowPlaying(true)}
+            >
+              <Artwork hash={shown.artHash} size={48} alt="" />
+            </button>
             <div className="now-playing-text">
               <button
                 className="link title"
@@ -165,30 +173,11 @@ function RepeatButton() {
   );
 }
 
-function Scrubber() {
-  const player = useStore((s) => s.player);
+export function Scrubber() {
+  const durationMs = useStore((s) => s.player?.durationMs ?? 0);
   const [drag, setDrag] = useState<number | null>(null);
-  const durationMs = player?.durationMs ?? 0;
-  const status = player?.status;
-  const reported = player?.positionMs ?? 0;
-  // Interpolate between the 4 Hz position events so the bar moves smoothly while playing.
-  const anchor = useRef({ pos: 0, at: 0 });
-  const [live, setLive] = useState(0);
-  useEffect(() => {
-    anchor.current = { pos: reported, at: performance.now() };
-  }, [reported]);
-  useEffect(() => {
-    if (status !== 'playing') return;
-    let raf = 0;
-    const tick = () => {
-      setLive(anchor.current.pos + Math.min(500, performance.now() - anchor.current.at));
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [status]);
-  const position =
-    drag ?? Math.min(status === 'playing' ? Math.max(live, reported) : reported, durationMs);
+  const live = usePosition();
+  const position = drag ?? live;
 
   return (
     <div className="scrubber">

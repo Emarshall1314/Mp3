@@ -241,3 +241,15 @@ export interface ImportedEq {
   preampDb: number;
   bands: EqBand[];
 }
+
+export interface LyricLine {
+  /** Start in ms; null when the lyrics are not synced. */
+  timeMs: number | null;
+  text: string;
+}
+
+export interface Lyrics {
+  synced: boolean;
+  lines: LyricLine[];
+  source: 'file' | 'embedded';
+}
