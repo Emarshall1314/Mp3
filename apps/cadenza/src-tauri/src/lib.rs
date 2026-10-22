@@ -12,8 +12,8 @@ use cadenza_api::{
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
     LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
     ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
-    SongSort, StoredArt, SyncConflict, SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags,
-    TrashItem,
+    SongSort, StoredArt, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit,
+    TrackRow, TrackTags, TrashItem,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -352,8 +352,18 @@ fn sync_status(app: App<'_>) -> SyncStatus {
 }
 
 #[tauri::command(async)]
-fn set_sync_settings(app: App<'_>, settings: SyncSettings) -> Res<SyncStatus> {
-    app.set_sync_settings(settings).map_err(e)
+fn set_sync_settings(
+    app: App<'_>,
+    settings: SyncSettings,
+    passphrase: Option<String>,
+) -> Res<SyncStatus> {
+    app.set_sync_settings(settings, passphrase.as_deref())
+        .map_err(e)
+}
+
+#[tauri::command(async)]
+fn sync_folder_info(app: App<'_>, folder: String) -> Res<SyncFolderInfo> {
+    app.sync_folder_info(&folder).map_err(e)
 }
 
 #[tauri::command]
@@ -758,6 +768,7 @@ pub fn run() {
             empty_trash,
             sync_status,
             set_sync_settings,
+            sync_folder_info,
             sync_now,
             sync_conflicts,
             resolve_conflict,

@@ -37,7 +37,7 @@ pub use edit::{
 };
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
-pub use sync::{SyncConflict, SyncDevice, SyncSettings, SyncStatus, Transfer};
+pub use sync::{SyncConflict, SyncDevice, SyncFolderInfo, SyncSettings, SyncStatus, Transfer};
 pub use themes::SavedTheme;
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
@@ -864,8 +864,19 @@ impl Cadenza {
         self.syncer.status()
     }
 
-    pub fn set_sync_settings(&self, settings: SyncSettings) -> Result<SyncStatus> {
-        self.syncer.set_settings(settings)
+    /// Changes sync's settings. `passphrase` encrypts a new sync folder, or unlocks an encrypted
+    /// one.
+    pub fn set_sync_settings(
+        &self,
+        settings: SyncSettings,
+        passphrase: Option<&str>,
+    ) -> Result<SyncStatus> {
+        self.syncer.set_settings(settings, passphrase)
+    }
+
+    /// What a folder holds before it's chosen for sync.
+    pub fn sync_folder_info(&self, folder: &str) -> Result<SyncFolderInfo> {
+        self.syncer.folder_info(folder)
     }
 
     /// Syncs soon, in the background.

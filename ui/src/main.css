@@ -3173,3 +3173,27 @@ kbd {
 .history-list li > .row-actions {
   flex-direction: row;
 }
+
+.folder-setup {
+  margin: var(--space-3) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
+}
+
+.folder-setup p {
+  margin: 0 0 var(--space-2);
+}
+
+.folder-setup .field-row {
+  margin: var(--space-2) 0;
+}
+
+.folder-setup .field-row span {
+  min-width: 90px;
+}
+
+.sync-folder .quality-badge {
+  margin-left: var(--space-2);
+}

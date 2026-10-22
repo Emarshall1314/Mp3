@@ -19,8 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: System packages
-        # A stalled package mirror once held a run here for half an hour.
-        timeout-minutes: 10
+        # A stalled package mirror once held a run here for half an hour; apt now retries.
+        timeout-minutes: 15
         run: sudo tools/setup-linux.sh
       - name: Rust toolchain (from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install

@@ -6,7 +6,8 @@
 //! ```
 //!
 //! It scans the music folder, applies the edits given (by song title), syncs, waits for any tag
-//! changes from other devices to be written, and syncs again.
+//! changes from other devices to be written, and syncs again. With `CADENZA_PASSPHRASE` set, it
+//! encrypts a new sync folder or unlocks an encrypted one.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -44,11 +45,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     app.rescan();
     wait(&app, "the scan");
-    app.set_sync_settings(SyncSettings {
-        folder: Some(folder.clone()),
-        device_name: name.clone(),
-        ..Default::default()
-    })?;
+    app.set_sync_settings(
+        SyncSettings {
+            folder: Some(folder.clone()),
+            device_name: name.clone(),
+            ..Default::default()
+        },
+        std::env::var("CADENZA_PASSPHRASE").ok().as_deref(),
+    )?;
     for edit in edits {
         let mut parts = edit.splitn(3, '=');
         let (Some(field), Some(title), Some(value)) = (parts.next(), parts.next(), parts.next())

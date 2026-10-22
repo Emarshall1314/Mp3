@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cadenza_api::{ApiEvent, Cadenza, PlayerEvent, SongSort, SyncSettings, TrackEdit};
+use cadenza_api::{ApiEvent, Cadenza, PictureEdit, PlayerEvent, SongSort, SyncSettings, TrackEdit};
 use cadenza_engine::Capture;
 use cadenza_testkit::fixtures_dir;
 
@@ -44,6 +44,16 @@ struct Device {
 
 impl Device {
     fn open(base: &Path, name: &str, with_music: bool, folder: &Path) -> Self {
+        Self::open_with(base, name, with_music, folder, None)
+    }
+
+    fn open_with(
+        base: &Path,
+        name: &str,
+        with_music: bool,
+        folder: &Path,
+        passphrase: Option<&str>,
+    ) -> Self {
         let music = base.join(name).join("music");
         std::fs::create_dir_all(&music).unwrap();
         if with_music {
@@ -64,11 +74,14 @@ impl Device {
         d.app.add_root(&d.music).unwrap();
         d.wait_scans(1);
         d.app
-            .set_sync_settings(SyncSettings {
-                folder: Some(folder.display().to_string()),
-                device_name: name.into(),
-                ..Default::default()
-            })
+            .set_sync_settings(
+                SyncSettings {
+                    folder: Some(folder.display().to_string()),
+                    device_name: name.into(),
+                    ..Default::default()
+                },
+                passphrase,
+            )
             .unwrap();
         d
     }
@@ -263,12 +276,15 @@ fn a_new_device_gets_shared_songs_with_their_history() {
     let x = a.song(&titles[0]);
     a.app.set_favourite(&[x], true).unwrap();
     a.app
-        .set_sync_settings(SyncSettings {
-            folder: Some(folder.display().to_string()),
-            device_name: "laptop".into(),
-            share_audio: true,
-            ..Default::default()
-        })
+        .set_sync_settings(
+            SyncSettings {
+                folder: Some(folder.display().to_string()),
+                device_name: "laptop".into(),
+                share_audio: true,
+                ..Default::default()
+            },
+            None,
+        )
         .unwrap();
     a.sync();
     assert!(folder.join("blobs").is_dir());
@@ -277,12 +293,15 @@ fn a_new_device_gets_shared_songs_with_their_history() {
     assert!(phone.songs().is_empty());
     phone
         .app
-        .set_sync_settings(SyncSettings {
-            folder: Some(folder.display().to_string()),
-            device_name: "phone".into(),
-            download_audio: true,
-            ..Default::default()
-        })
+        .set_sync_settings(
+            SyncSettings {
+                folder: Some(folder.display().to_string()),
+                device_name: "phone".into(),
+                download_audio: true,
+                ..Default::default()
+            },
+            None,
+        )
         .unwrap();
     let scans = phone.scans();
     phone.sync();
@@ -323,18 +342,146 @@ fn the_sync_folder_must_be_outside_the_music_folders() {
     std::fs::create_dir_all(&inside).unwrap();
     assert!(
         a.app
-            .set_sync_settings(SyncSettings {
-                folder: Some(inside.display().to_string()),
-                ..Default::default()
-            })
+            .set_sync_settings(
+                SyncSettings {
+                    folder: Some(inside.display().to_string()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err()
     );
     assert!(
         a.app
-            .set_sync_settings(SyncSettings {
-                folder: Some(tmp.path().join("nowhere").display().to_string()),
-                ..Default::default()
-            })
+            .set_sync_settings(
+                SyncSettings {
+                    folder: Some(tmp.path().join("nowhere").display().to_string()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err()
     );
+}
+
+#[test]
+fn new_artwork_travels_through_the_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("shared");
+    std::fs::create_dir_all(&folder).unwrap();
+    let a = Device::open(tmp.path(), "laptop", true, &folder);
+    let b = Device::open(tmp.path(), "desktop", true, &folder);
+    let title = a.songs()[0].clone();
+    let x = a.song(&title);
+
+    // An image only A has.
+    let art = a
+        .app
+        .import_artwork(&fixtures_dir().join("artwork/folder_art_album/back.jpg"))
+        .unwrap();
+    let n = a.edits();
+    a.app
+        .edit_tracks(
+            vec![TrackEdit {
+                track_id: x,
+                fields: BTreeMap::new(),
+                pictures: Some(PictureEdit::SetFront {
+                    hash: art.hash.clone(),
+                }),
+            }],
+            "new cover",
+        )
+        .unwrap();
+    wait("the cover edit", || a.edits() > n);
+    wait("the scan after", || !a.app.scan_status().running);
+    a.sync();
+    assert!(
+        folder.join("art").is_dir(),
+        "the image went into the folder"
+    );
+    b.sync();
+    let bx = b.song(&title);
+    let front = b.app.track_tags(&[bx]).unwrap()[0]
+        .pictures
+        .iter()
+        .find(|p| p.picture_type == 3)
+        .and_then(|p| p.hash.clone());
+    assert_eq!(front.as_deref(), Some(art.hash.as_str()));
+}
+
+#[test]
+fn an_encrypted_folder_holds_nothing_readable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("shared");
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let pass = "correct horse battery staple";
+    let a = Device::open_with(tmp.path(), "laptop", true, &folder, Some(pass));
+    assert!(a.app.sync_status().encrypted);
+    let title = a.songs()[0].clone();
+    let x = a.song(&title);
+    a.edit(x, "title", "A Secret Title");
+    a.app
+        .set_sync_settings(
+            SyncSettings {
+                folder: Some(folder.display().to_string()),
+                device_name: "laptop".into(),
+                share_audio: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    a.sync();
+
+    let mut files = Vec::new();
+    let mut stack = vec![folder.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                files.push(p);
+            }
+        }
+    }
+    assert!(files.iter().any(|f| f.starts_with(folder.join("blobs"))));
+    for f in &files {
+        let name = f.file_name().unwrap().to_string_lossy();
+        assert!(!name.ends_with(".flac"), "{name}");
+        let bytes = std::fs::read(f).unwrap();
+        for secret in [&b"A Secret Title"[..], b"laptop", b"fLaC"] {
+            assert!(
+                !bytes.windows(secret.len()).any(|w| w == secret),
+                "{} holds {:?}",
+                f.display(),
+                String::from_utf8_lossy(secret)
+            );
+        }
+    }
+    let info = a
+        .app
+        .sync_folder_info(&folder.display().to_string())
+        .unwrap();
+    assert!(info.has_library && info.encrypted);
+
+    // Joining needs the passphrase, and the right one.
+    let b = Device::open(tmp.path(), "desktop", true, &other);
+    let join = |p: Option<&str>| {
+        b.app.set_sync_settings(
+            SyncSettings {
+                folder: Some(folder.display().to_string()),
+                device_name: "desktop".into(),
+                ..Default::default()
+            },
+            p,
+        )
+    };
+    assert!(join(None).is_err());
+    assert!(join(Some("wrong horse battery staple")).is_err());
+    join(Some(pass)).unwrap();
+    b.sync();
+    assert!(b.songs().contains(&"A Secret Title".to_owned()));
 }

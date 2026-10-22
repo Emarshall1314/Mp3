@@ -4,8 +4,10 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
+# A stalled mirror connection is retried rather than left to hang the CI job.
+APT=(-o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+apt-get "${APT[@]}" update -qq
+apt-get "${APT[@]}" install -y -qq --no-install-recommends \
   build-essential pkg-config cmake git python3 python3-venv \
   libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev \
   libasound2-dev \

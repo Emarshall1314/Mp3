@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { FolderSync, Pause, Play, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
-import type { SyncConflict, SyncSettings, SyncStatus } from '../types';
+import type { SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
 import { pickFolder } from './EmptyLibrary';
 
 const FIELD_NAMES: Record<string, string> = {
@@ -31,9 +31,114 @@ function size(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
-async function save(status: SyncStatus, patch: Partial<SyncSettings>) {
-  const next = await attempt(api.setSyncSettings({ ...status.settings, ...patch }));
+async function save(
+  status: SyncStatus,
+  patch: Partial<SyncSettings>,
+  passphrase: string | null = null,
+): Promise<boolean> {
+  const next = await attempt(api.setSyncSettings({ ...status.settings, ...patch }, passphrase));
   if (next) useStore.getState().setSync(next);
+  return !!next;
+}
+
+/// A folder about to be used: what it holds decides what's asked. A new folder can be encrypted
+/// (passphrase typed twice); an encrypted one needs its passphrase; an unencrypted one just joins.
+/// Also unlocks the current folder when this device has lost its key.
+function FolderSetup({
+  status,
+  folder,
+  info,
+  onDone,
+  locked = false,
+}: {
+  status: SyncStatus;
+  folder: string;
+  info: SyncFolderInfo;
+  onDone: () => void;
+  /** The current folder, whose key this device doesn't have. */
+  locked?: boolean;
+}) {
+  const [encrypt, setEncrypt] = useState(false);
+  const [pass, setPass] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isNew = !info.hasLibrary;
+  const needsPass = info.encrypted || (isNew && encrypt);
+  const mismatch = isNew && encrypt && again !== '' && pass !== again;
+  const ready = !needsPass || (pass.length >= 8 && (!isNew || pass === again));
+  const go = async () => {
+    setBusy(true);
+    const ok = await save(status, { folder, paused: false }, needsPass ? pass : null);
+    setBusy(false);
+    if (ok) onDone();
+  };
+  return (
+    <form
+      className="folder-setup"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) void go();
+      }}
+    >
+      {!locked && <p className="path">{folder}</p>}
+      <p>
+        {locked
+          ? 'The sync folder is encrypted and this device doesn’t have its key. Enter the passphrase to carry on syncing.'
+          : isNew
+            ? 'This folder has no Cadenza library yet: this device will start one.'
+            : info.encrypted
+              ? `This folder holds an encrypted Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}. Enter its passphrase.`
+              : `This folder holds a Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}.`}
+      </p>
+      {isNew && (
+        <label className="check-row">
+          <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
+          Encrypt it with a passphrase, so whoever holds the folder can’t read it
+        </label>
+      )}
+      {needsPass && (
+        <>
+          <label className="field-row">
+            <span>Passphrase</span>
+            <input
+              type="password"
+              autoComplete={isNew ? 'new-password' : 'current-password'}
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+            />
+          </label>
+          {isNew && (
+            <label className="field-row">
+              <span>Again</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={again}
+                onChange={(e) => setAgain(e.target.value)}
+              />
+            </label>
+          )}
+          <p className="muted small" role={mismatch ? 'alert' : undefined}>
+            {mismatch
+              ? 'The two passphrases differ.'
+              : isNew
+                ? 'At least 8 characters. Every device needs it to join; there’s no way to recover it, so keep it somewhere safe.'
+                : 'The passphrase this library was encrypted with.'}
+          </p>
+        </>
+      )}
+      <div className="row-actions">
+        <button className="pill primary" type="submit" disabled={!ready || busy}>
+          {busy ? 'Working…' : locked ? 'Unlock' : isNew ? 'Start Syncing' : 'Join'}
+        </button>
+        {!locked && (
+          <button className="pill" type="button" onClick={onDone}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  );
 }
 
 /// This device's name as others see it; saved when the field is left.
@@ -59,6 +164,22 @@ function DeviceName({ status }: { status: SyncStatus }) {
 export function SyncView() {
   const status = useStore((s) => s.sync);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
+  // A folder being set up (chosen, or the current one locked), and what it holds.
+  const [setup, setSetup] = useState<{ folder: string; info: SyncFolderInfo } | null>(null);
+  const [locked, setLocked] = useState(false);
+  const folderNow = status?.settings.folder ?? null;
+  const encryptedHere = status?.encrypted ?? false;
+  useEffect(() => {
+    if (!folderNow || encryptedHere) return;
+    let live = true;
+    void api.syncFolderInfo(folderNow).then(
+      (info) => live && setLocked(info.encrypted),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [folderNow, encryptedHere]);
   const deviceName = status?.settings.deviceName ?? '';
   const conflictCount = status?.conflicts ?? 0;
   const lastSync = status?.lastSyncMs ?? null;
@@ -110,12 +231,17 @@ export function SyncView() {
 
       <h2 className="section-title">Sync Folder</h2>
       <div className="sync-folder">
-        <span className="path">{status.settings.folder ?? 'None: sync is off'}</span>
+        <span className="path">
+          {status.settings.folder ?? 'None: sync is off'}
+          {on && status.encrypted && <span className="quality-badge">Encrypted</span>}
+        </span>
         <button
           className="pill"
           onClick={() =>
-            void pickFolder('Choose the Sync Folder').then((folder) => {
-              if (folder) void save(status, { folder, paused: false });
+            void pickFolder('Choose the Sync Folder').then(async (folder) => {
+              if (!folder) return;
+              const info = await attempt(api.syncFolderInfo(folder));
+              if (info) setSetup({ folder, info });
             })
           }
         >
@@ -127,6 +253,26 @@ export function SyncView() {
           </button>
         )}
       </div>
+      {setup && (
+        <FolderSetup
+          status={status}
+          folder={setup.folder}
+          info={setup.info}
+          onDone={() => {
+            setSetup(null);
+            setLocked(false);
+          }}
+        />
+      )}
+      {on && locked && !setup && folderNow && (
+        <FolderSetup
+          status={status}
+          folder={folderNow}
+          info={{ hasLibrary: true, encrypted: true, devices: 0 }}
+          onDone={() => setLocked(false)}
+          locked
+        />
+      )}
       {on && (
         <p className="muted small">
           Stopping leaves the folder and your music as they are; choose the folder again to carry

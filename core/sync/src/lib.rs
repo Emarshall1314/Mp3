@@ -10,7 +10,9 @@
 //! - [`state`]: the merged state; last writer wins per field, and concurrent edits are kept as
 //!   conflicts for the owner to review.
 //! - [`replica`]: one device: records local changes, pushes and pulls.
+//! - [`crypt`]: optional encryption of everything in the store.
 
+pub mod crypt;
 pub mod hlc;
 pub mod op;
 pub mod replica;
@@ -18,6 +20,7 @@ pub mod segment;
 pub mod state;
 pub mod store;
 
+pub use crypt::{EncryptedStore, Encryption, Key, LibraryInfo};
 pub use hlc::{Clock, DeviceId, Hlc};
 pub use op::{Change, Op, TrackKey};
 pub use replica::{Replica, SyncReport};
@@ -30,6 +33,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("not a Cadenza log segment: {0}")]
     Segment(String),
+    #[error("{0}")]
+    Crypto(String),
     #[error("bad path in store: {0}")]
     Path(String),
     #[error("couldn't encode: {0}")]

@@ -34,6 +34,7 @@ import type {
   SongSort,
   StoredArt,
   SyncConflict,
+  SyncFolderInfo,
   SyncSettings,
   SyncStatus,
   TrackEdit,
@@ -117,8 +118,9 @@ export const api = {
   purge: (id: number) => invoke<null>('purge', { id }),
   emptyTrash: () => invoke<null>('empty_trash'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
-  setSyncSettings: (settings: SyncSettings) =>
-    invoke<SyncStatus>('set_sync_settings', { settings }),
+  setSyncSettings: (settings: SyncSettings, passphrase: string | null = null) =>
+    invoke<SyncStatus>('set_sync_settings', { settings, passphrase }),
+  syncFolderInfo: (folder: string) => invoke<SyncFolderInfo>('sync_folder_info', { folder }),
   syncNow: () => invoke<null>('sync_now'),
   syncConflicts: () => invoke<SyncConflict[]>('sync_conflicts'),
   resolveConflict: (audioHash: string, field: string, values: string[]) =>

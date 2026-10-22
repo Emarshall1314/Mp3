@@ -242,6 +242,14 @@ export interface SyncStatus {
   conflicts: number;
   transfer: SyncTransfer | null;
   problems: string[];
+  /** The folder's contents are encrypted with a passphrase. */
+  encrypted: boolean;
+}
+
+export interface SyncFolderInfo {
+  hasLibrary: boolean;
+  encrypted: boolean;
+  devices: number;
 }
 
 export interface SyncConflict {
