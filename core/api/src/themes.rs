@@ -87,7 +87,10 @@ impl Themes {
                 })
             })
             .collect();
-        themes.sort_by_key(|t| name(&t.theme).to_lowercase());
+        // By name, then id: directory order differs between filesystems.
+        themes.sort_by(|a, b| {
+            (name(&a.theme).to_lowercase(), &a.id).cmp(&(name(&b.theme).to_lowercase(), &b.id))
+        });
         themes
     }
 
@@ -328,7 +331,10 @@ mod tests {
             .save(Some("dusk"), &theme(json!({ "color-bg": "#111" })))
             .unwrap();
         let list = themes.list();
-        assert_eq!(list.len(), 2);
+        assert_eq!(
+            list.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["dusk", "dusk-2"]
+        );
         assert_eq!(list[0].theme["tokens"]["color-bg"], "#111");
         assert!(themes.save(Some("../x"), &theme(json!({}))).is_err());
         assert!(themes.import("not json").is_err());
