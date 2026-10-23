@@ -99,9 +99,9 @@ export function ContextMenu() {
         visibility: pos ? 'visible' : 'hidden',
       }}
     >
-      {menu.items.map((item) => (
+      {menu.items.map((item, i) => (
         <button
-          key={item.label}
+          key={`${i}:${item.label}`}
           role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
           aria-checked={item.checked}
           data-checked={item.checked || undefined}

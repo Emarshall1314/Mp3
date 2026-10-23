@@ -73,6 +73,28 @@ export interface Mix {
   art: string[];
 }
 
+export interface Playlist {
+  id: number;
+  name: string;
+  /// Songs that are in the library (ones gone aren't counted).
+  trackCount: number;
+  durationMs: number;
+  /// Up to four artworks, in playlist order, for its cover.
+  art: string[];
+  updatedAt: number;
+}
+
+export interface PlaylistItem {
+  /// The item, not the song: a song can be in a playlist twice.
+  itemId: number;
+  track: TrackRow;
+}
+
+export interface PlaylistDetail {
+  playlist: Playlist;
+  items: PlaylistItem[];
+}
+
 export interface Rediscover {
   albumOfTheDay: AlbumRow | null;
   /// Albums added a while ago and never played: a new set each week.

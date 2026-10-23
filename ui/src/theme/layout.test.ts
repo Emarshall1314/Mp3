@@ -22,7 +22,9 @@ describe('layout', () => {
         { id: 'artist', width: 90 },
       ],
     });
-    expect(l.nav).toEqual(['songs', 'home']);
+    // A layout saved before Playlists existed gets it, once, at the end.
+    expect(l.nav).toEqual(['songs', 'home', 'playlists']);
+    expect(normaliseLayout({ ...l, nav: ['songs', 'home'] }).nav).toEqual(['songs', 'home']);
     expect(l.sidebarWidth).toBe(400);
     expect(l.playerPosition).toBe('bottom');
     // The title column always stays; widths are clamped; duplicates dropped.

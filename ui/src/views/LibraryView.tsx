@@ -6,6 +6,7 @@ import {
   FolderOpen,
   FolderSync,
   ListMusic,
+  Music2,
   Mic2,
   Settings,
   SlidersHorizontal,
@@ -20,7 +21,8 @@ const ENTRIES: { label: string; route: Route; icon: typeof Clock }[] = [
   { label: 'Recently Added', route: { name: 'recent' }, icon: Clock },
   { label: 'Artists', route: { name: 'artists' }, icon: Mic2 },
   { label: 'Albums', route: { name: 'albums' }, icon: Disc3 },
-  { label: 'Songs', route: { name: 'songs' }, icon: ListMusic },
+  { label: 'Songs', route: { name: 'songs' }, icon: Music2 },
+  { label: 'Playlists', route: { name: 'playlists' }, icon: ListMusic },
 ];
 
 const MORE: { label: string; route: Route; icon: typeof Clock }[] = [

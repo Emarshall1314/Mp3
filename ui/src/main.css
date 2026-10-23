@@ -4030,7 +4030,8 @@ kbd {
 /* Menus on a phone: rounder, with rows a finger can hit. */
 .app[data-phone] .context-menu {
   /* Frosted more than the dock: a menu's text must read over anything. */
-  background-color: color-mix(in srgb, var(--color-surface) 84%, transparent);
+  /* From the page colour, not the theme's surface (which some themes make see-through). */
+  background-color: color-mix(in srgb, var(--color-bg) 88%, transparent);
   backdrop-filter: blur(24px) saturate(180%);
   min-width: 220px;
   max-width: calc(100vw - 2 * var(--space-4));
@@ -4791,4 +4792,180 @@ kbd {
   background: var(--app-background, var(--color-bg));
   box-shadow: -12px 0 32px rgb(0 0 0 / 28%);
   will-change: transform;
+}
+
+/* ---- Playlists (views/PlaylistsView.tsx) ---- */
+.playlist-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-6);
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+
+.playlist-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+
+.playlist-card .mix-cover,
+.playlist-card .new-tile {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1;
+  margin-bottom: var(--space-2);
+}
+
+.playlist-card .mix-cover .artwork {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.playlist-card .title {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-tile {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-m);
+  border: 2px dashed var(--color-separator);
+  color: var(--color-accent);
+}
+
+.app[data-phone] .playlist-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) 14px;
+}
+
+.playlist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-6);
+}
+
+.playlist-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-separator);
+  transition: transform 260ms var(--ease-spring);
+}
+
+.playlist-items[data-dragging] .playlist-row[data-lifted] {
+  position: relative;
+  z-index: 2;
+  transition: none;
+  border-radius: 12px;
+  background: var(--color-bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
+  scale: 1.02;
+}
+
+.playlist-play {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  text-align: left;
+}
+
+.playlist-play .queue-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.playlist-play :is(.title, .subtitle) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-row.playing .title {
+  color: var(--color-accent);
+}
+
+.playlist-play .time {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.playlist-grip {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 44px;
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.playlist-items[data-dragging] .playlist-grip {
+  cursor: grabbing;
+}
+
+/* ---- A question needing a line of text (components/TextPrompt.tsx) ---- */
+.prompt-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 35%);
+  animation: fade-in 160ms ease-out;
+}
+
+.prompt {
+  width: min(380px, 100%);
+  padding: var(--space-5);
+  border-radius: 22px;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-menu);
+  animation: pop-in var(--duration-normal) var(--ease-spring);
+}
+
+:root[data-panels='liquid'] .prompt {
+  background: color-mix(in srgb, var(--color-bg) 90%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    var(--shadow-menu);
+}
+
+.prompt h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 18px;
+}
+
+.prompt input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+.prompt-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }

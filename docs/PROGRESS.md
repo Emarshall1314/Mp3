@@ -461,6 +461,21 @@ glass.
     it was checked by hand in the app.
   - Checked in the real app at phone and desktop size, with mouse drags. Touch-only parts
     (pinch, the index under a thumb) need the phone.
+- **Playlists** (D61; my pick after round three):
+  - Make, rename and delete playlists (deleting has Undo); add songs or whole albums from any
+    song or album menu (Add to Playlist…, then a playlist or New Playlist…); save a Rediscover
+    mix as a playlist.
+  - A playlist's page: its cover (four artworks), Play, Shuffle, and its songs; tap a song to
+    play from it, ✕ to remove it, drag the grip to move it (arrow keys on the grip too).
+  - Playlists in the Library page, the desktop sidebar (added once to saved layouts) and as a
+    phone tab option. Songs' icon is now a note, Playlists' the list.
+  - A small dialog for names (the first text prompt in the app), glass with liquid glass on.
+  - Not yet: syncing playlists between devices, smart playlists, importing M3U.
+  - Tests: position keys (between, before, after, a thousand appends, no trailing zero); a real
+    library through create, add (with duplicates), move up and down, remove one duplicate,
+    rename, empty name, delete; the sidebar migration.
+  - Checked in the real app at phone size: made one from an album's menu, added another album,
+    reordered by dragging.
 - Demo script: `docs/demos/M7.md`.
 
 ### Next
@@ -540,7 +555,7 @@ These are shown or absent in the UI, never faked:
   - Online tag lookup.
   - Saved action presets (the case exceptions and the organiser pattern are remembered).
   - Favourites (the library has room for them; nothing sets them).
-  - Playlists.
+  - Syncing playlists (playlists themselves are built, M7).
   - Android's USB bit-perfect path (API 34 mixer attributes).
   - An allocator guard on the output thread.
   - A seek-latency benchmark.

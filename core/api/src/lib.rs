@@ -28,8 +28,9 @@ pub use cadenza_engine::{
 pub use cadenza_library::TrashItem;
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Browse, BrowseItem, EditBatch,
-    EditChange, Home, LibraryStats, LyricLine, Lyrics, Mix, Rediscover, ReleaseSection, Root,
-    SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
+    EditChange, Home, LibraryStats, LyricLine, Lyrics, Mix, Playlist, PlaylistDetail, PlaylistItem,
+    Rediscover, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress, ScanReport,
+    SearchResults, SongSort, StoredArt, TrackRow,
 };
 pub use cadenza_sync::Remote;
 pub use edit::{
@@ -559,6 +560,40 @@ impl Cadenza {
     /// Home shelves: recently played, recently added, most played.
     pub fn home(&self) -> Result<Home> {
         Ok(self.library.home()?)
+    }
+
+    // ---- playlists ---------------------------------------------------------------------------
+
+    pub fn playlists(&self) -> Result<Vec<Playlist>> {
+        Ok(self.library.playlists()?)
+    }
+
+    pub fn playlist(&self, id: i64) -> Result<PlaylistDetail> {
+        Ok(self.library.playlist(id)?)
+    }
+
+    pub fn create_playlist(&self, name: &str, track_ids: &[i64]) -> Result<Playlist> {
+        Ok(self.library.create_playlist(name, track_ids)?)
+    }
+
+    pub fn rename_playlist(&self, id: i64, name: &str) -> Result<()> {
+        Ok(self.library.rename_playlist(id, name)?)
+    }
+
+    pub fn delete_playlist(&self, id: i64) -> Result<()> {
+        Ok(self.library.delete_playlist(id)?)
+    }
+
+    pub fn add_to_playlist(&self, id: i64, track_ids: &[i64]) -> Result<()> {
+        Ok(self.library.add_to_playlist(id, track_ids)?)
+    }
+
+    pub fn remove_from_playlist(&self, id: i64, item_ids: &[i64]) -> Result<()> {
+        Ok(self.library.remove_from_playlist(id, item_ids)?)
+    }
+
+    pub fn move_in_playlist(&self, id: i64, item_id: i64, before: Option<i64>) -> Result<()> {
+        Ok(self.library.move_in_playlist(id, item_id, before)?)
     }
 
     /// Today's Rediscover: mixes and albums from the owner's own library and listening.

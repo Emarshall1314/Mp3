@@ -6,6 +6,7 @@ import {
   FolderSync,
   House,
   ListMusic,
+  Music2,
   Mic2,
   Search,
   Settings,
@@ -25,7 +26,8 @@ export const NAV_ICONS: Record<NavId, typeof Clock> = {
   recent: Clock,
   artists: Mic2,
   albums: Disc3,
-  songs: ListMusic,
+  songs: Music2,
+  playlists: ListMusic,
 };
 
 /// The sidebar's right edge: drag (or arrow keys) to resize, double-click to collapse.
@@ -132,7 +134,8 @@ export function Sidebar() {
           const active =
             route.name === id ||
             (route.name === 'album' && id === 'albums') ||
-            (route.name === 'artist' && id === 'artists');
+            (route.name === 'artist' && id === 'artists') ||
+            (route.name === 'playlist' && id === 'playlists');
           return (
             <li key={id}>
               <button

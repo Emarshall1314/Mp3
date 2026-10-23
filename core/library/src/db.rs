@@ -207,6 +207,26 @@ const MIGRATIONS: &[&str] = &[
         trashed_at INTEGER NOT NULL
     );
     "#,
+    // 6: playlists. Items name tracks by uid (which survives moves and rescans) and are ordered
+    // by fractional position keys, so inserting or moving one never renumbers the others and
+    // edits from two devices can merge later.
+    r#"
+    CREATE TABLE playlists (
+        id INTEGER PRIMARY KEY,
+        uid TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE playlist_items (
+        id INTEGER PRIMARY KEY,
+        playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        track_uid TEXT NOT NULL,
+        pos TEXT NOT NULL,
+        added_at INTEGER NOT NULL
+    );
+    CREATE INDEX playlist_items_order ON playlist_items(playlist_id, pos);
+    "#,
 ];
 
 pub(crate) struct Db {

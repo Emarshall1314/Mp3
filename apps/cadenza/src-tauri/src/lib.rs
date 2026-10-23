@@ -10,10 +10,10 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Rediscover, Remote, RenamePlan,
-    Repeat, ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
-    SongSort, StoredArt, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit,
-    TrackRow, TrackTags, TrashItem,
+    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Playlist, PlaylistDetail,
+    Rediscover, Remote, RenamePlan, Repeat, ReplayGainSettings, Root, SavedSearch, SavedTheme,
+    ScanStatus, SearchResults, Settings, SongSort, StoredArt, SyncConflict, SyncFolderInfo,
+    SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags, TrashItem,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -478,6 +478,46 @@ fn home(app: App<'_>) -> Res<Home> {
 }
 
 #[tauri::command(async)]
+fn playlists(app: App<'_>) -> Res<Vec<Playlist>> {
+    app.playlists().map_err(e)
+}
+
+#[tauri::command(async)]
+fn playlist(app: App<'_>, id: i64) -> Res<PlaylistDetail> {
+    app.playlist(id).map_err(e)
+}
+
+#[tauri::command(async)]
+fn create_playlist(app: App<'_>, name: String, track_ids: Vec<i64>) -> Res<Playlist> {
+    app.create_playlist(&name, &track_ids).map_err(e)
+}
+
+#[tauri::command(async)]
+fn rename_playlist(app: App<'_>, id: i64, name: String) -> Res<()> {
+    app.rename_playlist(id, &name).map_err(e)
+}
+
+#[tauri::command(async)]
+fn delete_playlist(app: App<'_>, id: i64) -> Res<()> {
+    app.delete_playlist(id).map_err(e)
+}
+
+#[tauri::command(async)]
+fn add_to_playlist(app: App<'_>, id: i64, track_ids: Vec<i64>) -> Res<()> {
+    app.add_to_playlist(id, &track_ids).map_err(e)
+}
+
+#[tauri::command(async)]
+fn remove_from_playlist(app: App<'_>, id: i64, item_ids: Vec<i64>) -> Res<()> {
+    app.remove_from_playlist(id, &item_ids).map_err(e)
+}
+
+#[tauri::command(async)]
+fn move_in_playlist(app: App<'_>, id: i64, item_id: i64, before: Option<i64>) -> Res<()> {
+    app.move_in_playlist(id, item_id, before).map_err(e)
+}
+
+#[tauri::command(async)]
 fn rediscover(app: App<'_>, offset_min: i32) -> Res<Rediscover> {
     app.rediscover(offset_min).map_err(e)
 }
@@ -776,6 +816,14 @@ pub fn run() {
             browse,
             home,
             rediscover,
+            playlists,
+            playlist,
+            create_playlist,
+            rename_playlist,
+            delete_playlist,
+            add_to_playlist,
+            remove_from_playlist,
+            move_in_playlist,
             lyrics,
             artwork_palette,
             toggle_mini_player,

@@ -17,6 +17,8 @@ import type {
   DspSettings,
   EqBand,
   Home,
+  Playlist,
+  PlaylistDetail,
   Rediscover,
   ImportedEq,
   LibraryStats,
@@ -102,6 +104,19 @@ export const api = {
     invoke<Browse>('browse', { genre, artist }),
   artistPage: (name: string) => invoke<ArtistPage>('artist_page', { name }),
   home: () => invoke<Home>('home'),
+  playlists: () => invoke<Playlist[]>('playlists'),
+  playlist: (id: number) => invoke<PlaylistDetail>('playlist', { id }),
+  createPlaylist: (name: string, trackIds: number[] = []) =>
+    invoke<Playlist>('create_playlist', { name, trackIds }),
+  renamePlaylist: (id: number, name: string) => invoke<null>('rename_playlist', { id, name }),
+  deletePlaylist: (id: number) => invoke<null>('delete_playlist', { id }),
+  addToPlaylist: (id: number, trackIds: number[]) =>
+    invoke<null>('add_to_playlist', { id, trackIds }),
+  removeFromPlaylist: (id: number, itemIds: number[]) =>
+    invoke<null>('remove_from_playlist', { id, itemIds }),
+  /// Moves an item to just before `before` (another item), or to the end with null.
+  moveInPlaylist: (id: number, itemId: number, before: number | null) =>
+    invoke<null>('move_in_playlist', { id, itemId, before }),
   /// Today's Rediscover, by the owner's clock (days start at their midnight).
   rediscover: () =>
     invoke<Rediscover>('rediscover', { offsetMin: -new Date().getTimezoneOffset() }),

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Play, Shuffle } from 'lucide-react';
+import { ListPlus, Play, Shuffle } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
 import type { Mix, Rediscover, TrackRow } from '../types';
 import { Artwork } from '../components/Artwork';
+import { Collage } from '../components/Collage';
 import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
+import { newPlaylist } from '../actions';
 
 /// Today's Rediscover, fetched once per page visit (and when the library changes); the picks
 /// only change at the owner's midnight anyway.
@@ -30,19 +32,9 @@ const REFRESH: Record<Mix['refresh'], string> = {
   weekly: 'New every week',
 };
 
-/// A mix's cover: four of its artworks in a square (or one, when it has fewer), with its title.
+/// A mix's cover: four of its artworks under a wash of its colour, with its title.
 function MixCover({ mix, size }: { mix: Mix; size: number }) {
-  const four = mix.art.length >= 4;
-  return (
-    <div className="mix-cover" data-mix={mix.id} style={{ width: size, height: size }}>
-      {four ? (
-        mix.art.slice(0, 4).map((a) => <Artwork key={a} hash={a} size={size / 2} alt="" />)
-      ) : (
-        <Artwork hash={mix.art[0] ?? null} size={size} alt="" />
-      )}
-      <span className="mix-cover-title">{mix.title}</span>
-    </div>
-  );
+  return <Collage art={mix.art} size={size} title={mix.title} tint={mix.id} />;
 }
 
 function playMix(mix: Mix, shuffle = false) {
@@ -170,6 +162,17 @@ export function MixView({ id }: { id: string }) {
             </button>
             <button className="pill" onClick={() => playMix(mix, true)}>
               <Shuffle size={14} aria-hidden /> Shuffle
+            </button>
+            <button
+              className="pill"
+              onClick={() =>
+                newPlaylist(
+                  mix.trackIds,
+                  `${mix.title} · ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`,
+                )
+              }
+            >
+              <ListPlus size={14} aria-hidden /> Save as Playlist
             </button>
           </div>
         </div>

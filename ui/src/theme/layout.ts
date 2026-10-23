@@ -4,7 +4,7 @@
 
 import type { SongSort } from '../types';
 
-export type NavId = 'home' | 'recent' | 'artists' | 'albums' | 'songs';
+export type NavId = 'home' | 'recent' | 'artists' | 'albums' | 'songs' | 'playlists';
 export type PlayerControl = 'shuffle' | 'repeat' | 'volume' | 'output' | 'miniPlayer' | 'queue';
 export type ColumnId =
   | 'title'
@@ -31,7 +31,16 @@ const FIRST_SHELVES: readonly ShelfId[] = ['recentlyPlayed', 'recentlyAdded', 'm
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal' | 'visualizer';
 /// The phone's tab bar.
 export type TabId =
-  'home' | 'library' | 'search' | 'albums' | 'artists' | 'songs' | 'recent' | 'sync' | 'settings';
+  | 'home'
+  | 'library'
+  | 'search'
+  | 'albums'
+  | 'artists'
+  | 'songs'
+  | 'playlists'
+  | 'recent'
+  | 'sync'
+  | 'settings';
 /// The phone's player above the tabs: a floating card, a full-width bar, or just the essentials.
 export type MiniPlayerStyle = 'floating' | 'bar' | 'minimal';
 
@@ -55,6 +64,8 @@ export interface Dock {
 export interface Layout {
   /// Sidebar library items in order; ones not listed are hidden.
   nav: NavId[];
+  /// Every sidebar item this layout has been offered (see knownShelves).
+  knownNav: NavId[];
   sidebarWidth: number;
   /// Icons only.
   sidebarCollapsed: boolean;
@@ -90,6 +101,7 @@ export const NAV_LABELS: Record<NavId, string> = {
   artists: 'Artists',
   albums: 'Albums',
   songs: 'Songs',
+  playlists: 'Playlists',
 };
 
 export const SHELF_LABELS: Record<ShelfId, string> = {
@@ -106,6 +118,7 @@ export const TAB_LABELS: Record<TabId, string> = {
   albums: 'Albums',
   artists: 'Artists',
   songs: 'Songs',
+  playlists: 'Playlists',
   recent: 'Recently Added',
   sync: 'Sync',
   settings: 'Settings',
@@ -148,7 +161,9 @@ export const COLUMN_SPECS: Record<
   time: { label: 'Time', sort: 'duration', width: 60 },
 };
 
-const ALL_NAV: NavId[] = ['home', 'recent', 'artists', 'albums', 'songs'];
+const ALL_NAV: NavId[] = ['home', 'recent', 'artists', 'albums', 'songs', 'playlists'];
+/// The sidebar items there were before Playlists; a saved layout from then lists only these.
+const FIRST_NAV: NavId[] = ['home', 'recent', 'artists', 'albums', 'songs'];
 const ALL_CONTROLS: PlayerControl[] = [
   'shuffle',
   'repeat',
@@ -161,6 +176,7 @@ const col = (id: ColumnId, width = COLUMN_SPECS[id].width): Column => ({ id, wid
 
 export const DEFAULT_LAYOUT: Layout = {
   nav: ALL_NAV,
+  knownNav: ALL_NAV,
   sidebarWidth: 236,
   sidebarCollapsed: false,
   playerPosition: 'bottom',
@@ -243,7 +259,10 @@ export function normaliseLayout(value: unknown): Layout {
         .map((c) => ({ id: c.id, width: Math.round(Math.min(600, Math.max(40, c.width))) }))
     : d.columns;
   return {
-    nav: list(v.nav, ALL_NAV, d.nav),
+    ...nav(
+      list(v.nav, ALL_NAV, d.nav),
+      list(v.knownNav, ALL_NAV, Array.isArray(v.nav) ? FIRST_NAV : []),
+    ),
     sidebarWidth:
       typeof v.sidebarWidth === 'number'
         ? Math.round(Math.min(400, Math.max(180, v.sidebarWidth)))
@@ -266,6 +285,12 @@ export function normaliseLayout(value: unknown): Layout {
     phoneTabs: phoneTabs(list(v.phoneTabs, ALL_TABS, d.phoneTabs)),
     miniPlayer: pick(v.miniPlayer, ['floating', 'bar', 'minimal'], d.miniPlayer),
   };
+}
+
+/// Sidebar items new since the layout was saved go at the end, once.
+function nav(saved: NavId[], known: NavId[]): { nav: NavId[]; knownNav: NavId[] } {
+  const added = ALL_NAV.filter((n) => !known.includes(n) && !saved.includes(n));
+  return { nav: [...saved, ...added], knownNav: [...ALL_NAV] };
 }
 
 /// Shelves new since the layout was saved go at the top, once; after that, hiding one sticks.

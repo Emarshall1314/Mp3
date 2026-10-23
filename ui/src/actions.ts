@@ -28,6 +28,7 @@ export function trackMenu(t: TrackRow): MenuItem[] {
       label: 'Go to Artist',
       run: () => nav()({ name: 'artist', artist: t.albumartist }),
     });
+  items.push(addToPlaylist(() => Promise.resolve([t.id]), `“${t.title}”`));
   items.push({ label: 'Get Info…', run: () => useStore.getState().openSongInfo([t.id]) });
   items.push({
     label: t.favourite ? 'Remove from Favourites' : 'Add to Favourites',
@@ -81,6 +82,7 @@ export function albumMenu(a: AlbumRow): MenuItem[] {
             .then(() => toast(`“${a.title}” added to the queue`)),
         ),
     },
+    addToPlaylist(() => albumTrackIds(a.id), `“${a.title}”`),
     { label: 'Go to Artist', run: () => nav()({ name: 'artist', artist: a.albumartist }) },
     {
       label: 'Get Info…',
@@ -88,6 +90,55 @@ export function albumMenu(a: AlbumRow): MenuItem[] {
         void attempt(albumTrackIds(a.id).then((ids) => useStore.getState().openSongInfo(ids))),
     },
   ];
+}
+
+/// Asks for a name and makes a playlist (with these songs, if any); opens it unless `stay`.
+export function newPlaylist(ids: number[] = [], suggested = '', stay = false) {
+  useStore.getState().askText(
+    'New Playlist',
+    suggested,
+    'Create',
+    (name) =>
+      void attempt(
+        api.createPlaylist(name, ids).then((p) => {
+          useStore.getState().playlistsChanged();
+          if (stay) toast(`Made “${p.name}”`);
+          else nav()({ name: 'playlist', id: p.id });
+        }),
+      ),
+  );
+}
+
+/// "Add to Playlist…": a second menu where the first was, listing playlists (most recently
+/// changed first) and New Playlist….
+export function addToPlaylist(ids: () => Promise<number[]>, what: string): MenuItem {
+  return {
+    label: 'Add to Playlist…',
+    run: () =>
+      void attempt(
+        api.playlists().then((lists) => {
+          const s = useStore.getState();
+          s.openMenu(s.menuAt.x, s.menuAt.y, [
+            {
+              label: 'New Playlist…',
+              run: () => void ids().then((i) => newPlaylist(i, '', true)),
+            },
+            ...lists.map((p) => ({
+              label: p.name,
+              run: () =>
+                void attempt(
+                  ids()
+                    .then((i) => api.addToPlaylist(p.id, i))
+                    .then(() => {
+                      useStore.getState().playlistsChanged();
+                      toast(`Added ${what} to “${p.name}”`);
+                    }),
+                ),
+            })),
+          ]);
+        }),
+      ),
+  };
 }
 
 /// Right-click and keyboard context-menu key both open the menu at the pointer / element.

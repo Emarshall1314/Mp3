@@ -613,3 +613,80 @@ fn rediscover_brings_back_old_favourites_and_unplayed_albums() {
     assert!(later.unplayed.iter().all(|a| !first.contains(&a.id)));
     assert!(later.album_of_the_day.is_some());
 }
+
+#[test]
+fn playlists_keep_order_through_adds_moves_and_removals() {
+    use cadenza_library::AlbumSort;
+
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let albums = s.lib.albums(AlbumSort::Artist, 0, 100).unwrap();
+    let songs: Vec<i64> = albums
+        .iter()
+        .flat_map(|a| s.lib.album(a.id).unwrap().tracks)
+        .map(|t| t.id)
+        .take(5)
+        .collect();
+    assert_eq!(songs.len(), 5);
+    let order = |id: i64| -> Vec<i64> {
+        s.lib
+            .playlist(id)
+            .unwrap()
+            .items
+            .iter()
+            .map(|i| i.track.id)
+            .collect()
+    };
+
+    let p = s.lib.create_playlist("  Road Trip ", &songs[..3]).unwrap();
+    assert_eq!(p.name, "Road Trip");
+    assert_eq!(p.track_count, 3);
+    assert_eq!(order(p.id), &songs[..3]);
+
+    // Adding appends, duplicates included.
+    s.lib.add_to_playlist(p.id, &[songs[3], songs[0]]).unwrap();
+    assert_eq!(
+        order(p.id),
+        [songs[0], songs[1], songs[2], songs[3], songs[0]]
+    );
+
+    // Move the last item to the front, and the first to the end.
+    let items = s.lib.playlist(p.id).unwrap().items;
+    s.lib
+        .move_in_playlist(p.id, items[4].item_id, Some(items[0].item_id))
+        .unwrap();
+    assert_eq!(
+        order(p.id),
+        [songs[0], songs[0], songs[1], songs[2], songs[3]]
+    );
+    let items = s.lib.playlist(p.id).unwrap().items;
+    s.lib
+        .move_in_playlist(p.id, items[2].item_id, None)
+        .unwrap();
+    assert_eq!(
+        order(p.id),
+        [songs[0], songs[0], songs[2], songs[3], songs[1]]
+    );
+
+    // Remove one of the duplicates (by item, not by song).
+    let items = s.lib.playlist(p.id).unwrap().items;
+    s.lib
+        .remove_from_playlist(p.id, &[items[0].item_id])
+        .unwrap();
+    assert_eq!(order(p.id), [songs[0], songs[2], songs[3], songs[1]]);
+
+    // Rename; an empty name falls back; the newest-changed playlist comes first.
+    let q = s.lib.create_playlist("", &[]).unwrap();
+    assert_eq!(q.name, "Untitled Playlist");
+    assert_eq!(q.track_count, 0);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    s.lib.rename_playlist(p.id, "Summer Road Trip").unwrap();
+    let all = s.lib.playlists().unwrap();
+    assert_eq!(all[0].name, "Summer Road Trip");
+    assert!(!all[0].art.is_empty());
+
+    s.lib.delete_playlist(q.id).unwrap();
+    assert_eq!(s.lib.playlists().unwrap().len(), 1);
+    assert!(s.lib.playlist(q.id).is_err());
+    assert!(s.lib.add_to_playlist(q.id, &songs).is_err());
+}

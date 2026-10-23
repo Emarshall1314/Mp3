@@ -26,6 +26,8 @@ import { SyncView } from './views/SyncView';
 import { TrashView } from './views/TrashView';
 import { LibraryView } from './views/LibraryView';
 import { MixView } from './views/Rediscover';
+import { PlaylistsView, PlaylistView } from './views/PlaylistsView';
+import { TextPrompt } from './components/TextPrompt';
 import { PhonePlayer } from './components/PhonePlayer';
 import { isTabTop, PhoneTabBar } from './components/PhoneTabBar';
 import { usePhone } from './hooks/usePhone';
@@ -142,6 +144,10 @@ function Page({ route }: { route: Route }) {
       return <LibraryView />;
     case 'mix':
       return <MixView id={route.id} />;
+    case 'playlists':
+      return <PlaylistsView />;
+    case 'playlist':
+      return <PlaylistView id={route.id} />;
   }
 }
 
@@ -232,6 +238,7 @@ function PhoneApp() {
       <SongInfo />
       <EditFailures />
       <Toast />
+      <TextPrompt />
     </div>
   );
 }
@@ -373,6 +380,7 @@ export function App() {
       <SongInfo />
       <EditFailures />
       <Toast />
+      <TextPrompt />
     </div>
   );
 }

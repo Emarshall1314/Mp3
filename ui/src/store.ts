@@ -25,7 +25,9 @@ export type Route =
   | { name: 'sync' }
   | { name: 'trash' }
   | { name: 'library' }
-  | { name: 'mix'; id: string };
+  | { name: 'mix'; id: string }
+  | { name: 'playlists' }
+  | { name: 'playlist'; id: number };
 
 export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 
@@ -87,6 +89,22 @@ interface Store {
 
   menu: { x: number; y: number; items: MenuItem[] } | null;
   openMenu: (x: number, y: number, items: MenuItem[]) => void;
+  /// Where the last menu opened, for a menu that follows from it (Add to Playlist…).
+  menuAt: { x: number; y: number };
+  /// A question needing a line of text (a playlist's name), shown as a small dialog.
+  prompt: {
+    title: string;
+    value: string;
+    confirm: string;
+    run: (value: string) => void;
+    /// Tells one question from the next.
+    serial: number;
+  } | null;
+  askText: (title: string, value: string, confirm: string, run: (value: string) => void) => void;
+  closePrompt: () => void;
+  /// Bumped when playlists change, so pages showing them reload.
+  playlistsVersion: number;
+  playlistsChanged: () => void;
   closeMenu: () => void;
 
   toast: { message: string; action?: MenuItem } | null;
@@ -173,7 +191,14 @@ export const useStore = create<Store>((set, get) => ({
   settingsChanged: () => set({ settingsVersion: get().settingsVersion + 1 }),
 
   menu: null,
-  openMenu: (x, y, items) => set({ menu: { x, y, items } }),
+  openMenu: (x, y, items) => set({ menu: { x, y, items }, menuAt: { x, y } }),
+  menuAt: { x: 0, y: 0 },
+  prompt: null,
+  askText: (title, value, confirm, run) =>
+    set((s) => ({ prompt: { title, value, confirm, run, serial: (s.prompt?.serial ?? 0) + 1 } })),
+  closePrompt: () => set({ prompt: null }),
+  playlistsVersion: 0,
+  playlistsChanged: () => set((s) => ({ playlistsVersion: s.playlistsVersion + 1 })),
   closeMenu: () => set({ menu: null }),
 
   toast: null,
