@@ -499,13 +499,14 @@ export function buildLook(
     if (palette.length) {
       const a = theme.scheme === 'dark' ? 0.42 : 0.3;
       const spots = ['15% 10%', '85% 20%', '30% 95%', '90% 90%'];
+      // The colours are registered properties (main.css), so a new song's colours fade in
+      // rather than the whole gradient swapping at once.
+      spots.forEach((_, i) => {
+        const c = palette[i];
+        vars[`--art-${i}`] = c ? `rgb(${c.join(' ')} / ${a})` : 'transparent';
+      });
       background = [
-        ...palette
-          .slice(0, 4)
-          .map(
-            (c, i) =>
-              `radial-gradient(at ${spots[i]}, rgb(${c.join(' ')} / ${a}), transparent 62%)`,
-          ),
+        ...spots.map((at, i) => `radial-gradient(at ${at}, var(--art-${i}), transparent 62%)`),
         hexOf(bg),
       ].join(', ');
     } else {

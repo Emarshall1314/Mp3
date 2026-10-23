@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { useStore } from '../store';
 
 /// The single context menu (right-click / long-press), positioned to stay on screen.
@@ -101,13 +102,16 @@ export function ContextMenu() {
       {menu.items.map((item) => (
         <button
           key={item.label}
-          role="menuitem"
+          role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={item.checked}
+          data-checked={item.checked || undefined}
           onClick={() => {
             close();
             item.run();
           }}
         >
           {item.label}
+          {item.checked && <Check size={16} aria-hidden className="menu-check" />}
         </button>
       ))}
     </div>

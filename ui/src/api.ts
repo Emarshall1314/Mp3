@@ -212,8 +212,18 @@ export function onAppearance(handler: (a: Appearance) => void): Promise<Unlisten
 
 /// Artwork thumbnail URL served by the shell's `cadenza` scheme. Webviews that cannot load
 /// custom schemes directly (Android, Windows) reach them as http://<scheme>.localhost.
+/// Thumbnail sizes, in device pixels. Requests snap up to one of these, so the core's cache
+/// holds a few sizes per album instead of one for every card width (each new size is made on
+/// first request, which shows as a stutter while scrolling).
+const ART_SIZES = [64, 128, 192, 256, 384, 512, 768, 1024];
+
+export function artSize(size: number, ratio = globalThis.devicePixelRatio || 1): number {
+  const px = Math.ceil(size * ratio);
+  return ART_SIZES.find((s) => s >= px) ?? Math.min(px, 2048);
+}
+
 export function artUrl(hash: string, size: number): string {
-  const px = Math.ceil(size * (globalThis.devicePixelRatio || 1));
+  const px = artSize(size);
   const base = /Android|Windows/.test(navigator.userAgent)
     ? 'http://cadenza.localhost'
     : 'cadenza://localhost';

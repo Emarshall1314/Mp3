@@ -22,3 +22,14 @@ describe('calls into the core', () => {
     expect(calls).toEqual(['ready', 'ready', 'ready', 'ready', 'settings', 'stats']);
   });
 });
+
+describe('artwork sizes', () => {
+  it('snap up to a few cached sizes', async () => {
+    const { artSize } = await import('./api');
+    expect(artSize(48, 1)).toBe(64);
+    expect(artSize(181, 2.625)).toBe(512);
+    expect(artSize(170, 2.625)).toBe(512);
+    expect(artSize(48, 2.625)).toBe(128);
+    expect(artSize(1024, 2.625)).toBe(2048);
+  });
+});

@@ -372,6 +372,28 @@ glass.
   - Tests: the lens field (neutral middle, direction at edges and corners, never folds).
   - Checked in the real app at phone size: capsule, lens, search button, player, shrinking on
     scroll, press glow. Not checked: tilt and dragging the lens with a finger (touch screen).
+- **Polish from the owner's first look at the phone build:**
+  - Lists of choices (sort, grouping, presets, fonts…) open the app's own glass menu with a tick
+    on the current choice, not Android's grey system picker. Every `<select>` is gone.
+  - Album grids fill the width with even margins (2 or 3 columns on a phone, from the size
+    slider; the desktop's columns grow to fit too); the artist page's grid likewise. Shelves
+    snap card by card.
+  - One rounded look on the phone: capsule controls, rounder cards, inputs and rows; switches
+    are capsules with liquid glass on the desktop too.
+  - Now Playing on a phone: the title and progress bar run the width of the screen; play/pause
+    in a large glass button (with its own lens on Android); lyrics and queue as glass buttons
+    under the controls, opening in a rounded glass card; the cover shrinks on short screens so
+    nothing is cut off.
+  - The artwork-tinted background and Now Playing's colours fade over 1.8 s when the song
+    changes (registered colour properties), and no longer flash grey while the new colours
+    load.
+  - Smoother scrolling: one refraction pass instead of three (the colour fringe is gone), a
+    plain fade rather than a blur under the status bar, and artwork requested in a few fixed
+    sizes so thumbnails are made once and reused rather than for every card width.
+  - The glass behind the player and tabs is frostier, so the page behind doesn't fight the
+    text on it.
+  - Tests: artwork sizes snap to the cached sizes; calls wait for the core to open.
+  - Checked in the real app at phone size. Smoothness needs the phone.
 - Demo script: `docs/demos/M7.md`.
 
 ### Next

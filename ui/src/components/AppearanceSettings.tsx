@@ -16,6 +16,7 @@ import {
 } from '../theme/look';
 import type { Appearance, Theme } from '../types';
 import { ThemeEditor } from './ThemeEditor';
+import { Select } from './Select';
 
 const MODES: { theme: Theme; label: string }[] = [
   { theme: 'auto', label: 'Auto' },
@@ -398,18 +399,19 @@ export function AppearanceSettings() {
           />
           <label htmlFor="look-font">Font</label>
           <div className="action-row">
-            <select
+            <Select<Look['font']>
               id="look-font"
               value={look.font}
-              onChange={(e) => setLook({ font: e.target.value as Look['font'] })}
-            >
-              <option value="inter">Theme font (Inter unless the theme sets one)</option>
-              <option value="system">System</option>
-              <option value="serif">Serif</option>
-              <option value="rounded">Rounded</option>
-              <option value="mono">Monospace</option>
-              <option value="custom">Other installed font…</option>
-            </select>
+              options={[
+                { value: 'inter', label: 'Theme font (Inter unless the theme sets one)' },
+                { value: 'system', label: 'System' },
+                { value: 'serif', label: 'Serif' },
+                { value: 'rounded', label: 'Rounded' },
+                { value: 'mono', label: 'Monospace' },
+                { value: 'custom', label: 'Other installed font…' },
+              ]}
+              onChange={(font) => setLook({ font })}
+            />
             {look.font === 'custom' && (
               <input
                 type="text"

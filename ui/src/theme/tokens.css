@@ -35,6 +35,9 @@
   --duration-fast: 120ms;
   --duration-normal: 240ms;
   --duration-slow: 420ms;
+  /* Colours following the artwork fade over this long when the song changes. A fade isn't
+   * movement, so Reduce Motion keeps it. */
+  --duration-colour: 1800ms;
   --ease-spring: linear(0, 0.38 9%, 0.81 20%, 1.02 31%, 1.06 39%, 1.02 52%, 0.99 66%, 1);
 
   /* Default Light */

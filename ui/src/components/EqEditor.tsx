@@ -5,6 +5,7 @@ import { api } from '../api';
 import { attempt } from '../store';
 import type { DspSettings, EqBand, FilterKind } from '../types';
 import { Range } from './Range';
+import { Select } from './Select';
 
 const GRAPHIC_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const GRAPHIC_Q = 1.41;
@@ -90,21 +91,16 @@ export function EqEditor({
           </button>
         </div>
         {!parametric && (
-          <select
-            aria-label="Preset"
+          <Select
+            label="Preset"
             value=""
-            onChange={(e) => {
-              const p = PRESETS.find((p) => p.name === e.target.value);
+            placeholder="Preset…"
+            options={PRESETS.map((p) => ({ value: p.name, label: p.name }))}
+            onChange={(name) => {
+              const p = PRESETS.find((p) => p.name === name);
               if (p) set({ eq: graphicBands(p.gains), eqEnabled: true });
             }}
-          >
-            <option value="" disabled>
-              Preset…
-            </option>
-            {PRESETS.map((p) => (
-              <option key={p.name}>{p.name}</option>
-            ))}
-          </select>
+          />
         )}
         <button className="pill" onClick={() => void importAutoeq()}>
           <FileUp size={14} aria-hidden /> Import AutoEq…
@@ -167,17 +163,12 @@ export function EqEditor({
             {bands.map((b, i) => (
               <tr key={i}>
                 <td>
-                  <select
-                    aria-label={`Band ${i + 1} type`}
+                  <Select<FilterKind>
+                    label={`Band ${i + 1} type`}
                     value={b.kind}
-                    onChange={(e) => setBand(i, { kind: e.target.value as FilterKind })}
-                  >
-                    {KINDS.map((k) => (
-                      <option key={k.kind} value={k.kind}>
-                        {k.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={KINDS.map((k) => ({ value: k.kind, label: k.label }))}
+                    onChange={(kind) => setBand(i, { kind })}
+                  />
                 </td>
                 <td>
                   <NumberInput

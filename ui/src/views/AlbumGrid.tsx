@@ -6,8 +6,8 @@ import { albumMenu, menuHandler } from '../actions';
 import { attempt, useStore } from '../store';
 import type { AlbumRow } from '../types';
 import { Artwork } from '../components/Artwork';
+import { usePhone } from '../hooks/usePhone';
 
-const GAP = 24;
 const PAGE = 120;
 
 /// A virtualised grid of albums. `load` fetches a page; `count` is the total.
@@ -41,9 +41,18 @@ export function AlbumGrid({
     return () => ro.disconnect();
   }, []);
 
-  const cols = Math.max(1, Math.floor((width - 2 * GAP + GAP) / (size + GAP)));
+  // As many columns of about `size` as fit, then the cards grow to
+  // fill the width so the grid has even margins rather than a ragged gap on the right.
+  const phone = usePhone();
+  const pad = phone ? 16 : 24;
+  const gap = phone ? 14 : 24;
+  const fit = Math.max(1, Math.floor((width - 2 * pad + gap) / (size + gap)));
+  // A phone is too narrow for the slider's sizes: its small end means three columns.
+  const cols = phone ? (size < 160 ? 3 : 2) : fit;
+  const card = Math.max(60, Math.floor((width - 2 * pad - (cols - 1) * gap) / cols));
   const rows = Math.ceil(count / cols);
-  const rowHeight = size + 56;
+  // Artwork, then the title and artist lines, then the space before the next row.
+  const rowHeight = card + (phone ? 70 : 64);
   const v = useVirtualizer({
     count: rows,
     getScrollElement: () => scroller.current,
@@ -111,9 +120,9 @@ export function AlbumGrid({
             className="album-grid-row"
             style={{
               transform: `translateY(${row.start}px)`,
-              gap: GAP,
-              padding: `0 ${GAP}px`,
-              gridTemplateColumns: `repeat(${cols}, ${size}px)`,
+              gap,
+              padding: `0 ${pad}px`,
+              gridTemplateColumns: `repeat(${cols}, ${card}px)`,
             }}
           >
             {Array.from({ length: cols }, (_, c) => row.index * cols + c)
@@ -121,9 +130,9 @@ export function AlbumGrid({
               .map((i) => {
                 const a = album(i);
                 return a ? (
-                  <AlbumCard key={a.id} album={a} size={size} index={i} />
+                  <AlbumCard key={a.id} album={a} size={card} index={i} />
                 ) : (
-                  <div key={`p${i}`} className="album-card placeholder" style={{ width: size }} />
+                  <div key={`p${i}`} className="album-card placeholder" style={{ width: card }} />
                 );
               })}
           </div>

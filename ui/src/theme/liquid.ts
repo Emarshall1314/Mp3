@@ -110,9 +110,10 @@ export function lensField(w: number, h: number, r: number, bezel: number): Uint8
 const lenses = new Map<string, string>();
 
 /// The id of an SVG filter that refracts like a glass lens of this size and corner radius,
-/// added to the page the first time it is asked for. Red, green and blue bend by slightly
-/// different amounts, which fringes bright edges with colour as real glass does. Chromium only
-/// (see the top of this file); elsewhere it returns null.
+/// added to the page the first time it is asked for. One displacement pass: bending red, green
+/// and blue separately (a colour fringe) took three, and the dock's glass is redrawn on every
+/// frame of a scroll, so it cost smoothness on the phone. Chromium only (see the top of this
+/// file); elsewhere it returns null.
 export function lensFilter(w: number, h: number, r: number): string | null {
   if (!refracts) return null;
   w = Math.round(w);
@@ -134,15 +135,6 @@ export function lensFilter(w: number, h: number, r: number): string | null {
   const id = `cadenza-lens-${key}`;
   // feDisplacementMap moves by `scale` × (value − ½), so a full value moves LENS_REACH × bezel.
   const scale = 2 * LENS_REACH * bezel;
-  // One colour of the displaced backdrop: keep channel `n` (and alpha), drop the others.
-  const channel = (n: number, k: number, name: string) => {
-    const values = [0, 1, 2]
-      .map((c) => [0, 1, 2, 3, 4].map((j) => (c === n && j === n ? 1 : 0)).join(' '))
-      .concat('0 0 0 1 0')
-      .join('  ');
-    return `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * k).toFixed(1)}" xChannelSelector="R" yChannelSelector="G" result="d${name}"/>
-<feColorMatrix in="d${name}" type="matrix" values="${values}" result="${name}"/>`;
-  };
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('width', '0');
@@ -150,11 +142,7 @@ export function lensFilter(w: number, h: number, r: number): string | null {
   svg.style.position = 'absolute';
   svg.innerHTML = `<filter id="${id}" x="0" y="0" width="${w}" height="${h}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 <feImage href="${canvas.toDataURL()}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="map"/>
-${channel(0, 1, 'r')}
-${channel(1, 0.94, 'g')}
-${channel(2, 0.88, 'b')}
-<feBlend in="r" in2="g" mode="screen" result="rg"/>
-<feBlend in="rg" in2="b" mode="screen"/>
+<feDisplacementMap in="SourceGraphic" in2="map" scale="${scale.toFixed(1)}" xChannelSelector="R" yChannelSelector="G"/>
 </filter>`;
   document.body.appendChild(svg);
   lenses.set(key, id);

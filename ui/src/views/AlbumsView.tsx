@@ -8,6 +8,7 @@ import { AlbumList } from './AlbumList';
 import { ColumnBrowser } from './ColumnBrowser';
 import { ViewToggle } from '../components/ViewToggle';
 import { updateLayout, useLook } from '../hooks/useAppearance';
+import { Select } from '../components/Select';
 
 function stored<T extends string>(key: string, fallback: T): T {
   try {
@@ -54,18 +55,20 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
           {!recent && view !== 'columns' && (
             <label>
               Sort by{' '}
-              <select
+              <Select<AlbumSort>
+                label="Sort by"
                 value={sort}
-                onChange={(e) => {
-                  setSort(e.target.value as AlbumSort);
-                  remember('albums.sort', e.target.value);
+                options={[
+                  { value: 'artist', label: 'Artist' },
+                  { value: 'title', label: 'Title' },
+                  { value: 'year', label: 'Year' },
+                  { value: 'added', label: 'Date Added' },
+                ]}
+                onChange={(v) => {
+                  setSort(v);
+                  remember('albums.sort', v);
                 }}
-              >
-                <option value="artist">Artist</option>
-                <option value="title">Title</option>
-                <option value="year">Year</option>
-                <option value="added">Date Added</option>
-              </select>
+              />
             </label>
           )}
           <ViewToggle

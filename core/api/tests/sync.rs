@@ -592,13 +592,27 @@ fn another_device_carries_on_where_this_one_stopped() {
 
     b.app.continue_from(&offers[0].device_id).unwrap();
     b.app.pause();
-    wait("carrying on", || {
-        b.app
-            .player()
-            .track_id
-            .is_some_and(|id| b.app.tracks(&[id]).unwrap()[0].title == playing_title)
-    });
-    let state = b.app.player();
-    assert_eq!(state.queue_length, ids.len());
-    assert_eq!(state.index, at);
+    // The test output plays faster than real time, so under load B may already have moved past
+    // the song before the pause lands. What must hold: the same queue, in the same order, with
+    // the laptop's song at the place it stopped, and B starting there (not before).
+    wait("carrying on", || b.app.player().queue_length == ids.len());
+    let queue: Vec<String> = b
+        .app
+        .queue_window(0, ids.len())
+        .unwrap()
+        .into_iter()
+        .map(|t| t.title)
+        .collect();
+    let expected: Vec<String> = a
+        .app
+        .queue_window(0, ids.len())
+        .unwrap()
+        .into_iter()
+        .map(|t| t.title)
+        .collect();
+    assert_eq!(queue, expected);
+    let at = at.expect("the laptop stopped in its queue");
+    assert_eq!(queue[at], playing_title);
+    // Still at that song or past it (or finished the queue), never before it.
+    assert!(b.app.player().index.is_none_or(|i| i >= at));
 }

@@ -14,6 +14,7 @@ import {
   splitValues,
   tagsFromFilename,
 } from '../tagActions';
+import { Select } from './Select';
 
 const EXCEPTIONS_KEY = 'cadenza.caseExceptions';
 
@@ -82,13 +83,12 @@ export function TagActionsPanel({
     label: string,
     options = fieldOptions,
   ) => (
-    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o.field} value={o.field}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <Select
+      label={label}
+      value={value}
+      options={options.map((o) => ({ value: o.field, label: o.label }))}
+      onChange={onChange}
+    />
   );
 
   return (
@@ -153,16 +153,17 @@ export function TagActionsPanel({
         <h3>Change Case</h3>
         <div className="action-row">
           {select(cs.field, (field) => setCs({ ...cs, field }), 'Change case of', textOnly)}
-          <select
-            aria-label="Case"
+          <Select<CaseStyle>
+            label="Case"
             value={cs.style}
-            onChange={(e) => setCs({ ...cs, style: e.target.value as CaseStyle })}
-          >
-            <option value="title">Title Case</option>
-            <option value="sentence">Sentence case</option>
-            <option value="upper">UPPER CASE</option>
-            <option value="lower">lower case</option>
-          </select>
+            options={[
+              { value: 'title', label: 'Title Case' },
+              { value: 'sentence', label: 'Sentence case' },
+              { value: 'upper', label: 'UPPER CASE' },
+              { value: 'lower', label: 'lower case' },
+            ]}
+            onChange={(style) => setCs({ ...cs, style })}
+          />
           <button
             className="pill"
             onClick={() => {

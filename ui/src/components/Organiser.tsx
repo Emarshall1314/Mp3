@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api';
 import { attempt } from '../store';
 import type { RenamePlan } from '../types';
+import { Select } from './Select';
 
 const PATTERN_KEY = 'cadenza.organisePattern';
 
@@ -55,23 +56,16 @@ export function Organiser({ ids, onDone }: { ids: number[]; onDone: () => void }
     <div className="organiser">
       <h3>Rename Files from Tags</h3>
       <div className="action-row">
-        <select
-          aria-label="Preset"
+        <Select
+          label="Preset"
           value=""
-          onChange={(e) => {
-            setPattern(e.target.value);
+          placeholder="Presets…"
+          options={PRESETS.map((p) => ({ value: p.pattern, label: p.label }))}
+          onChange={(pattern) => {
+            setPattern(pattern);
             setPlan(null);
           }}
-        >
-          <option value="" disabled>
-            Presets…
-          </option>
-          {PRESETS.map((p) => (
-            <option key={p.pattern} value={p.pattern}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        />
         <input
           type="text"
           aria-label="Name pattern"

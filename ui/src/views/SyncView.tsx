@@ -5,6 +5,7 @@ import { attempt, useStore } from '../store';
 import type { Remote, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
 import { pickFolder } from './EmptyLibrary';
 import { duration } from '../format';
+import { Select } from '../components/Select';
 
 const FIELD_NAMES: Record<string, string> = {
   favourite: 'Favourite',
@@ -227,13 +228,15 @@ function ServerForm({
     >
       <label className="field-row">
         <span>Kind</span>
-        <select
+        <Select
+          label="Kind"
           value={remote.kind}
-          onChange={(e) => setRemote(e.target.value === 's3' ? EMPTY_S3 : EMPTY_WEBDAV)}
-        >
-          <option value="webDav">WebDAV (Nextcloud, ownCloud, a NAS…)</option>
-          <option value="s3">S3-compatible (Backblaze B2, AWS, MinIO…)</option>
-        </select>
+          options={[
+            { value: 'webDav', label: 'WebDAV (Nextcloud, ownCloud, a NAS…)' },
+            { value: 's3', label: 'S3-compatible (Backblaze B2, AWS, MinIO…)' },
+          ]}
+          onChange={(kind) => setRemote(kind === 's3' ? EMPTY_S3 : EMPTY_WEBDAV)}
+        />
       </label>
       {remote.kind === 'webDav' ? (
         <>

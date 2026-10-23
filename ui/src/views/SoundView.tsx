@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { EqEditor } from '../components/EqEditor';
 import { Range } from '../components/Range';
+import { Select } from '../components/Select';
 
 const DEFAULT_DSP: DspSettings = {
   preampDb: 0,
@@ -231,17 +232,12 @@ export function SoundView() {
           For headphones: blends a little of each channel into the other, as speakers would, so
           hard-panned recordings tire the ears less. Stereo outputs only.
         </p>
-        <select
-          aria-label="Crossfeed strength"
+        <Select<CrossfeedLevel>
+          label="Crossfeed strength"
           value={dsp.crossfeed}
-          onChange={(e) => setDsp({ crossfeed: e.target.value as CrossfeedLevel })}
-        >
-          {CROSSFEED.map((c) => (
-            <option key={c.level} value={c.level}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+          options={CROSSFEED.map((c) => ({ value: c.level, label: c.label }))}
+          onChange={(crossfeed) => setDsp({ crossfeed })}
+        />
       </div>
 
       <div className="settings-group">

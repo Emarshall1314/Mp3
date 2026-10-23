@@ -16,6 +16,7 @@ import { Artwork } from './Artwork';
 import { LyricsView } from './LyricsView';
 import { useModal } from '../hooks/useModal';
 import { useLook } from '../hooks/useAppearance';
+import { useLens, useLiquid } from '../hooks/useGlass';
 import { Visualizer } from './Visualizer';
 import { Scrubber } from './PlayerBar';
 import { QueuePanel } from './QueuePanel';
@@ -62,15 +63,43 @@ export function NowPlaying() {
 
   const dialog = useRef<HTMLDivElement>(null);
   const phone = usePhone();
+  const liquid = useLiquid();
+  const glass = liquid ? ' glass-button glass-lit' : '';
+  const playButton = useRef<HTMLButtonElement>(null);
+  useLens(playButton, liquid && open);
   // Where a swipe down from the top began.
   const grab = useRef<number | null>(null);
   const close = useCallback(() => setOpen(false), [setOpen]);
   useModal(open, dialog, close);
 
   if (!open) return null;
-  const found = palette && palette.hash === hash ? palette.colors : [];
+  // The last song's colours stay until the new song's arrive, then fade across (no flash of
+  // the fallback colours in between).
+  const found = palette?.colors ?? [];
   const colors = FALLBACK.map((f, i) => found[i] ?? found[0] ?? f);
   const playing = player?.status === 'playing';
+  const toggles = (
+    <div className="np-panel-toggles">
+      <button
+        className={`icon-button${glass} ${panel === 'lyrics' ? 'active' : ''}`}
+        aria-pressed={panel === 'lyrics'}
+        aria-label="Lyrics"
+        title="Lyrics"
+        onClick={() => setPanel(panel === 'lyrics' ? null : 'lyrics')}
+      >
+        <MessageSquareQuote size={18} />
+      </button>
+      <button
+        className={`icon-button${glass} ${panel === 'queue' ? 'active' : ''}`}
+        aria-pressed={panel === 'queue'}
+        aria-label="Queue"
+        title="Queue"
+        onClick={() => setPanel(panel === 'queue' ? null : 'queue')}
+      >
+        <ListMusic size={18} />
+      </button>
+    </div>
+  );
 
   return (
     <div
@@ -83,7 +112,11 @@ export function NowPlaying() {
     >
       <div className="np-bg" aria-hidden>
         {colors.map((c, i) => (
-          <span key={i} className={`np-blob b${i}`} style={{ background: `rgb(${c.join(' ')})` }} />
+          <span
+            key={i}
+            className={`np-blob b${i}`}
+            style={{ backgroundColor: `rgb(${c.join(' ')})` }}
+          />
         ))}
       </div>
       {phone && (
@@ -109,35 +142,14 @@ export function NowPlaying() {
       )}
       <header className="np-top">
         <button
-          className="icon-button"
+          className={`icon-button${glass}`}
           aria-label="Close Now Playing"
           title="Close (Esc)"
           onClick={() => setOpen(false)}
         >
           <ChevronDown size={22} />
         </button>
-        {style !== 'minimal' && (
-          <div className="np-panel-toggles">
-            <button
-              className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`}
-              aria-pressed={panel === 'lyrics'}
-              aria-label="Lyrics"
-              title="Lyrics"
-              onClick={() => setPanel(panel === 'lyrics' ? null : 'lyrics')}
-            >
-              <MessageSquareQuote size={18} />
-            </button>
-            <button
-              className={`icon-button ${panel === 'queue' ? 'active' : ''}`}
-              aria-pressed={panel === 'queue'}
-              aria-label="Queue"
-              title="Queue"
-              onClick={() => setPanel(panel === 'queue' ? null : 'queue')}
-            >
-              <ListMusic size={18} />
-            </button>
-          </div>
-        )}
+        {style !== 'minimal' && !phone && toggles}
       </header>
 
       <div className={`np-body ${panel && style !== 'minimal' ? 'with-panel' : ''}`}>
@@ -161,7 +173,8 @@ export function NowPlaying() {
               <SkipBack size={28} fill="currentColor" />
             </button>
             <button
-              className="icon-button np-play"
+              ref={playButton}
+              className={`icon-button np-play${liquid ? ' glass-lit' : ''}`}
               aria-label={playing ? 'Pause' : 'Play'}
               disabled={!track}
               onClick={() => void attempt(api.toggle())}
@@ -181,6 +194,7 @@ export function NowPlaying() {
               <SkipForward size={28} fill="currentColor" />
             </button>
           </div>
+          {style !== 'minimal' && phone && toggles}
         </div>
         {panel && style !== 'minimal' && (
           <div className="np-panel">

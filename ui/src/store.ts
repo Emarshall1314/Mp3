@@ -31,6 +31,8 @@ export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 export interface MenuItem {
   label: string;
   run: () => void;
+  /// A choice in a list (Select): ticked when it's the current one.
+  checked?: boolean;
 }
 
 interface Store {

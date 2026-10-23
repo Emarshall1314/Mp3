@@ -19,6 +19,7 @@ import {
 import { DENSITY } from '../theme/look';
 import { QualityBadge } from '../components/QualityBadge';
 import { usePhone } from '../hooks/usePhone';
+import { Select } from '../components/Select';
 
 const PAGE = 200;
 
@@ -251,15 +252,17 @@ export function SongsView() {
           <span className="muted">{count?.toLocaleString()} songs</span>
           <label>
             Group by{' '}
-            <select
+            <Select<Grouping>
+              label="Group by"
               value={grouping}
-              onChange={(e) => updateLayout({ grouping: e.target.value as Grouping })}
-            >
-              <option value="none">Nothing</option>
-              <option value="album">Album</option>
-              <option value="artist">Artist</option>
-              <option value="genre">Genre</option>
-            </select>
+              options={[
+                { value: 'none', label: 'Nothing' },
+                { value: 'album', label: 'Album' },
+                { value: 'artist', label: 'Artist' },
+                { value: 'genre', label: 'Genre' },
+              ]}
+              onChange={(grouping) => updateLayout({ grouping })}
+            />
           </label>
           <button
             className="pill"

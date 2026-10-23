@@ -3,6 +3,7 @@ import { ImagePlus, X } from 'lucide-react';
 import { api, artUrl } from '../api';
 import { attempt, useStore } from '../store';
 import type { PictureEdit, PictureRef, TrackTags } from '../types';
+import { Select } from './Select';
 
 export const PICTURE_TYPES: [number, string][] = [
   [3, 'Front Cover'],
@@ -139,17 +140,12 @@ export function ArtworkEditor({
             <li key={`${p.hash}-${i}`}>
               <img src={artUrl(p.hash, 128)} alt={typeName(p.pictureType)} width={96} height={96} />
               <div className="picture-fields">
-                <select
-                  aria-label="Picture type"
-                  value={p.pictureType}
-                  onChange={(e) => update(i, { pictureType: Number(e.target.value) })}
-                >
-                  {PICTURE_TYPES.map(([n, label]) => (
-                    <option key={n} value={n}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  label="Picture type"
+                  value={String(p.pictureType)}
+                  options={PICTURE_TYPES.map(([n, label]) => ({ value: String(n), label }))}
+                  onChange={(n) => update(i, { pictureType: Number(n) })}
+                />
                 <input
                   type="text"
                   aria-label="Description"
