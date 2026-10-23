@@ -31,6 +31,7 @@ pub use cadenza_library::{
     EditChange, Home, LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch,
     ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
+pub use cadenza_sync::Remote;
 pub use edit::{
     EditFailure, EditReport, EditStatus, LegacyFix, PictureEdit, PictureInfo, PictureRef,
     RenamePlan, TrackEdit, TrackTags,
@@ -866,12 +867,19 @@ impl Cadenza {
 
     /// Changes sync's settings. `passphrase` encrypts a new sync folder, or unlocks an encrypted
     /// one.
+    /// `password`: a server's password or secret key, kept apart from the settings.
     pub fn set_sync_settings(
         &self,
         settings: SyncSettings,
         passphrase: Option<&str>,
+        password: Option<&str>,
     ) -> Result<SyncStatus> {
-        self.syncer.set_settings(settings, passphrase)
+        self.syncer.set_settings(settings, passphrase, password)
+    }
+
+    /// What a server holds before it's chosen for sync; fails if it can't be reached.
+    pub fn sync_remote_info(&self, remote: &Remote, password: &str) -> Result<SyncFolderInfo> {
+        self.syncer.remote_info(remote, password)
     }
 
     /// What a folder holds before it's chosen for sync.

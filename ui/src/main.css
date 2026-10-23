@@ -3197,3 +3197,9 @@ kbd {
 .sync-folder .quality-badge {
   margin-left: var(--space-2);
 }
+
+.folder-setup .field-row input,
+.folder-setup .field-row select {
+  flex: 1 1 360px;
+  max-width: 520px;
+}

@@ -203,9 +203,24 @@ export type ApiEvent =
   | { kind: 'editFinished'; report: EditReport }
   | { kind: 'sync'; status: SyncStatus };
 
+/** A server to sync through; its password is kept by the core, never sent back. */
+export type Remote =
+  | { kind: 'webDav'; url: string; username: string }
+  | {
+      kind: 's3';
+      endpoint: string;
+      bucket: string;
+      region: string;
+      accessKeyId: string;
+      root: string;
+    };
+
 export interface SyncSettings {
-  /** The shared folder; sync is off without one. */
+  /** The shared folder. Sync is off without a folder or a server. */
   folder: string | null;
+  remote: Remote | null;
+  /** Caps song transfers to and from a server, KB/s. */
+  bandwidthKbps: number | null;
   deviceName: string;
   /** Copy this device's songs into the folder for devices that don't have them. */
   shareAudio: boolean;
@@ -244,6 +259,8 @@ export interface SyncStatus {
   problems: string[];
   /** The folder's contents are encrypted with a passphrase. */
   encrypted: boolean;
+  /** Encrypted, and this device needs the passphrase. */
+  locked: boolean;
 }
 
 export interface SyncFolderInfo {

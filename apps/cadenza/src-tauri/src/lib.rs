@@ -10,7 +10,7 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, RenamePlan, Repeat,
+    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Remote, RenamePlan, Repeat,
     ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
     SongSort, StoredArt, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit,
     TrackRow, TrackTags, TrashItem,
@@ -356,9 +356,15 @@ fn set_sync_settings(
     app: App<'_>,
     settings: SyncSettings,
     passphrase: Option<String>,
+    password: Option<String>,
 ) -> Res<SyncStatus> {
-    app.set_sync_settings(settings, passphrase.as_deref())
+    app.set_sync_settings(settings, passphrase.as_deref(), password.as_deref())
         .map_err(e)
+}
+
+#[tauri::command(async)]
+fn sync_remote_info(app: App<'_>, remote: Remote, password: String) -> Res<SyncFolderInfo> {
+    app.sync_remote_info(&remote, &password).map_err(e)
 }
 
 #[tauri::command(async)]
@@ -769,6 +775,7 @@ pub fn run() {
             sync_status,
             set_sync_settings,
             sync_folder_info,
+            sync_remote_info,
             sync_now,
             sync_conflicts,
             resolve_conflict,

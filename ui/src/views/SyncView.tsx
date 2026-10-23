@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FolderSync, Pause, Play, RefreshCw } from 'lucide-react';
+import { FolderSync, Pause, Play, RefreshCw, Server } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
-import type { SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
+import type { Remote, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
 import { pickFolder } from './EmptyLibrary';
 
 const FIELD_NAMES: Record<string, string> = {
@@ -35,29 +35,49 @@ async function save(
   status: SyncStatus,
   patch: Partial<SyncSettings>,
   passphrase: string | null = null,
+  password: string | null = null,
 ): Promise<boolean> {
-  const next = await attempt(api.setSyncSettings({ ...status.settings, ...patch }, passphrase));
+  const next = await attempt(
+    api.setSyncSettings({ ...status.settings, ...patch }, passphrase, password),
+  );
   if (next) useStore.getState().setSync(next);
   return !!next;
 }
 
-/// A folder about to be used: what it holds decides what's asked. A new folder can be encrypted
-/// (passphrase typed twice); an encrypted one needs its passphrase; an unencrypted one just joins.
-/// Also unlocks the current folder when this device has lost its key.
-function FolderSetup({
+/// How a server shows in the page.
+export function describeRemote(r: Remote): string {
+  if (r.kind === 'webDav') return `${r.username ? `${r.username} at ` : ''}${r.url}`;
+  const where = r.endpoint || 'AWS S3';
+  return `${r.bucket}${r.root ? `/${r.root}` : ''} on ${where}`;
+}
+
+/// A place to sync through, chosen but not yet in use.
+interface Setup {
+  /** "folder" or "server", for the wording. */
+  kind: 'folder' | 'server';
+  label: string;
+  patch: Partial<SyncSettings>;
+  password: string | null;
+  info: SyncFolderInfo;
+}
+
+/// A folder or server about to be used: what it holds decides what's asked. A new one can be
+/// encrypted (passphrase typed twice); an encrypted one needs its passphrase; an unencrypted one
+/// just joins. Also unlocks the current one when this device has lost its key.
+function PlaceSetup({
   status,
-  folder,
-  info,
+  setup,
   onDone,
   locked = false,
 }: {
   status: SyncStatus;
-  folder: string;
-  info: SyncFolderInfo;
+  setup: Setup;
   onDone: () => void;
-  /** The current folder, whose key this device doesn't have. */
+  /** The place in use, whose key this device doesn't have. */
   locked?: boolean;
 }) {
+  const { kind, label, patch, password, info } = setup;
+  const place = kind === 'folder' ? 'folder' : 'server folder';
   const [encrypt, setEncrypt] = useState(false);
   const [pass, setPass] = useState('');
   const [again, setAgain] = useState('');
@@ -68,7 +88,7 @@ function FolderSetup({
   const ready = !needsPass || (pass.length >= 8 && (!isNew || pass === again));
   const go = async () => {
     setBusy(true);
-    const ok = await save(status, { folder, paused: false }, needsPass ? pass : null);
+    const ok = await save(status, { ...patch, paused: false }, needsPass ? pass : null, password);
     setBusy(false);
     if (ok) onDone();
   };
@@ -80,20 +100,20 @@ function FolderSetup({
         if (ready && !busy) void go();
       }}
     >
-      {!locked && <p className="path">{folder}</p>}
+      {!locked && <p className="path">{label}</p>}
       <p>
         {locked
-          ? 'The sync folder is encrypted and this device doesn’t have its key. Enter the passphrase to carry on syncing.'
+          ? 'The sync library is encrypted and this device doesn’t have its key. Enter the passphrase to carry on syncing.'
           : isNew
-            ? 'This folder has no Cadenza library yet: this device will start one.'
+            ? `This ${place} has no Cadenza library yet: this device will start one.`
             : info.encrypted
-              ? `This folder holds an encrypted Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}. Enter its passphrase.`
-              : `This folder holds a Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}.`}
+              ? `This ${place} holds an encrypted Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}. Enter its passphrase.`
+              : `This ${place} holds a Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}.`}
       </p>
       {isNew && (
         <label className="check-row">
           <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
-          Encrypt it with a passphrase, so whoever holds the folder can’t read it
+          Encrypt it with a passphrase, so whoever holds the {place} can’t read it
         </label>
       )}
       {needsPass && (
@@ -141,6 +161,150 @@ function FolderSetup({
   );
 }
 
+const EMPTY_WEBDAV: Remote = { kind: 'webDav', url: '', username: '' };
+const EMPTY_S3: Remote = {
+  kind: 's3',
+  endpoint: '',
+  bucket: '',
+  region: '',
+  accessKeyId: '',
+  root: 'Cadenza',
+};
+
+/// A server to sync through: WebDAV (Nextcloud and the like) or S3-compatible storage. Checking
+/// it connects and looks at what's there; then the usual setup (encryption) follows.
+function ServerForm({
+  initial,
+  onChecked,
+  onCancel,
+}: {
+  initial: Remote | null;
+  onChecked: (setup: Setup) => void;
+  onCancel: () => void;
+}) {
+  const [remote, setRemote] = useState<Remote>(initial ?? EMPTY_WEBDAV);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (patch: Partial<Record<string, string>>) =>
+    setRemote((r) => ({ ...r, ...patch }) as Remote);
+  const ready =
+    password !== '' &&
+    (remote.kind === 'webDav'
+      ? /^https?:\/\/./.test(remote.url)
+      : remote.bucket !== '' && remote.accessKeyId !== '');
+  const field = (label: string, key: string, value: string, hint?: string) => (
+    <label className="field-row" key={key}>
+      <span>{label}</span>
+      <input
+        value={value}
+        placeholder={hint}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => set({ [key]: e.target.value })}
+      />
+    </label>
+  );
+  return (
+    <form
+      className="folder-setup"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!ready || busy) return;
+        setBusy(true);
+        void attempt(api.syncRemoteInfo(remote, password)).then((info) => {
+          setBusy(false);
+          if (info)
+            onChecked({
+              kind: 'server',
+              label: describeRemote(remote),
+              patch: { remote, folder: null },
+              password,
+              info,
+            });
+        });
+      }}
+    >
+      <label className="field-row">
+        <span>Kind</span>
+        <select
+          value={remote.kind}
+          onChange={(e) => setRemote(e.target.value === 's3' ? EMPTY_S3 : EMPTY_WEBDAV)}
+        >
+          <option value="webDav">WebDAV (Nextcloud, ownCloud, a NAS…)</option>
+          <option value="s3">S3-compatible (Backblaze B2, AWS, MinIO…)</option>
+        </select>
+      </label>
+      {remote.kind === 'webDav' ? (
+        <>
+          {field(
+            'Address',
+            'url',
+            remote.url,
+            'https://cloud.example.com/remote.php/dav/files/me/Cadenza',
+          )}
+          {field('User name', 'username', remote.username)}
+        </>
+      ) : (
+        <>
+          {field('Endpoint', 'endpoint', remote.endpoint, 'empty for AWS')}
+          {field('Bucket', 'bucket', remote.bucket)}
+          {field('Region', 'region', remote.region, 'us-east-1')}
+          {field('Folder in bucket', 'root', remote.root)}
+          {field('Access key', 'accessKeyId', remote.accessKeyId)}
+        </>
+      )}
+      <label className="field-row">
+        <span>{remote.kind === 'webDav' ? 'Password' : 'Secret key'}</span>
+        <input
+          type="password"
+          autoComplete="off"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </label>
+      <p className="muted small">
+        {remote.kind === 'webDav'
+          ? 'For Nextcloud, use an app password (Settings → Security). The address is your WebDAV address with a folder for Cadenza at the end.'
+          : 'Use a key that can only reach this bucket.'}{' '}
+        The password stays on this device, in Cadenza’s data folder.
+      </p>
+      <div className="row-actions">
+        <button className="pill primary" type="submit" disabled={!ready || busy}>
+          {busy ? 'Connecting…' : 'Connect'}
+        </button>
+        <button className="pill" type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/// A cap on song transfers to and from a server; empty for none.
+function Bandwidth({ status }: { status: SyncStatus }) {
+  const saved = status.settings.bandwidthKbps;
+  const [value, setValue] = useState(saved ? String(saved) : '');
+  const commit = () => {
+    const n = Math.round(Number(value));
+    const next = value.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
+    if (next !== saved) void save(status, { bandwidthKbps: next });
+  };
+  return (
+    <label className="field-row">
+      <span>Limit song transfers to</span>
+      <input
+        inputMode="numeric"
+        value={value}
+        placeholder="no limit"
+        onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ''))}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      />
+      <span>KB/s</span>
+    </label>
+  );
+}
+
 /// This device's name as others see it; saved when the field is left.
 function DeviceName({ status }: { status: SyncStatus }) {
   const saved = status.settings.deviceName;
@@ -164,22 +328,9 @@ function DeviceName({ status }: { status: SyncStatus }) {
 export function SyncView() {
   const status = useStore((s) => s.sync);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
-  // A folder being set up (chosen, or the current one locked), and what it holds.
-  const [setup, setSetup] = useState<{ folder: string; info: SyncFolderInfo } | null>(null);
-  const [locked, setLocked] = useState(false);
-  const folderNow = status?.settings.folder ?? null;
-  const encryptedHere = status?.encrypted ?? false;
-  useEffect(() => {
-    if (!folderNow || encryptedHere) return;
-    let live = true;
-    void api.syncFolderInfo(folderNow).then(
-      (info) => live && setLocked(info.encrypted),
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, [folderNow, encryptedHere]);
+  // A place being set up (chosen, not yet in use) and what it holds; the server form.
+  const [setup, setSetup] = useState<Setup | null>(null);
+  const [serverForm, setServerForm] = useState(false);
   const deviceName = status?.settings.deviceName ?? '';
   const conflictCount = status?.conflicts ?? 0;
   const lastSync = status?.lastSyncMs ?? null;
@@ -189,7 +340,11 @@ export function SyncView() {
   }, [conflictCount, lastSync]);
 
   if (!status) return null;
-  const on = status.settings.folder !== null;
+  const on = status.settings.folder !== null || status.settings.remote !== null;
+  const remote = status.settings.remote;
+  const where = remote
+    ? describeRemote(remote)
+    : (status.settings.folder ?? 'Nowhere yet: sync is off');
   const t = status.transfer;
 
   return (
@@ -224,15 +379,16 @@ export function SyncView() {
       </header>
       <p className="muted">
         Keeps tag edits, artwork, favourites, play counts and the Trash the same on all your
-        devices, through a folder they share: one kept in step by Syncthing, Nextcloud or similar,
-        or on a drive you move between them. Point Cadenza on each device at the same folder.
-        There’s no server and no account; nothing leaves your devices except through that folder.
+        devices, through a place they all reach: a folder they share (kept in step by Syncthing or
+        similar, or on a drive you move between them) or a server of yours (WebDAV such as
+        Nextcloud, or S3-compatible storage). Point Cadenza on each device at the same place.
+        There’s no Cadenza account; nothing leaves your devices except to that place.
       </p>
 
-      <h2 className="section-title">Sync Folder</h2>
+      <h2 className="section-title">Where</h2>
       <div className="sync-folder">
         <span className="path">
-          {status.settings.folder ?? 'None: sync is off'}
+          {where}
           {on && status.encrypted && <span className="quality-badge">Encrypted</span>}
         </span>
         <button
@@ -241,42 +397,67 @@ export function SyncView() {
             void pickFolder('Choose the Sync Folder').then(async (folder) => {
               if (!folder) return;
               const info = await attempt(api.syncFolderInfo(folder));
-              if (info) setSetup({ folder, info });
+              if (info) {
+                setServerForm(false);
+                setSetup({
+                  kind: 'folder',
+                  label: folder,
+                  patch: { folder, remote: null },
+                  password: null,
+                  info,
+                });
+              }
             })
           }
         >
-          <FolderSync size={14} aria-hidden /> {on ? 'Change…' : 'Choose Folder…'}
+          <FolderSync size={14} aria-hidden /> Choose Folder…
+        </button>
+        <button
+          className="pill"
+          onClick={() => {
+            setSetup(null);
+            setServerForm(true);
+          }}
+        >
+          <Server size={14} aria-hidden /> Use a Server…
         </button>
         {on && (
-          <button className="pill" onClick={() => void save(status, { folder: null })}>
+          <button
+            className="pill"
+            onClick={() => void save(status, { folder: null, remote: null })}
+          >
             Stop Syncing
           </button>
         )}
       </div>
-      {setup && (
-        <FolderSetup
-          status={status}
-          folder={setup.folder}
-          info={setup.info}
-          onDone={() => {
-            setSetup(null);
-            setLocked(false);
+      {serverForm && !setup && (
+        <ServerForm
+          initial={remote}
+          onChecked={(s) => {
+            setServerForm(false);
+            setSetup(s);
           }}
+          onCancel={() => setServerForm(false)}
         />
       )}
-      {on && locked && !setup && folderNow && (
-        <FolderSetup
+      {setup && <PlaceSetup status={status} setup={setup} onDone={() => setSetup(null)} />}
+      {on && status.locked && !setup && !serverForm && (
+        <PlaceSetup
           status={status}
-          folder={folderNow}
-          info={{ hasLibrary: true, encrypted: true, devices: 0 }}
-          onDone={() => setLocked(false)}
+          setup={{
+            kind: remote ? 'server' : 'folder',
+            label: where,
+            patch: {},
+            password: null,
+            info: { hasLibrary: true, encrypted: true, devices: 0 },
+          }}
+          onDone={() => undefined}
           locked
         />
       )}
       {on && (
         <p className="muted small">
-          Stopping leaves the folder and your music as they are; choose the folder again to carry
-          on.
+          Stopping leaves the sync library and your music as they are; choose it again to carry on.
         </p>
       )}
 
@@ -287,8 +468,8 @@ export function SyncView() {
           checked={status.settings.shareAudio}
           onChange={(e) => void save(status, { shareAudio: e.target.checked })}
         />
-        Copy this device’s songs into the sync folder, for devices that don’t have them (needs as
-        much space there as your music takes)
+        Copy this device’s songs to where you sync, for devices that don’t have them (needs as much
+        space there as your music takes)
       </label>
       <label className="check-row">
         <input
@@ -296,8 +477,9 @@ export function SyncView() {
           checked={status.settings.downloadAudio}
           onChange={(e) => void save(status, { downloadAudio: e.target.checked })}
         />
-        Copy songs other devices put in the sync folder into my first music folder
+        Copy songs other devices put there into my first music folder
       </label>
+      {remote && <Bandwidth key={status.settings.bandwidthKbps ?? 0} status={status} />}
 
       {on && (
         <>

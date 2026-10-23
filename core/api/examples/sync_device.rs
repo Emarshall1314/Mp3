@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
         std::env::var("CADENZA_PASSPHRASE").ok().as_deref(),
+        None,
     )?;
     for edit in edits {
         let mut parts = edit.splitn(3, '=');

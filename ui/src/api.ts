@@ -23,6 +23,7 @@ import type {
   Lyrics,
   Outputs,
   PlayerState,
+  Remote,
   Repeat,
   ReplayGainSettings,
   Root,
@@ -118,8 +119,13 @@ export const api = {
   purge: (id: number) => invoke<null>('purge', { id }),
   emptyTrash: () => invoke<null>('empty_trash'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
-  setSyncSettings: (settings: SyncSettings, passphrase: string | null = null) =>
-    invoke<SyncStatus>('set_sync_settings', { settings, passphrase }),
+  setSyncSettings: (
+    settings: SyncSettings,
+    passphrase: string | null = null,
+    password: string | null = null,
+  ) => invoke<SyncStatus>('set_sync_settings', { settings, passphrase, password }),
+  syncRemoteInfo: (remote: Remote, password: string) =>
+    invoke<SyncFolderInfo>('sync_remote_info', { remote, password }),
   syncFolderInfo: (folder: string) => invoke<SyncFolderInfo>('sync_folder_info', { folder }),
   syncNow: () => invoke<null>('sync_now'),
   syncConflicts: () => invoke<SyncConflict[]>('sync_conflicts'),

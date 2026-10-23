@@ -122,6 +122,21 @@ impl RemoteStore {
     /// Connects (lazily: nothing is sent until the first call). `secret` is the WebDAV password
     /// or the S3 secret key; `limit_kbps` caps song transfers (KB/s).
     pub fn open(remote: &Remote, secret: &str, limit_kbps: Option<u32>) -> Result<Self> {
+        Self::open_with(remote, secret, limit_kbps, true)
+    }
+
+    /// For checking a server the owner just entered: one try, and a short time limit, so a wrong
+    /// address fails in seconds rather than after minutes of retries.
+    pub fn open_for_check(remote: &Remote, secret: &str) -> Result<Self> {
+        Self::open_with(remote, secret, None, false)
+    }
+
+    fn open_with(
+        remote: &Remote,
+        secret: &str,
+        limit_kbps: Option<u32>,
+        patient: bool,
+    ) -> Result<Self> {
         let runtime = RUNTIME
             .as_ref()
             .map_err(|e| Error::Io(std::io::Error::other(e.clone())))?;
@@ -161,15 +176,18 @@ impl RemoteStore {
                 Operator::new(b).map_err(remote_err)?
             }
         };
-        let op = op
-            .layer(TimeoutLayer::new().with_timeout(Duration::from_secs(60)))
-            .layer(
-                RetryLayer::new()
-                    .with_jitter()
-                    .with_max_times(5)
-                    .with_min_delay(Duration::from_millis(500))
-                    .with_max_delay(Duration::from_secs(30)),
-            );
+        let op = if patient {
+            op.layer(TimeoutLayer::new().with_timeout(Duration::from_secs(60)))
+                .layer(
+                    RetryLayer::new()
+                        .with_jitter()
+                        .with_max_times(5)
+                        .with_min_delay(Duration::from_millis(500))
+                        .with_max_delay(Duration::from_secs(30)),
+                )
+        } else {
+            op.layer(TimeoutLayer::new().with_timeout(Duration::from_secs(15)))
+        };
         let _guard = runtime.enter();
         let op = opendal::blocking::Operator::new(op).map_err(remote_err)?;
         Ok(Self {
@@ -213,8 +231,76 @@ fn split_url(url: &str) -> Result<(String, String)> {
     Ok((format!("{scheme}{host}"), root))
 }
 
+/// Runs `f` where it may block: on this thread, or on a fresh one when this thread belongs to an
+/// async runtime (an app shell's command handler), where blocking on our runtime would panic.
+fn off_runtime<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return f();
+    }
+    std::thread::scope(|s| match s.spawn(f).join() {
+        Ok(v) => v,
+        Err(panic) => std::panic::resume_unwind(panic),
+    })
+}
+
 impl Store for RemoteStore {
     fn list(&self, dir: &str) -> Result<Vec<String>> {
+        off_runtime(|| self.list_here(dir))
+    }
+    fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        off_runtime(|| self.get_here(path))
+    }
+    fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        off_runtime(|| self.put_here(path, bytes))
+    }
+    fn size(&self, path: &str) -> Result<Option<u64>> {
+        off_runtime(|| self.size_here(path))
+    }
+    fn put_file(&self, path: &str, local: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return self.put_file_here(path, local, go);
+        }
+        // `go` needn't be Send; report through a channel instead.
+        let (tx, rx) = std::sync::mpsc::channel::<(u64, std::sync::mpsc::Sender<bool>)>();
+        std::thread::scope(|s| {
+            let worker = s.spawn(move || {
+                self.put_file_here(path, local, &mut |n| {
+                    let (back, answer) = std::sync::mpsc::channel();
+                    tx.send((n, back)).is_ok() && answer.recv().unwrap_or(false)
+                })
+            });
+            for (n, back) in rx {
+                let _ = back.send(go(n));
+            }
+            worker
+                .join()
+                .unwrap_or_else(|p| std::panic::resume_unwind(p))
+        })
+    }
+    fn get_file(&self, path: &str, dest: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return self.get_file_here(path, dest, go);
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<(u64, std::sync::mpsc::Sender<bool>)>();
+        std::thread::scope(|s| {
+            let worker = s.spawn(move || {
+                self.get_file_here(path, dest, &mut |n| {
+                    let (back, answer) = std::sync::mpsc::channel();
+                    tx.send((n, back)).is_ok() && answer.recv().unwrap_or(false)
+                })
+            });
+            for (n, back) in rx {
+                let _ = back.send(go(n));
+            }
+            worker
+                .join()
+                .unwrap_or_else(|p| std::panic::resume_unwind(p))
+        })
+    }
+}
+
+impl RemoteStore {
+    fn list_here(&self, dir: &str) -> Result<Vec<String>> {
         let prefix = format!("{}/", dir.trim_end_matches('/'));
         let entries = match self.op.list(&prefix) {
             Ok(e) => e,
@@ -233,7 +319,7 @@ impl Store for RemoteStore {
         Ok(names)
     }
 
-    fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+    fn get_here(&self, path: &str) -> Result<Option<Vec<u8>>> {
         match self.op.read(path) {
             Ok(b) => Ok(Some(b.to_vec())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -241,12 +327,12 @@ impl Store for RemoteStore {
         }
     }
 
-    fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
+    fn put_here(&self, path: &str, bytes: &[u8]) -> Result<()> {
         self.op.write(path, bytes.to_vec()).map_err(remote_err)?;
         Ok(())
     }
 
-    fn size(&self, path: &str) -> Result<Option<u64>> {
+    fn size_here(&self, path: &str) -> Result<Option<u64>> {
         match self.op.stat(path) {
             Ok(m) => Ok(Some(m.content_length())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -254,7 +340,12 @@ impl Store for RemoteStore {
         }
     }
 
-    fn put_file(&self, path: &str, local: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+    fn put_file_here(
+        &self,
+        path: &str,
+        local: &Path,
+        go: &mut dyn FnMut(u64) -> bool,
+    ) -> Result<bool> {
         // WebDAV takes a file in one request; S3 in parts (multipart upload).
         if !self.op.info().capability().write_can_multi {
             if !go(0) {
@@ -292,7 +383,12 @@ impl Store for RemoteStore {
         Ok(true)
     }
 
-    fn get_file(&self, path: &str, dest: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+    fn get_file_here(
+        &self,
+        path: &str,
+        dest: &Path,
+        go: &mut dyn FnMut(u64) -> bool,
+    ) -> Result<bool> {
         let total = self
             .size(path)?
             .ok_or_else(|| Error::Path(format!("{path} isn't in the store")))?;

@@ -167,3 +167,19 @@ fn encrypted_over_webdav_and_s3() {
         replicas_sync(&enc);
     }
 }
+
+/// App shells call from their own async runtime's threads (Tauri commands): that must work too.
+#[test]
+fn works_when_called_from_an_app_runtime() {
+    let Some(store) = webdav() else {
+        eprintln!("skipped: no WebDAV server given");
+        return;
+    };
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    // Inside the runtime's own `block_on`, as a command handler runs.
+    let listed = rt.block_on(async move {
+        store.put("log/x/0.seg", b"hi").expect("put");
+        store.list("log/x")
+    });
+    assert_eq!(listed.expect("list"), ["0.seg"]);
+}

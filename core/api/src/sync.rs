@@ -22,8 +22,8 @@ use cadenza_library::Library;
 use cadenza_sync::hlc::wall_ms;
 use cadenza_sync::replica::DeviceInfo;
 use cadenza_sync::{
-    Change, DeviceId, Effect, EncryptedStore, FolderStore, Hlc, Key, LibraryInfo, Replica, Store,
-    TrackKey,
+    Change, DeviceId, Effect, EncryptedStore, FolderStore, Hlc, Key, LibraryInfo, Remote,
+    RemoteStore, Replica, Store, TrackKey,
 };
 use serde::{Deserialize, Serialize};
 
@@ -38,8 +38,12 @@ const SETTLE: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SyncSettings {
-    /// The shared folder; sync is off without one.
+    /// The shared folder. Sync is off without a folder or a server.
     pub folder: Option<String>,
+    /// A server instead of a folder (its password is kept apart, never in here).
+    pub remote: Option<Remote>,
+    /// Caps song transfers to and from a server, in KB/s.
+    pub bandwidth_kbps: Option<u32>,
     /// How other devices see this one.
     pub device_name: String,
     /// Copy this device's songs into the folder, for devices that don't have them.
@@ -90,6 +94,8 @@ pub struct SyncStatus {
     pub problems: Vec<String>,
     /// The folder's contents are encrypted with a passphrase.
     pub encrypted: bool,
+    /// The library is encrypted and this device doesn't have the key: it needs the passphrase.
+    pub locked: bool,
 }
 
 /// What a folder chosen for sync already holds.
@@ -325,6 +331,9 @@ impl Syncer {
             s.pending = pending;
             s.conflicts = conflicts;
             s.encrypted = encrypted;
+            if encrypted {
+                s.locked = false;
+            }
         });
     }
 
@@ -332,12 +341,19 @@ impl Syncer {
         &self,
         mut settings: SyncSettings,
         passphrase: Option<&str>,
+        password: Option<&str>,
     ) -> Result<SyncStatus> {
         if settings.device_name.trim().is_empty() {
             settings.device_name = host_name();
         }
         settings.device_name = settings.device_name.trim().chars().take(60).collect();
-        let changed_folder = settings.folder != self.inner().settings.folder;
+        if settings.remote.is_some() {
+            settings.folder = None;
+        }
+        let changed = {
+            let old = &self.inner().settings;
+            settings.folder != old.folder || settings.remote != old.remote
+        };
         if let Some(folder) = &settings.folder {
             if !Path::new(folder).is_dir() {
                 return Err(Error::Other(format!("{folder} isn't a folder")));
@@ -351,60 +367,28 @@ impl Syncer {
                         .into(),
                 ));
             }
-            // Settle encryption before anything is written to the folder.
-            let plain = FolderStore::new(folder);
-            let info = LibraryInfo::read(&plain).map_err(other)?;
-            match (&info, passphrase) {
-                (
-                    Some(LibraryInfo {
-                        encryption: Some(e),
-                        ..
-                    }),
-                    Some(p),
-                ) => {
-                    let key = Key::unlock(p, e).map_err(other)?;
-                    self.save_key(Some(&key))?;
-                }
-                (
-                    Some(LibraryInfo {
-                        encryption: Some(_),
-                        ..
-                    }),
-                    None,
-                ) if changed_folder => {
-                    return Err(Error::Other(
-                        "this sync folder is encrypted: enter its passphrase".into(),
-                    ));
-                }
-                (
-                    Some(LibraryInfo {
-                        encryption: None, ..
-                    }),
-                    Some(_),
-                ) => {
-                    return Err(Error::Other(
-                        "this sync folder already holds unencrypted sync data; to encrypt, start with an empty folder"
-                            .into(),
-                    ));
-                }
-                (None, Some(p)) => {
-                    let (key, encryption) = Key::create(p).map_err(other)?;
-                    LibraryInfo {
-                        format: cadenza_sync::crypt::FORMAT,
-                        encryption: Some(encryption),
-                    }
-                    .write(&plain)
-                    .map_err(other)?;
-                    self.save_key(Some(&key))?;
-                }
-                (_, None) if changed_folder => self.save_key(None)?,
-                _ => {}
+        }
+        // Settle encryption before anything is written there.
+        if let Some(plain) = self.plain_store(&settings, password)? {
+            if let Some(remote) = &settings.remote {
+                let saved = std::fs::read(self.dir.join("secret"))
+                    .ok()
+                    .and_then(|b| String::from_utf8(b).ok());
+                let secret = password.map(str::to_owned).or(saved).unwrap_or_default();
+                RemoteStore::open_for_check(remote, &secret)
+                    .and_then(|s| s.list("log"))
+                    .map_err(|e| Error::Other(format!("couldn't reach the server: {e}")))?;
             }
+            self.settle_encryption(plain.as_ref(), passphrase, changed)?;
+        }
+        if let Some(p) = password {
+            self.write_private("secret", p.as_bytes())?;
         }
         {
             let mut inner = self.inner();
-            // A different folder starts afresh: this device's log there begins at the start.
-            if settings.folder.is_some() && (inner.saved.is_none() || changed_folder) {
+            // A different place starts afresh: this device's log there begins at the start.
+            let on = settings.folder.is_some() || settings.remote.is_some();
+            if on && (inner.saved.is_none() || changed) {
                 inner.saved = Some(Saved::new());
             }
             inner.settings = settings;
@@ -417,15 +401,84 @@ impl Syncer {
         Ok(self.status())
     }
 
-    /// What's in a folder chosen for sync: nothing yet, a library, and whether it's encrypted.
-    pub(crate) fn folder_info(&self, folder: &str) -> Result<SyncFolderInfo> {
-        let plain = FolderStore::new(folder);
-        let info = LibraryInfo::read(&plain).map_err(other)?;
+    fn settle_encryption(
+        &self,
+        plain: &dyn Store,
+        passphrase: Option<&str>,
+        changed: bool,
+    ) -> Result<()> {
+        let info = LibraryInfo::read(plain).map_err(other)?;
+        match (&info, passphrase) {
+            (Some(LibraryInfo { encryption: Some(e), .. }), Some(p)) => {
+                let key = Key::unlock(p, e).map_err(other)?;
+                self.save_key(Some(&key))
+            }
+            (Some(LibraryInfo { encryption: Some(_), .. }), None) if changed => Err(Error::Other(
+                "this sync library is encrypted: enter its passphrase".into(),
+            )),
+            (Some(LibraryInfo { encryption: None, .. }), Some(_)) => Err(Error::Other(
+                "this place already holds unencrypted sync data; to encrypt, start with an empty one"
+                    .into(),
+            )),
+            (None, Some(p)) => {
+                let (key, encryption) = Key::create(p).map_err(other)?;
+                LibraryInfo {
+                    format: cadenza_sync::crypt::FORMAT,
+                    encryption: Some(encryption),
+                }
+                .write(plain)
+                .map_err(other)?;
+                self.save_key(Some(&key))
+            }
+            (_, None) if changed => self.save_key(None),
+            _ => Ok(()),
+        }
+    }
+
+    /// What a place chosen for sync already holds.
+    fn info_of(plain: &dyn Store) -> Result<SyncFolderInfo> {
+        let info = LibraryInfo::read(plain).map_err(other)?;
         Ok(SyncFolderInfo {
             has_library: info.is_some() || !plain.list("log").map_err(other)?.is_empty(),
             encrypted: info.is_some_and(|i| i.encryption.is_some()),
             devices: plain.list("devices").map_err(other)?.len(),
         })
+    }
+
+    /// What's in a folder chosen for sync: nothing yet, a library, and whether it's encrypted.
+    pub(crate) fn folder_info(&self, folder: &str) -> Result<SyncFolderInfo> {
+        Self::info_of(&FolderStore::new(folder))
+    }
+
+    /// The same for a server, which also checks that it can be reached with `password`.
+    pub(crate) fn remote_info(&self, remote: &Remote, password: &str) -> Result<SyncFolderInfo> {
+        let store = RemoteStore::open_for_check(remote, password).map_err(other)?;
+        store
+            .list("log")
+            .map_err(|e| Error::Other(format!("couldn't reach the server: {e}")))?;
+        Self::info_of(&store)
+    }
+
+    /// The sync place without encryption: the folder, or the server (with `password`, else the
+    /// saved one); none when sync is off.
+    fn plain_store(
+        &self,
+        settings: &SyncSettings,
+        password: Option<&str>,
+    ) -> Result<Option<Box<dyn Store>>> {
+        if let Some(remote) = &settings.remote {
+            let saved = std::fs::read(self.dir.join("secret"))
+                .ok()
+                .and_then(|b| String::from_utf8(b).ok());
+            let secret = password.map(str::to_owned).or(saved).unwrap_or_default();
+            let store =
+                RemoteStore::open(remote, &secret, settings.bandwidth_kbps).map_err(other)?;
+            return Ok(Some(Box::new(store)));
+        }
+        Ok(settings
+            .folder
+            .as_ref()
+            .map(|f| Box::new(FolderStore::new(f)) as Box<dyn Store>))
     }
 
     fn key_path(&self) -> PathBuf {
@@ -434,12 +487,19 @@ impl Syncer {
 
     /// Keeps the library key (or forgets it), readable only by this user.
     fn save_key(&self, key: Option<&Key>) -> Result<()> {
-        let path = self.key_path();
-        let Some(key) = key else {
-            let _ = std::fs::remove_file(&path);
-            return Ok(());
-        };
-        let io = |e: std::io::Error| Error::Other(format!("saving the sync key: {e}"));
+        match key {
+            Some(k) => self.write_private("key", &k.to_bytes()),
+            None => {
+                let _ = std::fs::remove_file(self.key_path());
+                Ok(())
+            }
+        }
+    }
+
+    /// Writes a file in the sync folder that only this user can read.
+    fn write_private(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        let path = self.dir.join(name);
+        let io = |e: std::io::Error| Error::Other(format!("saving {name}: {e}"));
         std::fs::create_dir_all(&self.dir).map_err(io)?;
         let tmp = path.with_extension("tmp");
         {
@@ -448,7 +508,7 @@ impl Syncer {
             #[cfg(unix)]
             std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
             let mut f = opts.open(&tmp).map_err(io)?;
-            std::io::Write::write_all(&mut f, &key.to_bytes()).map_err(io)?;
+            std::io::Write::write_all(&mut f, bytes).map_err(io)?;
         }
         std::fs::rename(&tmp, &path).map_err(io)
     }
@@ -459,10 +519,12 @@ impl Syncer {
             .and_then(|b| Key::from_bytes(&b))
     }
 
-    /// The folder as a store: encrypted when the library is.
-    fn open_store(&self, folder: &str) -> Result<Box<dyn Store>> {
-        let plain = FolderStore::new(folder);
-        let info = LibraryInfo::read(&plain).map_err(other)?;
+    /// The sync place as a store: encrypted when the library is.
+    fn open_store(&self, settings: &SyncSettings) -> Result<Box<dyn Store>> {
+        let plain = self
+            .plain_store(settings, None)?
+            .ok_or_else(|| Error::Other("sync is off".into()))?;
+        let info = LibraryInfo::read(plain.as_ref()).map_err(other)?;
         let key = self.load_key();
         match (info, key) {
             (None, None) => {
@@ -470,19 +532,22 @@ impl Syncer {
                     format: cadenza_sync::crypt::FORMAT,
                     encryption: None,
                 }
-                .write(&plain)
+                .write(plain.as_ref())
                 .map_err(other)?;
-                Ok(Box::new(plain))
+                Ok(plain)
             }
-            (Some(LibraryInfo { encryption: None, .. }), None) => Ok(Box::new(plain)),
+            (Some(LibraryInfo { encryption: None, .. }), None) => Ok(plain),
             (Some(LibraryInfo { encryption: Some(_), .. }), Some(key)) => Ok(Box::new(
                 EncryptedStore::new(plain, key, self.dir.join("tmp")),
             )),
-            (Some(LibraryInfo { encryption: Some(_), .. }), None) => Err(Error::Other(
-                "the sync folder is encrypted: enter its passphrase on the Sync page".into(),
-            )),
+            (Some(LibraryInfo { encryption: Some(_), .. }), None) => {
+                self.set_status(|s| s.locked = true);
+                Err(Error::Other(
+                    "the sync library is encrypted: enter its passphrase on the Sync page".into(),
+                ))
+            }
             (_, Some(_)) => Err(Error::Other(
-                "the sync folder isn't encrypted the way this device expects (was it replaced?); choose it again"
+                "the sync library isn't encrypted the way this device expects (was it replaced?); choose it again"
                     .into(),
             )),
         }
@@ -493,7 +558,8 @@ impl Syncer {
     }
 
     fn enabled(inner: &Inner) -> bool {
-        inner.settings.folder.is_some() && inner.saved.is_some()
+        (inner.settings.folder.is_some() || inner.settings.remote.is_some())
+            && inner.saved.is_some()
     }
 
     // ---- local changes ------------------------------------------------------------------
@@ -698,21 +764,20 @@ impl Syncer {
     /// Runs a round now, on this thread.
     pub(crate) fn round(&self) {
         let _one = self.round_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let (folder, settings) = {
+        let settings = {
             let inner = self.inner();
             if !Self::enabled(&inner) || inner.settings.paused {
                 return;
             }
-            (inner.settings.folder.clone(), inner.settings.clone())
+            inner.settings.clone()
         };
-        let Some(folder) = folder else { return };
         self.stop.store(false, Ordering::Release);
         self.set_status(|s| {
             s.syncing = true;
             s.error = None;
         });
         let mut problems = Vec::new();
-        let result = self.round_in(&folder, &settings, &mut problems);
+        let result = self.round_in(&settings, &mut problems);
         self.refresh_status();
         self.set_status(|s| {
             s.syncing = false;
@@ -725,18 +790,16 @@ impl Syncer {
         });
     }
 
-    fn round_in(
-        &self,
-        folder: &str,
-        settings: &SyncSettings,
-        problems: &mut Vec<String>,
-    ) -> Result<()> {
-        if !Path::new(folder).is_dir() {
+    fn round_in(&self, settings: &SyncSettings, problems: &mut Vec<String>) -> Result<()> {
+        if let Some(folder) = &settings.folder
+            && !Path::new(folder).is_dir()
+        {
             return Err(Error::Other(format!(
                 "the sync folder {folder} isn't there (is its drive connected?)"
             )));
         }
-        let boxed = self.open_store(folder)?;
+        let boxed = self.open_store(settings)?;
+        self.set_status(|s| s.locked = false);
         let store: &dyn Store = boxed.as_ref();
         let sync_err = |e: cadenza_sync::Error| Error::Other(e.to_string());
         self.export_history()?;

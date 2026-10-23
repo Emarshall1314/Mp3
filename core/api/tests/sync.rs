@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cadenza_api::{ApiEvent, Cadenza, PictureEdit, PlayerEvent, SongSort, SyncSettings, TrackEdit};
+use cadenza_api::{
+    ApiEvent, Cadenza, PictureEdit, PlayerEvent, Remote, SongSort, SyncSettings, TrackEdit,
+};
 use cadenza_engine::Capture;
 use cadenza_testkit::fixtures_dir;
 
@@ -81,6 +83,7 @@ impl Device {
                     ..Default::default()
                 },
                 passphrase,
+                None,
             )
             .unwrap();
         d
@@ -284,6 +287,7 @@ fn a_new_device_gets_shared_songs_with_their_history() {
                 ..Default::default()
             },
             None,
+            None,
         )
         .unwrap();
     a.sync();
@@ -300,6 +304,7 @@ fn a_new_device_gets_shared_songs_with_their_history() {
                 download_audio: true,
                 ..Default::default()
             },
+            None,
             None,
         )
         .unwrap();
@@ -347,6 +352,7 @@ fn the_sync_folder_must_be_outside_the_music_folders() {
                     folder: Some(inside.display().to_string()),
                     ..Default::default()
                 },
+                None,
                 None
             )
             .is_err()
@@ -358,6 +364,7 @@ fn the_sync_folder_must_be_outside_the_music_folders() {
                     folder: Some(tmp.path().join("nowhere").display().to_string()),
                     ..Default::default()
                 },
+                None,
                 None
             )
             .is_err()
@@ -431,6 +438,7 @@ fn an_encrypted_folder_holds_nothing_readable() {
                 ..Default::default()
             },
             None,
+            None,
         )
         .unwrap();
     a.sync();
@@ -477,6 +485,7 @@ fn an_encrypted_folder_holds_nothing_readable() {
                 ..Default::default()
             },
             p,
+            None,
         )
     };
     assert!(join(None).is_err());
@@ -484,4 +493,63 @@ fn an_encrypted_folder_holds_nothing_readable() {
     join(Some(pass)).unwrap();
     b.sync();
     assert!(b.songs().contains(&"A Secret Title".to_owned()));
+}
+
+/// Through a WebDAV server, encrypted (needs `CADENZA_TEST_WEBDAV`; `cargo xtask` starts one).
+#[test]
+fn two_devices_sync_through_a_webdav_server() {
+    let Ok(spec) = std::env::var("CADENZA_TEST_WEBDAV") else {
+        eprintln!("skipped: no WebDAV server given");
+        return;
+    };
+    let mut parts = spec.split('|');
+    let (url, user, pass) = (
+        parts.next().unwrap(),
+        parts.next().unwrap(),
+        parts.next().unwrap(),
+    );
+    let remote = Remote::WebDav {
+        url: format!("{url}/api-{}", std::process::id()),
+        username: user.into(),
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let local = tmp.path().join("unused");
+    std::fs::create_dir_all(&local).unwrap();
+    let a = Device::open(tmp.path(), "laptop", true, &local);
+    let b = Device::open(tmp.path(), "desktop", true, &local);
+    let phrase = "correct horse battery staple";
+    let use_server = |d: &Device, name: &str, passphrase: Option<&str>, password: Option<&str>| {
+        d.app.set_sync_settings(
+            SyncSettings {
+                remote: Some(remote.clone()),
+                device_name: name.into(),
+                ..Default::default()
+            },
+            passphrase,
+            password,
+        )
+    };
+    // A wrong password is refused before anything is saved.
+    assert!(use_server(&a, "laptop", Some(phrase), Some("not the password")).is_err());
+    let info = a.app.sync_remote_info(&remote, pass).unwrap();
+    assert!(!info.has_library);
+    use_server(&a, "laptop", Some(phrase), Some(pass)).unwrap();
+    assert!(a.app.sync_status().encrypted);
+    let title = a.songs()[0].clone();
+    let x = a.song(&title);
+    a.edit(x, "title", "Sent Over WebDAV");
+    a.sync();
+
+    let info = b.app.sync_remote_info(&remote, pass).unwrap();
+    assert!(info.has_library && info.encrypted && info.devices == 1);
+    assert!(
+        use_server(&b, "desktop", None, Some(pass)).is_err(),
+        "needs the passphrase"
+    );
+    use_server(&b, "desktop", Some(phrase), Some(pass)).unwrap();
+    b.sync();
+    assert!(b.songs().contains(&"Sent Over WebDAV".to_owned()));
+    // The password isn't in the settings the UI sees.
+    let shown = serde_json::to_string(&b.app.sync_status()).unwrap();
+    assert!(!shown.contains(pass));
 }
