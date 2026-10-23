@@ -419,6 +419,24 @@ These are shown or absent in the UI, never faked:
 - **Search** matches word prefixes, not text in the middle of words (D23).
 
 ## Known issues / blockers
+- **Android: the theme and look edits reset to defaults after closing the app** (owner report,
+  October 2026). To be fixed with the M7 Android work.
+  - **Linux works:** after changing the theme to Forest and the accent to orange, then killing
+    the app (`kill -9`, as Android does), it reopened with both. `settings.json` held them.
+  - **Ruled out:**
+    - Cadenza opens on Android exactly as on Linux: same data folder, same synchronous start.
+    - No screen saves the look on startup.
+    - The Android-only code never writes settings.
+  - **Suspects to check on the phone:**
+    1. `settings.json` fails to load there. The core then falls back to defaults silently, and
+       the next save overwrites the file, so the look would reset.
+    2. Android re-runs the Rust start-up when the app is reopened while its playback service
+       keeps the process alive.
+    3. The data folder Tauri gives is not kept between runs on that phone.
+  - **First step:** read `settings.json` from the phone (`adb shell run-as app.cadenza.player`)
+    after changing the theme, and again after closing and reopening. Whichever suspect is right,
+    make a settings file that won't load get kept aside, not overwritten, and add a test that
+    closes and reopens the app.
 - **Android SDK/NDK cannot be downloaded in this environment.** The network policy denies
   `dl.google.com`, so Android builds happen in CI only.
   - CI signs the APK with the `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` repository

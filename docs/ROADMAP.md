@@ -95,6 +95,9 @@ Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS
   headset/BT/car buttons.
 - USB DAC: Android 14+ bit-perfect mixer attributes; resample indicator on older versions.
 - Full/partial mirror with pinning and AAC/Opus transcoded copies; Wi-Fi/charging-only sync; background sync.
+- **Fix first: settings don't survive closing the app on Android** (owner report, Oct 2026; see
+  PROGRESS "Known issues"). The theme and look edits go back to defaults. Reproduce on the phone,
+  find the cause, and add a test that closes and reopens the app.
 - Stretch: Android Auto browsing, home-screen widgets, Wear OS controls.
 
 ## M8 — Extras (D+M)
