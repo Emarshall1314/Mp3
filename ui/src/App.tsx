@@ -32,6 +32,7 @@ import { usePhone } from './hooks/usePhone';
 import { useLongPress } from './hooks/useLongPress';
 import { useGlassLight, useGlassTouch, useLiquid } from './hooks/useGlass';
 import { useSwipeBack } from './hooks/useSwipeBack';
+import { useAndroidBack } from './hooks/useAndroidBack';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -180,6 +181,7 @@ function PhoneApp() {
   const dock = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   useSwipeBack(main, true);
+  useAndroidBack();
   // Remember where music is started from, for Now Playing's swipe back to it.
   useEffect(() => setPlayListener((album) => useStore.getState().notePlaySource(album)), []);
   // Pages leave room at the bottom for the dock floating over them.

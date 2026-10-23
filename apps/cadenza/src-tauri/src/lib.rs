@@ -553,6 +553,21 @@ fn storage(handle: &AppHandle) -> State<'_, tauri_plugin_cadenza_android::Storag
     handle.state()
 }
 
+/// Android: back from the first screen sends the app to the background (playback continues).
+/// Nothing elsewhere.
+#[tauri::command(async)]
+fn to_background(handle: AppHandle) -> Res<()> {
+    #[cfg(target_os = "android")]
+    {
+        storage(&handle).to_background().map_err(e)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = handle;
+        Ok(())
+    }
+}
+
 /// Brings the main window to the front.
 #[tauri::command]
 fn show_main_window(app: tauri::AppHandle) {
@@ -765,6 +780,7 @@ pub fn run() {
             artwork_palette,
             toggle_mini_player,
             show_main_window,
+            to_background,
             dsp,
             set_dsp,
             replay_gain,

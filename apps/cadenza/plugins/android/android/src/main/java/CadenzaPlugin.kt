@@ -75,6 +75,13 @@ class CadenzaPlugin(private val activity: Activity) : Plugin(activity) {
     @PermissionCallback
     fun permissionResult(invoke: Invoke) = resolveAccess(invoke)
 
+    /** Back from the first screen: to the background, not closed, so the music carries on. */
+    @Command
+    fun toBackground(invoke: Invoke) {
+        activity.moveTaskToBack(true)
+        invoke.resolve()
+    }
+
     @Command
     fun pickFolder(invoke: Invoke) {
         startActivityForResult(invoke, Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), "folderResult")

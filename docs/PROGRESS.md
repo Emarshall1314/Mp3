@@ -427,6 +427,11 @@ glass.
     scanned library over time; the shelf migration.
   - Checked in the real app at phone size (the test library only has recent listening, so it
     showed the time-of-day mix).
+- **Android's back button and gesture** now step back through the app: a menu or Song Info
+  closes first, then Now Playing, then the page before, then Home; from Home the app goes to
+  the background (Android's `moveTaskToBack`, a new command in the Android plugin) with the
+  music still playing, instead of closing. Tests: the order of what back does. Needs the
+  phone; the Kotlin half builds in CI only.
 - Demo script: `docs/demos/M7.md`.
 
 ### Next

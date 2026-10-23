@@ -203,6 +203,8 @@ export const api = {
   clearUpcoming: () => invoke<null>('clear_upcoming'),
   setRepeat: (repeat: Repeat) => invoke<null>('set_repeat', { repeat }),
   setShuffle: (on: boolean) => invoke<null>('set_shuffle', { on }),
+  /// Android: to the background (back from Home); nothing elsewhere.
+  toBackground: () => invoke<null>('to_background'),
 };
 
 export function onApiEvent(handler: (e: ApiEvent) => void): Promise<UnlistenFn> {

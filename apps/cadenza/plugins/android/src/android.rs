@@ -39,4 +39,12 @@ impl<R: Runtime> Storage<R> {
     pub fn pick_folder(&self) -> Result<Option<String>, PluginInvokeError> {
         Ok(self.0.run_mobile_plugin::<Folder>("pickFolder", ())?.path)
     }
+
+    /// Sends the app to the background (as the system's back does from an app's first screen)
+    /// without finishing it, so playback carries on.
+    pub fn to_background(&self) -> Result<(), PluginInvokeError> {
+        self.0
+            .run_mobile_plugin::<serde::de::IgnoredAny>("toBackground", ())?;
+        Ok(())
+    }
 }
