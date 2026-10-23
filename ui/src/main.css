@@ -3218,8 +3218,8 @@ kbd {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* Room for the mini player floating over the bottom of the page. */
-  padding-bottom: 72px;
+  /* Room for the dock (player and tabs) floating over the bottom of the page. */
+  padding-bottom: var(--dock-height, 120px);
 }
 
 .app[data-phone] {
@@ -3242,7 +3242,18 @@ kbd {
   padding: calc(env(safe-area-inset-top, 0px) + var(--space-2)) var(--space-2) 0;
 }
 
+.phone-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+
 .phone-tabs {
+  position: relative;
   display: flex;
   justify-content: space-around;
   padding: var(--space-1) var(--space-2) calc(env(safe-area-inset-bottom, 0px) + var(--space-1));
@@ -3276,11 +3287,8 @@ kbd {
 }
 
 .phone-player {
-  position: absolute;
-  left: var(--space-2);
-  right: var(--space-2);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
-  z-index: 20;
+  position: relative;
+  margin: 0 var(--space-2) var(--space-2);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -3295,16 +3303,14 @@ kbd {
 }
 
 .phone-player[data-style='bar'] {
-  left: 0;
-  right: 0;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 62px);
+  margin: 0;
   border-radius: 0;
   box-shadow: none;
   border-top: 1px solid var(--color-separator);
 }
 
 .phone-player[data-style='minimal'] {
-  left: auto;
+  align-self: flex-end;
   padding: 6px;
   border-radius: var(--radius-pill);
 }
@@ -3476,4 +3482,309 @@ kbd {
 .app[data-phone] .song-row .c-title .subtitle {
   color: var(--color-text-secondary);
   font-size: 13px;
+}
+
+/* ---- Liquid glass on the phone (hooks/useGlass.ts, D58) ----
+ * As on iOS: the tabs float in a glass capsule over the page, with a glass lens behind the
+ * current tab and Search as a round button beside it; the player is a capsule above them, and
+ * moves in between when the bar shrinks while scrolling. The glass is clearer than the
+ * desktop's panels so the page shows through; rims catch a light that moves as the phone
+ * tilts, and pressing glass lights it from the finger. On Android each shape also refracts
+ * through a lens fitted to it (--lens). */
+
+:root {
+  --rim-hi: 75%;
+  --rim-lo: 45%;
+  --lens-tint: rgb(0 0 0 / 7%);
+}
+
+:root[data-scheme='dark'] {
+  --rim-hi: 42%;
+  --rim-lo: 22%;
+  --lens-tint: rgb(255 255 255 / 13%);
+}
+
+:root[data-panels='liquid'] .app[data-phone] .phone-main {
+  padding-bottom: 0;
+}
+
+/* Pages run under the dock; their ends scroll clear of it. */
+:root[data-panels='liquid'] .app[data-phone] .phone-main .scroll {
+  padding-bottom: calc(var(--dock-height, 140px) + var(--space-4));
+  scroll-padding-bottom: var(--dock-height, 140px);
+}
+
+:root[data-panels='liquid'] .phone-dock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'player player'
+    'tabs search';
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px calc(env(safe-area-inset-bottom, 0px) + 10px);
+}
+
+:root[data-panels='liquid'] .phone-dock:not([data-search]) {
+  grid-template-areas:
+    'player player'
+    'tabs tabs';
+}
+
+:root[data-panels='liquid'] .phone-dock[data-collapsed] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'tabs player search';
+}
+
+:root[data-panels='liquid'] .phone-dock[data-collapsed]:not([data-search]) {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: 'tabs player';
+}
+
+/* The page fades out of sight under the dock. */
+:root[data-panels='liquid'] .phone-dock::before {
+  content: '';
+  position: absolute;
+  inset: -24px 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    transparent,
+    color-mix(in srgb, var(--color-bg) 55%, transparent) 70%
+  );
+}
+
+/* Glass the page shows through. */
+:root[data-panels='liquid']
+  .app[data-phone]
+  :is(.phone-tabs, .phone-player, .phone-search-button, .glass-button) {
+  background-color: color-mix(in srgb, var(--color-surface-glass) 62%, transparent);
+  backdrop-filter: blur(calc(var(--blur-glass) * 0.4)) saturate(200%) brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    inset 0 -1px 1px rgb(255 255 255 / 10%),
+    0 8px 28px rgb(0 0 0 / 22%),
+    0 1px 3px rgb(0 0 0 / 12%);
+}
+
+:root[data-panels='liquid'][data-refraction]
+  .app[data-phone]
+  :is(.phone-tabs, .phone-player, .phone-search-button, .glass-button) {
+  backdrop-filter: blur(calc(var(--blur-glass) * 0.3)) var(--lens, url(#cadenza-liquid))
+    saturate(200%) brightness(1.06);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs {
+  grid-area: tabs;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs button {
+  position: relative;
+  z-index: 1;
+  min-height: 54px;
+  padding: 5px 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs button.on {
+  color: var(--color-accent);
+}
+
+:root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-tabs button {
+  width: 54px;
+  flex: none;
+}
+
+.phone-tab-lens {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: var(--lens-tint);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 25%),
+    inset 0 -1px 0 rgb(255 255 255 / 6%);
+  transition:
+    transform 420ms var(--ease-spring),
+    width 420ms var(--ease-spring),
+    scale 260ms var(--ease-spring),
+    background-color 200ms;
+}
+
+/* Sliding to another tab, the lens stretches like a drop of liquid. */
+.phone-tab-lens[data-moving] {
+  animation: lens-stretch 420ms var(--ease-spring);
+}
+
+@keyframes lens-stretch {
+  35% {
+    scale: 1.22 0.84;
+  }
+}
+
+/* Held and dragged, it lifts out of the bar as a clear magnifying lens. */
+.phone-tab-lens[data-dragging] {
+  transition:
+    scale 260ms var(--ease-spring),
+    background-color 200ms;
+  scale: 1.18 1.1;
+  background: rgb(255 255 255 / 18%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 70%),
+    inset 0 -1px 1px rgb(255 255 255 / 30%),
+    0 6px 18px rgb(0 0 0 / 20%);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-player {
+  grid-area: player;
+  margin: 0;
+  min-width: 0;
+  padding: 6px 10px 6px 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-player .artwork {
+  border-radius: 50%;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-player[data-style='minimal'] {
+  justify-self: end;
+}
+
+:root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-player {
+  justify-self: stretch;
+  min-height: 62px;
+}
+
+.phone-search-button {
+  grid-area: search;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  color: var(--color-text);
+}
+
+.phone-search-button.on {
+  color: var(--color-accent);
+}
+
+.glass-button {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+/* The scroll edge: the page blurs away under the top of the screen. */
+.phone-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  height: calc(env(safe-area-inset-top, 0px) + 20px);
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  mask-image: linear-gradient(#000 35%, transparent);
+}
+
+/* Rims: a thin bright edge, brightest where the light (the tilt) falls, and on the far side. */
+:root[data-panels='liquid'] .glass-lit::before,
+:root[data-panels='liquid'] .glass-lit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+:root[data-panels='liquid'] .glass-lit::before {
+  padding: 1.2px;
+  background: linear-gradient(
+    var(--glass-light, 135deg),
+    rgb(255 255 255 / var(--rim-hi)),
+    rgb(255 255 255 / 8%) 24%,
+    transparent 42%,
+    transparent 58%,
+    rgb(255 255 255 / 8%) 76%,
+    rgb(255 255 255 / var(--rim-lo))
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Pressing: light blooms from the finger and the glass swells a little. */
+:root[data-panels='liquid'] .glass-lit::after {
+  background: radial-gradient(
+    circle at var(--touch-x, 50%) var(--touch-y, 50%),
+    rgb(255 255 255 / 32%),
+    rgb(255 255 255 / 8%) 60px,
+    transparent 110px
+  );
+  opacity: 0;
+  transition: opacity 450ms;
+}
+
+:root[data-panels='liquid'] .glass-lit[data-pressed]::after {
+  opacity: 1;
+  transition-duration: 90ms;
+}
+
+:root[data-panels='liquid'] .glass-lit {
+  transition: scale 320ms var(--ease-spring);
+}
+
+:root[data-panels='liquid'] .glass-lit[data-pressed] {
+  scale: 1.02;
+}
+
+:root[data-panels='liquid'] :is(.phone-search-button, .glass-button)[data-pressed] {
+  scale: 1.1;
+}
+
+/* The bar and the player morph between their two arrangements (where the web view can). */
+:root[data-panels='liquid'] .phone-dock .phone-tabs {
+  view-transition-name: phone-tabs;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-player {
+  view-transition-name: phone-player;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-search-button {
+  view-transition-name: phone-search;
+}
+
+::view-transition-group(*) {
+  animation-duration: 380ms;
+  animation-timing-function: var(--ease-spring);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+:root[data-reduce-motion] :is(.phone-tab-lens, .glass-lit, .glass-lit::after) {
+  transition: none;
+  animation: none;
+}
+
+:root[data-reduce-motion] .glass-lit[data-pressed] {
+  scale: none;
 }

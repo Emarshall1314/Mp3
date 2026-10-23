@@ -5,22 +5,27 @@ import { attempt, useStore } from '../store';
 import { useCurrentTrack } from '../hooks/useCurrentTrack';
 import { useLook } from '../hooks/useAppearance';
 import { usePosition } from '../hooks/usePosition';
+import { useLens } from '../hooks/useGlass';
 import { Artwork } from './Artwork';
 
-/// The phone's player above the tabs. Tap it, or swipe it up, for Now Playing.
-export function PhonePlayer() {
+/// The phone's player above the tabs (beside them while the tab bar is collapsed). Tap it, or
+/// swipe it up, for Now Playing.
+export function PhonePlayer({ liquid }: { liquid: boolean }) {
   const track = useCurrentTrack();
   const player = useStore((s) => s.player);
   const style = useLook((s) => s.look.layout.miniPlayer);
   const position = usePosition();
   const from = useRef<number | null>(null);
+  const self = useRef<HTMLDivElement>(null);
+  useLens(self, liquid && !!track && !!player);
   if (!track || !player) return null;
   const playing = player.status === 'playing';
   const open = () => useStore.getState().setNowPlaying(true);
   const progress = player.durationMs ? Math.min(1, position / player.durationMs) : 0;
   return (
     <div
-      className="phone-player"
+      ref={self}
+      className={`phone-player${liquid ? ' glass-lit' : ''}`}
       data-style={style}
       role="button"
       tabIndex={0}

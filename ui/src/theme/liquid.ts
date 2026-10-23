@@ -53,3 +53,110 @@ export function ensureLiquidFilter() {
 </filter>`;
   document.body.appendChild(svg);
 }
+
+/// The displacement field of a lens the shape of a rounded rectangle, `w`×`h` px with corner
+/// radius `r`, as RGBA bytes for a canvas: red for x, green for y, 128 for none, 255 or 0 for
+/// `LENS_REACH` × `bezel` px. Over the outer `bezel` px the glass curves away like the rim of a
+/// thick lens: what's behind the rim is squeezed towards the edge (three times at the very
+/// edge), so straight lines bend as they go under it. A backdrop filter can only see what is
+/// behind the element itself, so the rim gathers from inside the bezel rather than beyond the
+/// edge, and the mapping never folds back on itself. The middle is flat and leaves it alone.
+/// The furthest the rim reaches in, as a fraction of the bezel (the peak of `1 - (1 - t)³ - t`).
+export const LENS_REACH = 0.385;
+
+export function lensField(w: number, h: number, r: number, bezel: number): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(w * h * 4);
+  const hx = w / 2;
+  const hy = h / 2;
+  const rad = Math.min(r, hx, hy);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      // Signed distance to the rounded rectangle and the outward direction of its edge.
+      const px = x + 0.5 - hx;
+      const py = y + 0.5 - hy;
+      const qx = Math.abs(px) - (hx - rad);
+      const qy = Math.abs(py) - (hy - rad);
+      let nx: number;
+      let ny: number;
+      let inside: number;
+      if (qx > 0 && qy > 0) {
+        const len = Math.hypot(qx, qy);
+        inside = rad - len;
+        nx = qx / len;
+        ny = qy / len;
+      } else if (qx > qy) {
+        inside = rad - Math.max(qx, 0);
+        nx = 1;
+        ny = 0;
+      } else {
+        inside = rad - Math.max(qy, 0);
+        nx = 0;
+        ny = 1;
+      }
+      nx *= Math.sign(px) || 1;
+      ny *= Math.sign(py) || 1;
+      const t = Math.min(1, Math.max(0, inside / bezel));
+      // A point `t` into the bezel shows what is `1 - (1 - t)³` in: inwards by this much.
+      const amount = (1 - (1 - t) ** 3 - t) / LENS_REACH;
+      const i = (y * w + x) * 4;
+      data[i] = Math.round(128 - 127 * nx * amount);
+      data[i + 1] = Math.round(128 - 127 * ny * amount);
+      data[i + 2] = 128;
+      data[i + 3] = 255;
+    }
+  return data;
+}
+
+const lenses = new Map<string, string>();
+
+/// The id of an SVG filter that refracts like a glass lens of this size and corner radius,
+/// added to the page the first time it is asked for. Red, green and blue bend by slightly
+/// different amounts, which fringes bright edges with colour as real glass does. Chromium only
+/// (see the top of this file); elsewhere it returns null.
+export function lensFilter(w: number, h: number, r: number): string | null {
+  if (!refracts) return null;
+  w = Math.round(w);
+  h = Math.round(h);
+  r = Math.round(r);
+  if (w < 4 || h < 4) return null;
+  const key = `${w}x${h}r${r}`;
+  const known = lenses.get(key);
+  if (known) return known;
+  const bezel = Math.max(8, Math.min(22, Math.min(w, h) * 0.32));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const image = ctx.createImageData(w, h);
+  image.data.set(lensField(w, h, r, bezel));
+  ctx.putImageData(image, 0, 0);
+  const id = `cadenza-lens-${key}`;
+  // feDisplacementMap moves by `scale` × (value − ½), so a full value moves LENS_REACH × bezel.
+  const scale = 2 * LENS_REACH * bezel;
+  // One colour of the displaced backdrop: keep channel `n` (and alpha), drop the others.
+  const channel = (n: number, k: number, name: string) => {
+    const values = [0, 1, 2]
+      .map((c) => [0, 1, 2, 3, 4].map((j) => (c === n && j === n ? 1 : 0)).join(' '))
+      .concat('0 0 0 1 0')
+      .join('  ');
+    return `<feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * k).toFixed(1)}" xChannelSelector="R" yChannelSelector="G" result="d${name}"/>
+<feColorMatrix in="d${name}" type="matrix" values="${values}" result="${name}"/>`;
+  };
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('width', '0');
+  svg.setAttribute('height', '0');
+  svg.style.position = 'absolute';
+  svg.innerHTML = `<filter id="${id}" x="0" y="0" width="${w}" height="${h}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feImage href="${canvas.toDataURL()}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="map"/>
+${channel(0, 1, 'r')}
+${channel(1, 0.94, 'g')}
+${channel(2, 0.88, 'b')}
+<feBlend in="r" in2="g" mode="screen" result="rg"/>
+<feBlend in="rg" in2="b" mode="screen"/>
+</filter>`;
+  document.body.appendChild(svg);
+  lenses.set(key, id);
+  return id;
+}

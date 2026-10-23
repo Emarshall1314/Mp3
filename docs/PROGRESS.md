@@ -355,6 +355,23 @@ glass.
   - Long-press opens a song's menu on touch screens.
   - Checked in the real app at 412×860 on a virtual display. Not checked: long-press (needs a
     touch screen) and anything on a real phone.
+- **Liquid glass on the phone, after iOS 26** (D58; with Panels set to Liquid Glass):
+  - The tabs float in a glass capsule; a glass lens behind the current tab slides to the next
+    one, stretching like a drop as it goes, and can be dragged along the bar to pick a tab.
+  - Search is a round glass button beside the bar (when Search is one of the tabs).
+  - The player is a glass capsule above the bar. Scrolling down shrinks the bar to the current
+    tab and brings the player in beside it; scrolling up or changing page opens it again.
+  - Pages run under the glass, which is clearer than the desktop's panels; the top of the page
+    blurs away under the status bar.
+  - Rims catch a light that turns as the phone tilts; pressing glass lights it from the finger
+    and it swells a little. The back button is a glass circle.
+  - Android only: each glass shape refracts through a lens fitted to its size and corners, with a
+    colour fringe. Checked in Chromium (the engine of Android's WebView) on a test page, not on
+    the phone. Linux keeps the rest without the bending (D51).
+  - Linux only: the morph when the bar shrinks is left out, because it crashes WebKitGTK.
+  - Tests: the lens field (neutral middle, direction at edges and corners, never folds).
+  - Checked in the real app at phone size: capsule, lens, search button, player, shrinking on
+    scroll, press glow. Not checked: tilt and dragging the lens with a finger (touch screen).
 - Demo script: `docs/demos/M7.md`.
 
 ### Next

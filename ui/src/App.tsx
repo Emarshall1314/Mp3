@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { api, onApiEvent } from './api';
 import { attempt, useStore } from './store';
@@ -29,6 +30,8 @@ import { PhonePlayer } from './components/PhonePlayer';
 import { PhoneTabBar, tabOf } from './components/PhoneTabBar';
 import { usePhone } from './hooks/usePhone';
 import { useLongPress } from './hooks/useLongPress';
+import { useGlassLight, useGlassTouch, useLiquid } from './hooks/useGlass';
+import { refracts } from './theme/liquid';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -166,13 +169,31 @@ function PhoneApp() {
     route.name === tab ||
     (tab === 'library' && route.name === 'library') ||
     (route.name === 'search' && tab === 'search');
+  const liquid = useLiquid();
+  useGlassLight(liquid);
+  useGlassTouch(liquid);
+  const collapsed = useCollapseOnScroll(liquid, route);
+  const app = useRef<HTMLDivElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
+  // Pages leave room at the bottom for the dock floating over them.
+  useLayoutEffect(() => {
+    const el = dock.current;
+    if (!el) return;
+    const fit = () =>
+      app.current?.style.setProperty('--dock-height', `${Math.ceil(el.offsetHeight)}px`);
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="app" data-phone="">
+    <div className="app" data-phone="" ref={app}>
+      {liquid && <div className="phone-edge" aria-hidden />}
       <main className="main phone-main">
         {back && !atTabTop && (
           <div className="phone-top">
             <button
-              className="icon-button"
+              className={`icon-button${liquid ? ' glass-button glass-lit' : ''}`}
               aria-label="Back"
               onClick={() => useStore.getState().goBack()}
             >
@@ -182,8 +203,15 @@ function PhoneApp() {
         )}
         <Main />
       </main>
-      <PhonePlayer />
-      <PhoneTabBar />
+      <div
+        className="phone-dock"
+        ref={dock}
+        data-collapsed={collapsed.value || undefined}
+        data-search={(liquid && tabs.includes('search')) || undefined}
+      >
+        <PhonePlayer liquid={liquid} />
+        <PhoneTabBar liquid={liquid} collapsed={collapsed.value} onExpand={collapsed.expand} />
+      </div>
       <NowPlaying />
       <ContextMenu />
       <SongInfo />
@@ -191,6 +219,49 @@ function PhoneApp() {
       <Toast />
     </div>
   );
+}
+
+/// In liquid glass, scrolling a page down shrinks the tab bar (and brings the player alongside
+/// it); scrolling up, reaching the top or changing page opens it again, as on an iPhone.
+function useCollapseOnScroll(on: boolean, route: unknown) {
+  // The page the bar was shrunk on: on any other page it's open.
+  const [shrunkOn, setShrunkOn] = useState<unknown>(null);
+  const value = on && shrunkOn === route;
+  const page = useRef(route);
+  const current = useRef(value);
+  useLayoutEffect(() => {
+    page.current = route;
+    current.current = value;
+  });
+  const change = useCallback((next: boolean) => {
+    if (current.current === next) return;
+    current.current = next;
+    const set = () => setShrunkOn(next ? page.current : null);
+    const reduce = document.documentElement.hasAttribute('data-reduce-motion');
+    const doc = document as Document & { startViewTransition?: (f: () => void) => unknown };
+    // Morph between the two arrangements on Android. WebKitGTK 2.52 crashes the whole app
+    // when a view transition runs over this layout, so Linux just switches.
+    if (refracts && doc.startViewTransition && !reduce)
+      doc.startViewTransition(() => flushSync(set));
+    else set();
+  }, []);
+  useEffect(() => {
+    if (!on) return;
+    const last = new WeakMap<EventTarget, number>();
+    const onScroll = (e: Event) => {
+      const el = e.target;
+      if (!(el instanceof HTMLElement) || !el.closest('.phone-main')) return;
+      const top = el.scrollTop;
+      const before = last.get(el) ?? top;
+      last.set(el, top);
+      if (top < 24) change(false);
+      else if (top - before > 6) change(true);
+      else if (before - top > 6) change(false);
+    };
+    document.addEventListener('scroll', onScroll, true);
+    return () => document.removeEventListener('scroll', onScroll, true);
+  }, [on, change]);
+  return { value, expand: useCallback(() => change(false), [change]) };
 }
 
 export function App() {
