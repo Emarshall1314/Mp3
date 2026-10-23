@@ -66,10 +66,13 @@ function go(t: TabId, current: TabId, route: Route) {
 }
 
 /// The phone's tabs, in the owner's order (Settings → Layout → Phone). In liquid glass they sit
-/// in a floating capsule with a glass lens behind the current tab, which slides (and stretches
-/// as it goes) to the next one, or follows a finger dragged along the bar; Search becomes a
-/// round button of its own beside the capsule, and while the page scrolls down the capsule
-/// shrinks to the current tab (`collapsed`; tapping it opens the bar again).
+/// in a floating capsule with a glass lens behind the current tab. Changing tab, the lens first
+/// reaches across to the new tab, then lets go of the old one, like a drop of liquid, never
+/// leaving the bar; it can also be dragged along the bar with a finger. Search becomes a round
+/// button of its own beside the capsule. While the page scrolls down the capsule narrows to a
+/// circle round the current tab (`collapsed`; tapping it opens the bar again): the row of tabs
+/// slides so that tab's icon sits in the circle while the rest fade, all real elements in
+/// motion, so the glass stays live throughout.
 export function PhoneTabBar({
   liquid,
   collapsed,
@@ -85,43 +88,55 @@ export function PhoneTabBar({
   const separateSearch = liquid && all.includes('search');
   const tabs = separateSearch ? all.filter((t) => t !== 'search') : all;
   const bar = useRef<HTMLElement>(null);
+  const row = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLButtonElement>(null);
   useLens(bar, liquid);
   useLens(search, separateSearch);
 
-  // The lens: where it is, and a finger dragging it.
-  const [lens, setLens] = useState<{ x: number; w: number } | null>(null);
+  // Where each tab is in the row (measured), and so where the lens goes.
+  const [spots, setSpots] = useState<{ x: number; w: number }[]>([]);
+  const index = tabs.indexOf(current);
+  // Collapsed, the current tab (Library while on Search) is the one in the circle.
+  const shown = index < 0 ? Math.max(0, tabs.indexOf('library')) : index;
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const measure = () =>
+      setSpots(
+        [...el.querySelectorAll<HTMLElement>(':scope > button')].map((b) => ({
+          x: b.offsetLeft,
+          w: b.offsetWidth,
+        })),
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tabs.length]);
+
+  // The lens: reaching from the old tab to the new one, then settling on the new one.
+  const [reach, setReach] = useState<{ x: number; w: number } | null>(null);
+  const last = useRef(index);
+  useLayoutEffect(() => {
+    const from = spots[last.current];
+    const to = spots[index];
+    last.current = index;
+    if (!from || !to || from === to) return;
+    const left = Math.min(from.x, to.x);
+    setReach({ x: left, w: Math.max(from.x + from.w, to.x + to.w) - left });
+    const t = setTimeout(() => setReach(null), 150);
+    return () => clearTimeout(t);
+    // Only a change of tab moves the lens; re-measuring places it directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
   const [drag, setDrag] = useState<number | null>(null);
-  const [moving, setMoving] = useState(false);
   const dragFrom = useRef<{ x: number; moved: boolean } | null>(null);
   const dragged = useRef(false);
-  const index = tabs.indexOf(current);
-  useLayoutEffect(() => {
-    const nav = bar.current;
-    if (!nav || !liquid) return;
-    const place = () => {
-      const button = nav.querySelectorAll<HTMLElement>('button')[index];
-      setLens(button ? { x: button.offsetLeft, w: button.offsetWidth } : null);
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(nav);
-    return () => observer.disconnect();
-  }, [index, liquid, collapsed, tabs.length]);
-  const first = useRef(true);
-  useLayoutEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    setMoving(true);
-    const t = setTimeout(() => setMoving(false), 420);
-    return () => clearTimeout(t);
-  }, [index]);
+  const lens = index >= 0 ? spots[index] : undefined;
 
   // The tab whose middle is nearest a finger at `clientX`.
   const tabAt = (clientX: number): TabId => {
-    const buttons = [...(bar.current?.querySelectorAll<HTMLElement>('button') ?? [])];
+    const buttons = [...(row.current?.querySelectorAll<HTMLElement>(':scope > button') ?? [])];
     const gaps = buttons.map((b) => {
       const box = b.getBoundingClientRect();
       return Math.abs(clientX - (box.left + box.width / 2));
@@ -129,7 +144,12 @@ export function PhoneTabBar({
     return tabs[gaps.indexOf(Math.min(...gaps))] ?? current;
   };
 
-  const draggable = liquid && !collapsed && lens !== null;
+  // Collapsed, the row slides so the shown tab's middle is the circle's middle (27 px into the
+  // 54 px inside the circle).
+  const spot = spots[shown];
+  const slide = collapsed && spot ? spot.x + spot.w / 2 - 27 : 0;
+  const draggable = liquid && !collapsed && lens !== undefined;
+  const at = drag !== null ? { x: drag, w: lens?.w ?? 0 } : (reach ?? lens);
   return (
     <>
       <nav
@@ -142,16 +162,12 @@ export function PhoneTabBar({
         }}
         onPointerMove={(e) => {
           const from = dragFrom.current;
-          const nav = bar.current;
-          if (!from || !nav || !lens) return;
+          const box = row.current?.getBoundingClientRect();
+          if (!from || !box || !lens) return;
           if (!from.moved && Math.abs(e.clientX - from.x) < 8) return;
           from.moved = true;
-          const box = nav.getBoundingClientRect();
-          const x = Math.max(
-            4,
-            Math.min(box.width - lens.w - 4, e.clientX - box.left - lens.w / 2),
-          );
-          setDrag(x);
+          // Inside the row, so the lens never leaves the bar.
+          setDrag(Math.max(0, Math.min(box.width - lens.w, e.clientX - box.left - lens.w / 2)));
         }}
         onPointerUp={(e) => {
           const from = dragFrom.current;
@@ -171,33 +187,41 @@ export function PhoneTabBar({
           if (dragged.current) e.stopPropagation();
         }}
       >
-        {liquid && lens && !collapsed && (
-          <span
-            className="phone-tab-lens"
-            data-moving={moving || undefined}
-            data-dragging={drag !== null || undefined}
-            style={{ width: lens.w, transform: `translateX(${drag ?? lens.x}px)` }}
-            aria-hidden
-          />
-        )}
-        {tabs.map((t) => {
-          const Icon = ICONS[t];
-          const on = current === t;
-          // Collapsed, the bar keeps only the current tab (Library while on Search).
-          if (collapsed && !on && !(index < 0 && t === 'library')) return null;
-          return (
-            <button
-              key={t}
-              className={on ? 'on' : ''}
-              aria-current={on ? 'page' : undefined}
-              aria-label={collapsed ? `${TAB_LABELS[t]}: show all tabs` : undefined}
-              onClick={() => (collapsed ? onExpand() : go(t, current, route))}
-            >
-              <Icon size={22} aria-hidden />
-              {!collapsed && <span>{TAB_LABELS[t]}</span>}
-            </button>
-          );
-        })}
+        <div
+          ref={row}
+          className="phone-tabs-row"
+          style={liquid ? { transform: `translateX(${-slide}px)` } : undefined}
+        >
+          {liquid && at && (
+            <span
+              className="phone-tab-lens"
+              data-reaching={reach !== null || undefined}
+              data-dragging={drag !== null || undefined}
+              style={{ width: at.w, transform: `translateX(${at.x}px)` }}
+              aria-hidden
+            />
+          )}
+          {tabs.map((t, i) => {
+            const Icon = ICONS[t];
+            const on = current === t;
+            const hidden = collapsed && i !== shown;
+            return (
+              <button
+                key={t}
+                className={on ? 'on' : ''}
+                aria-current={on ? 'page' : undefined}
+                aria-hidden={hidden || undefined}
+                tabIndex={hidden ? -1 : undefined}
+                aria-label={collapsed && !hidden ? `${TAB_LABELS[t]}: show all tabs` : undefined}
+                data-faded={hidden || undefined}
+                onClick={() => (collapsed ? onExpand() : go(t, current, route))}
+              >
+                <Icon size={22} aria-hidden />
+                <span>{TAB_LABELS[t]}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
       {separateSearch && (
         <button

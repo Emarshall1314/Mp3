@@ -41,6 +41,13 @@ interface Store {
   forward: Route[];
   navigate: (r: Route) => void;
   goBack: () => void;
+  /// Where the playing music was started from, and the pages behind it then.
+  playedFrom: { route: Route; back: Route[] } | null;
+  /// Notes the current page as where music started (or the album, if one was played from a
+  /// grid or shelf, with the current page behind it).
+  notePlaySource: (album?: number) => void;
+  /// Goes back to where the music came from, with the history it had then.
+  goToPlaySource: () => void;
   goForward: () => void;
 
   player: PlayerState | null;
@@ -101,6 +108,22 @@ export const useStore = create<Store>((set, get) => ({
     const cur = get().route;
     if (JSON.stringify(cur) === JSON.stringify(r)) return;
     set({ route: r, back: [...get().back, cur].slice(-50), forward: [] });
+  },
+  playedFrom: null,
+  notePlaySource: (album) => {
+    const { route, back } = get();
+    if (album !== undefined && !(route.name === 'album' && route.id === album))
+      set({
+        playedFrom: { route: { name: 'album', id: album }, back: [...back, route].slice(-50) },
+      });
+    else set({ playedFrom: { route, back } });
+  },
+  goToPlaySource: () => {
+    const from = get().playedFrom;
+    if (!from) return;
+    const { route } = get();
+    if (JSON.stringify(route) === JSON.stringify(from.route)) return;
+    set({ route: from.route, back: from.back, forward: [] });
   },
   goBack: () => {
     const back = get().back;

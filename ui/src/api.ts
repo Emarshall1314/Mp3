@@ -64,6 +64,19 @@ export function whenOpen(): Promise<void> {
   return opened;
 }
 
+let onPlay: ((album?: number) => void) | null = null;
+
+/// Called whenever a new queue starts from a page (an album, a list of songs), so the app can
+/// remember where the music came from (swiping right in Now Playing goes back there).
+export function setPlayListener(listener: (album?: number) => void) {
+  onPlay = listener;
+}
+
+function played<T>(call: Promise<T>, album?: number): Promise<T> {
+  onPlay?.(album);
+  return call;
+}
+
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   await whenOpen();
   return call<T>(command, args);
@@ -93,11 +106,11 @@ export const api = {
   saveSearch: (name: string, query: string) => invoke<SavedSearch>('save_search', { name, query }),
   deleteSavedSearch: (id: number) => invoke<null>('delete_saved_search', { id }),
   playTracks: (ids: number[], start: number, shuffle = false) =>
-    invoke<null>('play_tracks', { ids, start, shuffle }),
+    played(invoke<null>('play_tracks', { ids, start, shuffle })),
   playAlbum: (albumId: number, start: number, shuffle = false) =>
-    invoke<null>('play_album', { albumId, start, shuffle }),
+    played(invoke<null>('play_album', { albumId, start, shuffle }), albumId),
   playSongs: (sort: SongSort, desc: boolean, index: number, shuffle = false) =>
-    invoke<null>('play_songs', { sort, desc, index, shuffle }),
+    played(invoke<null>('play_songs', { sort, desc, index, shuffle })),
   playNext: (ids: number[]) => invoke<null>('play_next', { ids }),
   playLater: (ids: number[]) => invoke<null>('play_later', { ids }),
   player: () => invoke<PlayerState>('player'),

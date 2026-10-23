@@ -37,9 +37,16 @@ export function useLens(ref: RefObject<HTMLElement | null>, on: boolean) {
       else el.style.removeProperty('--lens');
     };
     fit();
-    const observer = new ResizeObserver(fit);
+    // While a shape is animating (the tab bar narrowing) it resizes every frame; a new lens is
+    // drawn once it has settled, not on each frame.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(fit, 140);
+    });
     observer.observe(el);
     return () => {
+      clearTimeout(timer);
       observer.disconnect();
       el.style.removeProperty('--lens');
     };

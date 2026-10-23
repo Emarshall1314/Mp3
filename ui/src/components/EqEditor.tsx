@@ -6,6 +6,7 @@ import { attempt } from '../store';
 import type { DspSettings, EqBand, FilterKind } from '../types';
 import { Range } from './Range';
 import { Select } from './Select';
+import { SegmentLens } from './SegmentLens';
 
 const GRAPHIC_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const GRAPHIC_Q = 1.41;
@@ -69,6 +70,7 @@ export function EqEditor({
       <EqCurve preampDb={dsp.preampDb} bands={dsp.eqEnabled ? bands : []} />
       <div className="eq-toolbar">
         <div className="segmented" role="radiogroup" aria-label="EQ type">
+          <SegmentLens />
           <button
             role="radio"
             aria-checked={!parametric}

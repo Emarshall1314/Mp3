@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ListMusic,
@@ -17,6 +17,7 @@ import { LyricsView } from './LyricsView';
 import { useModal } from '../hooks/useModal';
 import { useLook } from '../hooks/useAppearance';
 import { useLens, useLiquid } from '../hooks/useGlass';
+import { NO_SWIPE, swipeAxis, swipeDone } from '../hooks/useSwipeBack';
 import { Visualizer } from './Visualizer';
 import { Scrubber } from './PlayerBar';
 import { QueuePanel } from './QueuePanel';
@@ -67,10 +68,9 @@ export function NowPlaying() {
   const glass = liquid ? ' glass-button glass-lit' : '';
   const playButton = useRef<HTMLButtonElement>(null);
   useLens(playButton, liquid && open);
-  // Where a swipe down from the top began.
-  const grab = useRef<number | null>(null);
   const close = useCallback(() => setOpen(false), [setOpen]);
   useModal(open, dialog, close);
+  useSheetGestures(dialog, open && phone, close);
 
   if (!open) return null;
   // The last song's colours stay until the new song's arrive, then fade across (no flash of
@@ -120,23 +120,7 @@ export function NowPlaying() {
         ))}
       </div>
       {phone && (
-        <div
-          className="np-grab"
-          aria-hidden
-          onPointerDown={(e) => {
-            grab.current = e.clientY;
-            e.currentTarget.setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (grab.current !== null && e.clientY - grab.current > 60) {
-              grab.current = null;
-              close();
-            }
-          }}
-          onPointerUp={() => {
-            grab.current = null;
-          }}
-        >
+        <div className="np-grab" aria-hidden>
           <span />
         </div>
       )}
@@ -204,4 +188,77 @@ export function NowPlaying() {
       </div>
     </div>
   );
+}
+
+/// Now Playing on a phone follows the finger: dragged down it slides away (closing), swiped right
+/// it slides off to where the music was started from (the album or page), and either springs
+/// back if let go too soon.
+function useSheetGestures(ref: RefObject<HTMLElement | null>, on: boolean, close: () => void) {
+  useEffect(() => {
+    const sheet = ref.current;
+    if (!sheet || !on) return;
+    let start: { x: number; y: number; t: number } | null = null;
+    let axis: 'x' | 'y' | null = null;
+    let moved = 0;
+    const down = (e: PointerEvent) => {
+      if (e.button !== 0 || (e.target as Element).closest(NO_SWIPE)) return;
+      start = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+      axis = null;
+    };
+    const move = (e: PointerEvent) => {
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      axis ??= swipeAxis(dx, dy);
+      // Lyrics and the queue scroll up and down themselves.
+      if (axis === 'y' && (e.target as Element).closest('.np-panel')) axis = null;
+      if (!axis) return;
+      const d = Math.max(0, axis === 'x' ? dx : dy);
+      sheet.style.transition = 'none';
+      sheet.style.transform =
+        axis === 'x' ? `translateX(${d}px) scale(${1 - d / 4000})` : `translateY(${d}px)`;
+      sheet.style.borderRadius = `${Math.min(36, d / 4)}px`;
+    };
+    const up = (e: PointerEvent) => {
+      const from = start;
+      start = null;
+      if (!from || !axis) return;
+      moved = e.timeStamp;
+      const d = axis === 'x' ? e.clientX - from.x : e.clientY - from.y;
+      const size = axis === 'x' ? innerWidth : innerHeight;
+      if (swipeDone(d, e.timeStamp - from.t, size)) {
+        sheet.style.transition = 'transform 220ms ease-in';
+        sheet.style.transform =
+          axis === 'x' ? `translateX(${innerWidth}px)` : `translateY(${innerHeight}px)`;
+        const toSource = axis === 'x';
+        setTimeout(() => {
+          close();
+          if (toSource) useStore.getState().goToPlaySource();
+        }, 200);
+      } else {
+        sheet.style.transition = 'transform 420ms var(--ease-spring), border-radius 300ms';
+        sheet.style.transform = '';
+        sheet.style.borderRadius = '';
+      }
+      axis = null;
+    };
+    const click = (e: MouseEvent) => {
+      if (e.timeStamp - moved < 400) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+    sheet.addEventListener('pointerdown', down);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    sheet.addEventListener('click', click, true);
+    return () => {
+      sheet.removeEventListener('pointerdown', down);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      sheet.removeEventListener('click', click, true);
+    };
+  }, [ref, on, close]);
 }

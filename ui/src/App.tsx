@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
-import { api, onApiEvent } from './api';
+import { api, onApiEvent, setPlayListener } from './api';
 import { attempt, useStore } from './store';
 import { useAppearance, useLook } from './hooks/useAppearance';
 import { useCurrentTrack } from './hooks/useCurrentTrack';
@@ -31,7 +30,7 @@ import { PhoneTabBar, tabOf } from './components/PhoneTabBar';
 import { usePhone } from './hooks/usePhone';
 import { useLongPress } from './hooks/useLongPress';
 import { useGlassLight, useGlassTouch, useLiquid } from './hooks/useGlass';
-import { refracts } from './theme/liquid';
+import { useSwipeBack } from './hooks/useSwipeBack';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -170,11 +169,16 @@ function PhoneApp() {
     (tab === 'library' && route.name === 'library') ||
     (route.name === 'search' && tab === 'search');
   const liquid = useLiquid();
+  const playing = useStore((s) => s.player?.trackId != null);
   useGlassLight(liquid);
   useGlassTouch(liquid);
   const collapsed = useCollapseOnScroll(liquid, route);
   const app = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
+  const main = useRef<HTMLElement>(null);
+  useSwipeBack(main, true);
+  // Remember where music is started from, for Now Playing's swipe back to it.
+  useEffect(() => setPlayListener((album) => useStore.getState().notePlaySource(album)), []);
   // Pages leave room at the bottom for the dock floating over them.
   useLayoutEffect(() => {
     const el = dock.current;
@@ -189,7 +193,7 @@ function PhoneApp() {
   return (
     <div className="app" data-phone="" ref={app}>
       {liquid && <div className="phone-edge" aria-hidden />}
-      <main className="main phone-main">
+      <main className="main phone-main" ref={main}>
         {back && !atTabTop && (
           <div className="phone-top">
             <button
@@ -208,6 +212,7 @@ function PhoneApp() {
         ref={dock}
         data-collapsed={collapsed.value || undefined}
         data-search={(liquid && tabs.includes('search')) || undefined}
+        data-player={playing || undefined}
       >
         <PhonePlayer liquid={liquid} />
         <PhoneTabBar liquid={liquid} collapsed={collapsed.value} onExpand={collapsed.expand} />
@@ -236,14 +241,8 @@ function useCollapseOnScroll(on: boolean, route: unknown) {
   const change = useCallback((next: boolean) => {
     if (current.current === next) return;
     current.current = next;
-    const set = () => setShrunkOn(next ? page.current : null);
-    const reduce = document.documentElement.hasAttribute('data-reduce-motion');
-    const doc = document as Document & { startViewTransition?: (f: () => void) => unknown };
-    // Morph between the two arrangements on Android. WebKitGTK 2.52 crashes the whole app
-    // when a view transition runs over this layout, so Linux just switches.
-    if (refracts && doc.startViewTransition && !reduce)
-      doc.startViewTransition(() => flushSync(set));
-    else set();
+    // The dock animates between its two arrangements itself (main.css), so this only flips it.
+    setShrunkOn(next ? page.current : null);
   }, []);
   useEffect(() => {
     if (!on) return;
@@ -252,8 +251,11 @@ function useCollapseOnScroll(on: boolean, route: unknown) {
       const el = e.target;
       if (!(el instanceof HTMLElement) || !el.closest('.phone-main')) return;
       const top = el.scrollTop;
-      const before = last.get(el) ?? top;
+      const before = last.get(el);
       last.set(el, top);
+      // Only up-and-down scrolling counts: a shelf scrolled sideways keeps scrollTop 0, which
+      // would read as "back at the top".
+      if (before === undefined || before === top) return;
       if (top < 24) change(false);
       else if (top - before > 6) change(true);
       else if (before - top > 6) change(false);

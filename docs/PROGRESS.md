@@ -394,6 +394,25 @@ glass.
     text on it.
   - Tests: artwork sizes snap to the cached sizes; calls wait for the core to open.
   - Checked in the real app at phone size. Smoothness needs the phone.
+- **Motion and swipes (owner's second look):**
+  - No flash of the default artwork between songs: the previous song stays until the next
+    song's details arrive, and a picture stays until its replacement has loaded (then fades
+    in). A failed picture is tried once more before the placeholder shows.
+  - The dock's shrink on scroll is real elements moving (the capsule narrows to a circle, the
+    tab row slides so the current icon sits in it, the player glides alongside), so it is smooth
+    and the glass stays live; it now animates on Linux too. View transitions are gone.
+  - The tab lens reaches to the new tab and then lets go of the old one, always inside the bar;
+    dragging it swells it only within the bar.
+  - More give: every segmented control has a sliding, stretching highlight; buttons, cards and
+    rows squish slightly under a finger and spring back; the mini player stretches as it's
+    pulled up; Now Playing follows the finger when dragged down.
+  - **Swipe right to go back** on any page (the page follows the finger). In Now Playing,
+    swiping right goes to where the music was started from (the album or page), with the
+    history it had then, so swiping again goes back to the grid or list it was chosen from.
+  - Pictures and links aren't natively draggable any more (a drag swallowed the rest of a swipe).
+  - Search results: the albums row is no longer squashed.
+  - Tests: swipe direction and completion rules; where music came from.
+  - Checked in the real app with mouse drags (the same pointer events as touch).
 - Demo script: `docs/demos/M7.md`.
 
 ### Next
@@ -406,8 +425,10 @@ glass.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **M7: Mobile** (in progress): see the M7 section of `docs/ROADMAP.md`. The first job is the
-   Android settings reset (Known issues; fix waiting for the phone).
+3. **M7: Mobile** (in progress): see the M7 section of `docs/ROADMAP.md`. The Android settings
+   reset is fixed on the phone (owner's build, October 2026).
+   - **Home recommendations:** options put to the owner (from their own library and listening,
+     or with an opt-in online source for music they don't have); waiting for their choice.
 4. **Revisit later: sync on real devices.** The owner can't test sync yet. When possible, run
    `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud), and fix whatever it
    finds before more sync features are built.

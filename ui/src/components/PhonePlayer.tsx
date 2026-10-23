@@ -21,6 +21,14 @@ export function PhonePlayer({ liquid }: { liquid: boolean }) {
   if (!track || !player) return null;
   const playing = player.status === 'playing';
   const open = () => useStore.getState().setNowPlaying(true);
+  // Springs back from a pull.
+  const settle = () => {
+    const el = self.current;
+    if (!el) return;
+    el.style.transition = '';
+    el.style.translate = '';
+    el.style.scale = '';
+  };
   const progress = player.durationMs ? Math.min(1, position / player.durationMs) : 0;
   return (
     <div
@@ -36,14 +44,26 @@ export function PhonePlayer({ liquid }: { liquid: boolean }) {
         from.current = e.clientY;
       }}
       onPointerMove={(e) => {
-        // A swipe up opens Now Playing.
-        if (from.current !== null && from.current - e.clientY > 40) {
+        // Pulled up, the player stretches after the finger; far enough, Now Playing opens.
+        const el = self.current;
+        if (from.current === null || !el) return;
+        const pull = Math.max(0, from.current - e.clientY);
+        el.style.transition = 'none';
+        el.style.translate = `0 ${-pull * 0.35}px`;
+        el.style.scale = `${1 + pull / 1600} ${1 + pull / 500}`;
+        if (pull > 60) {
           from.current = null;
+          settle();
           open();
         }
       }}
       onPointerUp={() => {
         from.current = null;
+        settle();
+      }}
+      onPointerCancel={() => {
+        from.current = null;
+        settle();
       }}
     >
       <Artwork hash={track.artHash} size={style === 'minimal' ? 40 : 48} alt="" />

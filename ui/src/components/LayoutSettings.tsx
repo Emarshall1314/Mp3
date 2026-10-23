@@ -23,6 +23,7 @@ import {
   move,
 } from '../theme/layout';
 import { useStore } from '../store';
+import { SegmentLens } from './SegmentLens';
 
 function Segmented<T extends string>({
   label,
@@ -37,6 +38,7 @@ function Segmented<T extends string>({
 }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
+      <SegmentLens />
       {options.map(([v, text]) => (
         <button
           key={v}

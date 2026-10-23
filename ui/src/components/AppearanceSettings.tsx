@@ -17,6 +17,7 @@ import {
 import type { Appearance, Theme } from '../types';
 import { ThemeEditor } from './ThemeEditor';
 import { Select } from './Select';
+import { SegmentLens } from './SegmentLens';
 
 const MODES: { theme: Theme; label: string }[] = [
   { theme: 'auto', label: 'Auto' },
@@ -37,6 +38,7 @@ function Segmented<T extends string>({
 }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
+      <SegmentLens />
       {options.map((o) => (
         <button
           key={o.value}

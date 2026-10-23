@@ -3,7 +3,8 @@ import { api } from '../api';
 import { useStore } from '../store';
 import type { TrackRow } from '../types';
 
-/// The library row of the current track (null while loading or when nothing plays).
+/// The library row of the current track; null when nothing plays. While the next track's row
+/// loads, the previous one stays, so the player and artwork don't blink empty between songs.
 export function useCurrentTrack(): TrackRow | null {
   const trackId = useStore((s) => s.player?.trackId ?? null);
   const [track, setTrack] = useState<TrackRow | null>(null);
@@ -15,5 +16,5 @@ export function useCurrentTrack(): TrackRow | null {
       live = false;
     };
   }, [trackId]);
-  return track && track.id === trackId ? track : null;
+  return trackId === null ? null : track;
 }

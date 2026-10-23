@@ -12,6 +12,7 @@ import {
   over,
   parseColor,
 } from '../theme/look';
+import { SegmentLens } from './SegmentLens';
 
 const hex = (css: string) => {
   const c = parseColor(css);
@@ -100,6 +101,7 @@ export function ThemeEditor({
           />
           <span>Kind</span>
           <div className="segmented" role="radiogroup" aria-label="Kind">
+            <SegmentLens />
             {(['light', 'dark'] as Scheme[]).map((s) => (
               <button
                 key={s}

@@ -13,6 +13,7 @@ import type {
 import { EqEditor } from '../components/EqEditor';
 import { Range } from '../components/Range';
 import { Select } from '../components/Select';
+import { SegmentLens } from '../components/SegmentLens';
 
 const DEFAULT_DSP: DspSettings = {
   preampDb: 0,
@@ -115,6 +116,7 @@ export function SoundView() {
           measurement for files without them. Files are never changed.
         </p>
         <div className="segmented" role="radiogroup" aria-label="ReplayGain mode">
+          <SegmentLens />
           {RG_MODES.map(({ mode, label }) => (
             <button
               key={mode}

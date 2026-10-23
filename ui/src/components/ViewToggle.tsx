@@ -1,5 +1,6 @@
 import { Columns3, LayoutGrid, List } from 'lucide-react';
 import type { AlbumsView } from '../theme/layout';
+import { SegmentLens } from './SegmentLens';
 
 /// Grid, list (or columns) for a section; the choice becomes the section's default view.
 export function ViewToggle<T extends AlbumsView>({
@@ -14,6 +15,7 @@ export function ViewToggle<T extends AlbumsView>({
 }) {
   return (
     <div className="segmented icons" role="radiogroup" aria-label="View">
+      <SegmentLens />
       {(
         [
           ['grid', 'Grid', LayoutGrid],

@@ -72,6 +72,13 @@ button:disabled {
   opacity: 0.4;
 }
 
+/* Pictures and links aren't picked up and dragged by the web view: a drag would swallow the
+ * rest of a swipe. Things meant to be dragged (queue rows, column headers) say so. */
+img,
+a {
+  -webkit-user-drag: none;
+}
+
 /* No grey-blue box from the web view where a finger taps: presses have their own feedback,
  * shaped like what is pressed. */
 html {
@@ -387,11 +394,32 @@ input[type='range']::-webkit-slider-thumb {
   background: var(--color-placeholder);
 }
 
+.artwork {
+  position: relative;
+}
+
 .artwork img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* The previous picture under the new one while it loads (components/Artwork.tsx). */
+.artwork img.artwork-previous {
+  position: absolute;
+  inset: 0;
+}
+
+.artwork img[data-fade] {
+  position: relative;
+  animation: art-in 260ms ease-out;
+}
+
+@keyframes art-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .artwork.round {
@@ -490,6 +518,8 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 .card-row {
+  /* Never squeezed by a page laid out as a column (search results cut the albums in half). */
+  flex: none;
   overflow-x: auto;
 }
 
@@ -1240,6 +1270,48 @@ input[type='range']::-webkit-slider-thumb {
 .segmented button.on {
   background: var(--color-bg);
   box-shadow: 0 1px 2px rgb(0 0 0 / 15%);
+}
+
+/* The moving highlight (components/SegmentLens.tsx) takes over from the selected button's own. */
+.segmented {
+  position: relative;
+}
+
+.segmented button {
+  position: relative;
+  z-index: 1;
+}
+
+.segmented:has(> .segment-lens) button.on {
+  background: none;
+  box-shadow: none;
+}
+
+.segment-lens {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: calc(var(--radius-s) - 2px);
+  background: var(--color-bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 15%);
+  pointer-events: none;
+  transition:
+    transform 380ms var(--ease-spring),
+    width 380ms var(--ease-spring),
+    scale 140ms ease-out;
+}
+
+.segment-lens[data-reaching] {
+  transition:
+    transform 140ms ease-out,
+    width 140ms ease-out,
+    scale 140ms ease-out;
+  scale: 1 0.88;
+}
+
+.app[data-phone] .segment-lens,
+:root[data-panels='liquid'] .segment-lens {
+  border-radius: var(--radius-pill);
 }
 
 .slider-row {
@@ -3360,6 +3432,12 @@ kbd {
   border-top: 1px solid var(--color-separator);
 }
 
+.phone-tabs-row {
+  display: flex;
+  flex: 1;
+  justify-content: space-around;
+}
+
 .phone-tabs button {
   flex: 1;
   min-width: 0;
@@ -3612,33 +3690,6 @@ kbd {
   scroll-padding-bottom: var(--dock-height, 140px);
 }
 
-:root[data-panels='liquid'] .phone-dock {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    'player player'
-    'tabs search';
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px calc(env(safe-area-inset-bottom, 0px) + 10px);
-}
-
-:root[data-panels='liquid'] .phone-dock:not([data-search]) {
-  grid-template-areas:
-    'player player'
-    'tabs tabs';
-}
-
-:root[data-panels='liquid'] .phone-dock[data-collapsed] {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: 'tabs player search';
-}
-
-:root[data-panels='liquid'] .phone-dock[data-collapsed]:not([data-search]) {
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: 'tabs player';
-}
-
 /* The page fades out of sight under the dock. */
 :root[data-panels='liquid'] .phone-dock::before {
   content: '';
@@ -3672,12 +3723,58 @@ kbd {
     saturate(190%);
 }
 
+/* The dock's pieces sit at fixed places and glide between the two arrangements: the tab
+ * capsule (narrowing to a circle when collapsed), the player above it (or beside it), and the
+ * round Search button. Real elements move, so the glass stays live and nothing is resampled. */
+:root[data-panels='liquid'] .phone-dock {
+  --edge: 14px;
+  --bar: 62px;
+  --base: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  --search-room: 0px;
+  /* In vw, not %: the row inside the capsule keeps this width while the capsule narrows. */
+  --tabs-full: calc(100vw - 2 * var(--edge) - var(--search-room));
+  --glide: 460ms var(--ease-spring);
+
+  height: calc(var(--base) + var(--bar));
+}
+
+:root[data-panels='liquid'] .phone-dock[data-search] {
+  --search-room: calc(var(--bar) + 10px);
+}
+
+:root[data-panels='liquid'] .phone-dock[data-player] {
+  height: calc(var(--base) + 2 * var(--bar) + 10px);
+}
+
 :root[data-panels='liquid'] .phone-dock .phone-tabs {
-  grid-area: tabs;
-  min-width: 0;
-  padding: 4px;
+  position: absolute;
+  left: var(--edge);
+  bottom: var(--base);
+  width: var(--tabs-full);
+  height: var(--bar);
+  padding: 0;
+  overflow: hidden;
   border: 0;
   border-radius: var(--radius-pill);
+  transition:
+    width var(--glide),
+    scale 320ms var(--ease-spring);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs[data-collapsed] {
+  width: var(--bar);
+}
+
+/* The row keeps its full width while the capsule narrows; it slides so the current tab sits in
+ * the circle (PhoneTabBar sets the slide). */
+:root[data-panels='liquid'] .phone-tabs-row {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(var(--tabs-full) - 8px);
+  display: flex;
+  transition: transform var(--glide);
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs button {
@@ -3688,21 +3785,38 @@ kbd {
   font-size: 10.5px;
   font-weight: 500;
   color: var(--color-text);
+  transition: opacity 220ms;
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs button.on {
   color: var(--color-accent);
 }
 
-:root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-tabs button {
-  width: 54px;
-  flex: none;
+:root[data-panels='liquid'] .phone-dock .phone-tabs button[data-faded] {
+  opacity: 0;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs button span {
+  transition: opacity 180ms;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs button svg {
+  transition: translate var(--glide);
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-tabs[data-collapsed] button span {
+  opacity: 0;
+}
+
+/* Collapsed, the icon drops to the middle of the circle where the label was. */
+:root[data-panels='liquid'] .phone-dock .phone-tabs[data-collapsed] button svg {
+  translate: 0 8px;
 }
 
 .phone-tab-lens {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 0;
+  bottom: 0;
   left: 0;
   border-radius: var(--radius-pill);
   background: var(--lens-tint);
@@ -3710,43 +3824,56 @@ kbd {
     inset 0 1px 0 rgb(255 255 255 / 25%),
     inset 0 -1px 0 rgb(255 255 255 / 6%);
   transition:
-    transform 420ms var(--ease-spring),
-    width 420ms var(--ease-spring),
-    scale 260ms var(--ease-spring),
+    transform 400ms var(--ease-spring),
+    width 400ms var(--ease-spring),
+    scale 300ms var(--ease-spring),
+    opacity 200ms,
     background-color 200ms;
 }
 
-/* Sliding to another tab, the lens stretches like a drop of liquid. */
-.phone-tab-lens[data-moving] {
-  animation: lens-stretch 420ms var(--ease-spring);
+/* Changing tab, the lens first reaches across to the new tab, thinning a little as it
+ * stretches, then lets go of the old one. It never leaves the row. */
+.phone-tab-lens[data-reaching] {
+  transition:
+    transform 150ms ease-out,
+    width 150ms ease-out,
+    scale 150ms ease-out;
+  scale: 1 0.9;
 }
 
-@keyframes lens-stretch {
-  35% {
-    scale: 1.22 0.84;
-  }
-}
-
-/* Held and dragged, it lifts out of the bar as a clear magnifying lens. */
+/* Held and dragged, it brightens into a clear lens, swelling only as far as the bar allows. */
 .phone-tab-lens[data-dragging] {
   transition:
     scale 260ms var(--ease-spring),
     background-color 200ms;
-  scale: 1.18 1.1;
+  scale: 1.03 1.06;
   background: rgb(255 255 255 / 18%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 70%),
-    inset 0 -1px 1px rgb(255 255 255 / 30%),
-    0 6px 18px rgb(0 0 0 / 20%);
+    inset 0 -1px 1px rgb(255 255 255 / 30%);
+}
+
+.phone-tabs[data-collapsed] .phone-tab-lens {
+  opacity: 0;
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-player {
-  grid-area: player;
+  position: absolute;
+  left: var(--edge);
+  right: var(--edge);
+  bottom: calc(var(--base) + var(--bar) + 10px);
+  height: var(--bar);
   margin: 0;
   min-width: 0;
   padding: 6px 10px 6px 6px;
   border: 0;
   border-radius: var(--radius-pill);
+  transition:
+    left var(--glide),
+    right var(--glide),
+    bottom var(--glide),
+    translate 420ms var(--ease-spring),
+    scale 420ms var(--ease-spring);
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-player .artwork {
@@ -3754,17 +3881,20 @@ kbd {
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-player[data-style='minimal'] {
-  justify-self: end;
+  left: calc(100% - var(--edge) - 116px);
 }
 
+/* Collapsed: the player drops into the gap between the circle and Search. */
 :root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-player {
-  justify-self: stretch;
-  min-height: 62px;
+  left: calc(var(--edge) + var(--bar) + 10px);
+  right: calc(var(--edge) + var(--search-room));
+  bottom: var(--base);
 }
 
 .phone-search-button {
-  grid-area: search;
-  position: relative;
+  position: absolute;
+  right: var(--edge, 14px);
+  bottom: var(--base, 10px);
   display: grid;
   place-items: center;
   width: 62px;
@@ -3855,30 +3985,16 @@ kbd {
   scale: 1.1;
 }
 
-/* The bar and the player morph between their two arrangements (where the web view can). */
-:root[data-panels='liquid'] .phone-dock .phone-tabs {
-  view-transition-name: phone-tabs;
-}
-
-:root[data-panels='liquid'] .phone-dock .phone-player {
-  view-transition-name: phone-player;
-}
-
-:root[data-panels='liquid'] .phone-dock .phone-search-button {
-  view-transition-name: phone-search;
-}
-
-::view-transition-group(*) {
-  animation-duration: 380ms;
-  animation-timing-function: var(--ease-spring);
-}
-
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;
-}
-
-:root[data-reduce-motion] :is(.phone-tab-lens, .glass-lit, .glass-lit::after) {
+:root[data-reduce-motion]
+  :is(
+    .phone-tab-lens,
+    .glass-lit,
+    .glass-lit::after,
+    .phone-tabs,
+    .phone-tabs-row,
+    .phone-player,
+    .phone-tabs svg
+  ) {
   transition: none;
   animation: none;
 }
@@ -4130,4 +4246,73 @@ kbd {
 .app[data-phone] .pill {
   min-height: 38px;
   padding: 0 var(--space-4);
+}
+
+/* ---- Touch feel on the phone ----
+ * Pressed things give a little under the finger and spring back (glass swells instead, see
+ * .glass-lit). Pages scroll up and down natively but leave sideways swipes to the app (going
+ * back); shelves still scroll sideways themselves. */
+.app[data-phone]
+  :is(button, [role='button'], .album-art-button):not(
+    .glass-lit,
+    .phone-tabs button,
+    .segmented button,
+    .np-play
+  ) {
+  transition:
+    scale 420ms var(--ease-spring),
+    background-color 150ms,
+    color 150ms,
+    opacity 150ms;
+}
+
+.app[data-phone]
+  :is(button, [role='button'], .album-art-button):not(
+    .glass-lit,
+    .phone-tabs button,
+    .segmented button,
+    .np-play
+  ):active {
+  scale: 0.94;
+  transition-duration: 90ms;
+}
+
+/* Long rows give less, or they'd seem to fall away. */
+.app[data-phone] :is(.library-row, .song-row, .queue-row):active,
+.app[data-phone] .song-row:has(:active) {
+  scale: 0.98;
+}
+
+.app[data-phone] .segmented button:active {
+  scale: 0.92;
+  transition: scale 90ms;
+}
+
+.app[data-phone] .scroll {
+  touch-action: pan-y pinch-zoom;
+}
+
+.app[data-phone] .card-row {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.app[data-phone] .now-playing-view {
+  touch-action: none;
+}
+
+.app[data-phone] .now-playing-view :is(.np-panel, .lyrics, .queue-panel ol) {
+  touch-action: pan-y;
+}
+
+:root[data-reduce-motion] .app[data-phone] :active {
+  scale: none !important;
+}
+
+/* Shelves on a phone scroll by touch; no scrollbar line under them. */
+.app[data-phone] .card-row {
+  scrollbar-width: none;
+}
+
+.app[data-phone] .card-row::-webkit-scrollbar {
+  display: none;
 }
