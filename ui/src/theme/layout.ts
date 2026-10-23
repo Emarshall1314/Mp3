@@ -18,8 +18,6 @@ export type ColumnId =
   | 'quality'
   | 'plays'
   | 'time';
-export type GridOrList = 'grid' | 'list';
-export type AlbumsView = GridOrList | 'columns';
 export type Grouping = 'none' | 'album' | 'artist' | 'genre';
 export type ShelfId = 'rediscover' | 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
 export const ALL_SHELVES: readonly ShelfId[] = [
@@ -63,7 +61,6 @@ export interface Layout {
   playerPosition: 'top' | 'bottom';
   playerSize: 'compact' | 'standard' | 'large';
   playerControls: PlayerControl[];
-  views: { albums: AlbumsView; recent: GridOrList; artists: GridOrList };
   columns: Column[];
   nowPlaying: NowPlayingStyle;
   /// The panel holding the queue, lyrics, info and signal path.
@@ -169,7 +166,6 @@ export const DEFAULT_LAYOUT: Layout = {
   playerPosition: 'bottom',
   playerSize: 'standard',
   playerControls: ALL_CONTROLS,
-  views: { albums: 'grid', recent: 'grid', artists: 'list' },
   columns: (
     ['title', 'artist', 'album', 'year', 'genre', 'quality', 'plays', 'time'] as ColumnId[]
   ).map((id) => col(id)),
@@ -191,7 +187,6 @@ export const BUILT_IN_PRESETS: Preset[] = [
       ...DEFAULT_LAYOUT,
       nav: ['songs', 'albums', 'artists', 'recent', 'home'],
       playerSize: 'compact',
-      views: { albums: 'list', recent: 'list', artists: 'list' },
       tagEditorDocked: true,
       dock: { ...DEFAULT_LAYOUT.dock, size: 460 },
       columns: (
@@ -235,8 +230,6 @@ export function normaliseLayout(value: unknown): Layout {
     Array.isArray(x) ? [...new Set(x.filter((i): i is T => allowed.includes(i as T)))] : fallback;
   const pick = <T extends string>(x: unknown, options: readonly T[], fallback: T): T =>
     options.includes(x as T) ? (x as T) : fallback;
-  const views = (v.views && typeof v.views === 'object' ? v.views : {}) as Record<string, unknown>;
-  const gl = ['grid', 'list'] as const;
   const columns = Array.isArray(v.columns)
     ? v.columns
         .filter(
@@ -260,11 +253,6 @@ export function normaliseLayout(value: unknown): Layout {
     playerPosition: pick(v.playerPosition, ['top', 'bottom'], d.playerPosition),
     playerSize: pick(v.playerSize, ['compact', 'standard', 'large'], d.playerSize),
     playerControls: list(v.playerControls, ALL_CONTROLS, d.playerControls),
-    views: {
-      albums: pick(views.albums, ['grid', 'list', 'columns'], d.views.albums),
-      recent: pick(views.recent, gl, d.views.recent),
-      artists: pick(views.artists, gl, d.views.artists),
-    },
     // The title column is always there: a list without it can't be read.
     columns: columns.some((c) => c.id === 'title') ? columns : [col('title'), ...columns],
     nowPlaying: pick(v.nowPlaying, ['artwork', 'lyrics', 'minimal', 'visualizer'], d.nowPlaying),

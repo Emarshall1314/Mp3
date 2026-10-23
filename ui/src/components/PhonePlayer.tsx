@@ -26,8 +26,7 @@ export function PhonePlayer({ liquid }: { liquid: boolean }) {
     const el = self.current;
     if (!el) return;
     el.style.transition = '';
-    el.style.translate = '';
-    el.style.scale = '';
+    el.style.transform = '';
   };
   const progress = player.durationMs ? Math.min(1, position / player.durationMs) : 0;
   return (
@@ -49,8 +48,7 @@ export function PhonePlayer({ liquid }: { liquid: boolean }) {
         if (from.current === null || !el) return;
         const pull = Math.max(0, from.current - e.clientY);
         el.style.transition = 'none';
-        el.style.translate = `0 ${-pull * 0.35}px`;
-        el.style.scale = `${1 + pull / 1600} ${1 + pull / 500}`;
+        el.style.transform = `translateY(${-pull * 0.35}px) scale(${1 + pull / 1600}, ${1 + pull / 500})`;
         if (pull > 60) {
           from.current = null;
           settle();

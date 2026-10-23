@@ -8,7 +8,6 @@ import {
   CONTROL_LABELS,
   type ColumnId,
   DEFAULT_LAYOUT,
-  type AlbumsView,
   type Layout,
   MAX_TABS,
   MINI_PLAYER_LABELS,
@@ -153,14 +152,12 @@ export function presetMenu() {
   return allPresets().map((p) => ({ label: p.name, run: () => applyPreset(p.layout) }));
 }
 
-/// Layout: presets, sidebar, player bar, default views, song columns and Now Playing.
+/// Layout: presets, sidebar, player bar, song columns and Now Playing.
 export function LayoutSettings() {
   const look = useLook((s) => s.look);
   const layout = look.layout;
   const showToast = useStore((s) => s.showToast);
   const [presetName, setPresetName] = useState('');
-  const views = (key: keyof Layout['views']) => (v: AlbumsView) =>
-    updateLayout({ views: { ...layout.views, [key]: v } });
 
   const savePreset = () => {
     const name = presetName.trim();
@@ -334,39 +331,8 @@ export function LayoutSettings() {
       </div>
 
       <div className="settings-group">
-        <h2>Views</h2>
+        <h2>Side Panel</h2>
         <div className="form-grid">
-          <span>Albums</span>
-          <Segmented
-            label="Albums view"
-            value={layout.views.albums}
-            options={[
-              ['grid', 'Grid'],
-              ['list', 'List'],
-              ['columns', 'Columns'],
-            ]}
-            onChange={views('albums')}
-          />
-          <span>Recently Added</span>
-          <Segmented
-            label="Recently Added view"
-            value={layout.views.recent}
-            options={[
-              ['grid', 'Grid'],
-              ['list', 'List'],
-            ]}
-            onChange={views('recent')}
-          />
-          <span>Artists</span>
-          <Segmented
-            label="Artists view"
-            value={layout.views.artists}
-            options={[
-              ['list', 'List'],
-              ['grid', 'Grid'],
-            ]}
-            onChange={views('artists')}
-          />
           <span>Side panel</span>
           <Segmented
             label="Side panel position"

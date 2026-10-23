@@ -39,6 +39,12 @@ const ROUTES: Record<TabId, Route> = {
   settings: { name: 'settings' },
 };
 
+/// Whether a page is the top page of its tab (Home, Library, a tab's own list): there, a
+/// swipe right brings back Now Playing rather than going back.
+export function isTabTop(route: Route, tabs: TabId[]): boolean {
+  return route.name === ROUTES[tabOf(route, tabs)].name;
+}
+
 /// The tab a page belongs to: its own if it has one, else Library (where everything is).
 export function tabOf(route: Route, tabs: TabId[]): TabId {
   const own: Partial<Record<Route['name'], TabId>> = {

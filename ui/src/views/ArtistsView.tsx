@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Play, Shuffle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Play, Shuffle, X } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
 import type { ArtistPage, ArtistRow, ReleaseSection } from '../types';
@@ -7,81 +7,67 @@ import { Artwork } from '../components/Artwork';
 import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
-import { ViewToggle } from '../components/ViewToggle';
-import { updateLayout, useLook } from '../hooks/useAppearance';
-import type { GridOrList } from '../theme/layout';
+import { AlphabetIndex, artistLetters } from '../components/AlphabetIndex';
 
-/// Artists: list on the left, the selected artist's albums on the right.
+/// Artists: a grid of every artist, with an A–Z index down the side that narrows it to the
+/// artists under a letter. An artist's page shows all of their music, whatever the letter.
 export function ArtistsView({ selected }: { selected?: string }) {
   const libraryVersion = useStore((s) => s.libraryVersion);
   const navigate = useStore((s) => s.navigate);
   const [artists, setArtists] = useState<ArtistRow[] | null>(null);
+  const [letter, setLetter] = useState<string | null>(null);
 
   useEffect(() => {
     void api.artists().then(setArtists);
   }, [libraryVersion]);
 
-  const view = useLook((s) => s.look.layout.views.artists);
-  const setView = (artists: GridOrList) =>
-    updateLayout({ views: { ...useLook.getState().look.layout.views, artists } });
+  const lettered = useMemo(
+    () => (artists ?? []).map((a) => ({ a, letters: artistLetters(a.name || 'Unknown Artist') })),
+    [artists],
+  );
+  const available = useMemo(() => new Set(lettered.flatMap((x) => x.letters)), [lettered]);
+  const shown = letter ? lettered.filter((x) => x.letters.includes(letter)) : lettered;
 
   if (artists && artists.length === 0) return <EmptyLibrary />;
-
-  if (view === 'grid') {
-    if (selected !== undefined)
-      return (
-        <section className="view artists-view">
-          <ArtistDetail name={selected} />
-        </section>
-      );
+  if (selected !== undefined)
     return (
-      <section className="view">
-        <header className="view-header">
-          <h1>Artists</h1>
-          <div className="view-controls">
-            <ViewToggle value={view} onChange={setView} />
-          </div>
-        </header>
-        <ul className="artist-grid scroll" aria-label="Artists">
-          {artists?.map((a) => (
-            <li key={a.name}>
-              <button
-                className="artist-card"
-                onClick={() => navigate({ name: 'artist', artist: a.name })}
-              >
-                <Artwork hash={a.artHash} size={140} alt="" className="round" />
-                <span>{a.name || 'Unknown Artist'}</span>
-                <span className="subtitle">
-                  {a.albumCount} {a.albumCount === 1 ? 'album' : 'albums'}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      <section className="view artists-view">
+        <ArtistDetail name={selected} />
       </section>
     );
-  }
-
-  const current = selected ?? artists?.[0]?.name;
   return (
-    <section className="view artists-view">
-      <ul className="artist-list scroll" aria-label="Artists">
-        <li className="artist-list-controls">
-          <ViewToggle value={view} onChange={setView} />
-        </li>
-        {artists?.map((a) => (
+    <section className="view artists-page">
+      <header className="view-header">
+        <h1>Artists</h1>
+        {letter && (
+          <button
+            className="pill letter-chip"
+            onClick={() => setLetter(null)}
+            aria-label={`Showing artists under ${letter}. Show all`}
+          >
+            {letter} · {shown.length} <X size={14} aria-hidden />
+          </button>
+        )}
+      </header>
+      <ul className="artist-grid scroll" aria-label="Artists">
+        {shown.map(({ a }) => (
           <li key={a.name}>
             <button
-              className={`artist-item ${a.name === current ? 'active' : ''}`}
+              className="artist-card"
               onClick={() => navigate({ name: 'artist', artist: a.name })}
             >
-              <Artwork hash={a.artHash} size={36} alt="" className="round" />
+              <Artwork hash={a.artHash} size={140} alt="" className="round" />
               <span>{a.name || 'Unknown Artist'}</span>
+              <span className="subtitle">
+                {a.albumCount} {a.albumCount === 1 ? 'album' : 'albums'}
+              </span>
             </button>
           </li>
         ))}
       </ul>
-      {current !== undefined && <ArtistDetail name={current} />}
+      {artists && artists.length > 12 && (
+        <AlphabetIndex available={available} value={letter} onChange={setLetter} />
+      )}
     </section>
   );
 }

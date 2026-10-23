@@ -1003,7 +1003,7 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--color-text-secondary);
 }
 
-.volume input {
+.volume .slider {
   width: 96px;
 }
 
@@ -3756,13 +3756,25 @@ kbd {
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-pill);
+  /* Opening: the player rises out of the way first. */
   transition:
-    width var(--glide),
+    width 420ms var(--ease-spring) 140ms,
     scale 320ms var(--ease-spring);
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs[data-collapsed] {
   width: var(--bar);
+  transition:
+    width 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    scale 320ms var(--ease-spring);
+}
+
+/* While the dock rearranges, its glass is plain blur (no lens, a lighter blur): redrawing the
+ * refraction on every frame of the move is what made it stutter. */
+:root[data-panels='liquid']
+  .phone-dock[data-gliding]
+  :is(.phone-tabs, .phone-player, .phone-search-button) {
+  backdrop-filter: blur(10px) saturate(170%) !important;
 }
 
 /* The row keeps its full width while the capsule narrows; it slides so the current tab sits in
@@ -3861,18 +3873,23 @@ kbd {
   position: absolute;
   left: var(--edge);
   right: var(--edge);
-  bottom: calc(var(--base) + var(--bar) + 10px);
+  /* Always on the lower row, lifted to the upper one by a transform (moved by the compositor,
+   * not laid out again each frame). */
+  bottom: var(--base);
+  translate: 0 calc(-1 * (var(--bar) + 10px));
   height: var(--bar);
   margin: 0;
   min-width: 0;
   padding: 6px 10px 6px 6px;
   border: 0;
   border-radius: var(--radius-pill);
+  will-change: translate;
+  /* Opening: rise first, then widen, so it never sweeps across Search. */
   transition:
-    left var(--glide),
-    right var(--glide),
-    bottom var(--glide),
-    translate 420ms var(--ease-spring),
+    translate 340ms var(--ease-spring),
+    left 380ms var(--ease-spring) 120ms,
+    right 380ms var(--ease-spring) 120ms,
+    transform 420ms var(--ease-spring),
     scale 420ms var(--ease-spring);
 }
 
@@ -3888,7 +3905,14 @@ kbd {
 :root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-player {
   left: calc(var(--edge) + var(--bar) + 10px);
   right: calc(var(--edge) + var(--search-room));
-  bottom: var(--base);
+  translate: 0 0;
+  /* Collapsing: narrow first (clear of Search), then drop once the tabs have shrunk. */
+  transition:
+    left 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    right 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    translate 380ms var(--ease-spring) 180ms,
+    transform 420ms var(--ease-spring),
+    scale 420ms var(--ease-spring);
 }
 
 .phone-search-button {
@@ -4468,4 +4492,303 @@ kbd {
 
 .mix-page .result-songs {
   padding: 0 var(--space-6) var(--space-6);
+}
+
+/* ---- Slider (components/Slider.tsx): seeking and volume ----
+ * A tall, invisible hit area around a thin bar; held, the bar thickens and the thumb grows. */
+.slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 28px;
+  cursor: pointer;
+  touch-action: none;
+  --bar: 4px;
+}
+
+.slider[aria-disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.slider-track {
+  position: relative;
+  flex: 1;
+  height: var(--bar);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-selected);
+  transition: height 260ms var(--ease-spring);
+}
+
+.slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--value);
+  background: var(--color-text-secondary);
+}
+
+.slider-thumb {
+  position: absolute;
+  left: var(--value);
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+  translate: -50% -50%;
+  scale: 0;
+  transition: scale 260ms var(--ease-spring);
+}
+
+.slider:is(:hover, :focus-visible) .slider-thumb,
+.slider[data-held] .slider-thumb {
+  scale: 1;
+}
+
+.slider[data-held] {
+  --bar: 8px;
+}
+
+.slider[data-held] .slider-fill {
+  background: var(--color-text);
+}
+
+.slider:focus-visible {
+  outline: none;
+}
+
+.slider:focus-visible .slider-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+/* Now Playing on a phone: Apple's thick-when-held bar with no thumb. */
+.app[data-phone] .now-playing-view .slider {
+  height: 36px;
+  --bar: 6px;
+}
+
+.app[data-phone] .now-playing-view .slider[data-held] {
+  --bar: 12px;
+}
+
+.app[data-phone] .now-playing-view .slider-thumb {
+  display: none;
+}
+
+/* Grouped songs on a phone: the group's name above its first song. */
+.app[data-phone] .song-row[data-headed] {
+  grid-template-rows: 30px 1fr;
+}
+
+.app[data-phone] .phone-group-heading {
+  grid-column: 1 / -1;
+  align-self: stretch;
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Card size control (components/GridZoom.tsx) ---- */
+.grid-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-badge);
+}
+
+.grid-zoom-dots {
+  display: flex;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.grid-zoom-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  opacity: 0.35;
+  transition:
+    opacity 200ms,
+    scale 300ms var(--ease-spring);
+}
+
+.grid-zoom-dots span[data-on] {
+  opacity: 1;
+  scale: 1.35;
+}
+
+/* The grid settles into a new size rather than jumping (AlbumGrid re-keys its body). */
+.album-grid-body {
+  animation: grid-settle 340ms var(--ease-spring);
+}
+
+@keyframes grid-settle {
+  from {
+    opacity: 0.4;
+    scale: 0.96;
+  }
+}
+
+/* Two fingers on the grid pinch its size; one scrolls it. */
+.app[data-phone] .album-grid-scroll {
+  touch-action: pan-y;
+}
+
+/* ---- Artists ---- */
+.artists-page {
+  position: relative;
+}
+
+.letter-chip {
+  gap: var(--space-1);
+}
+
+.app[data-phone] .artist-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-3);
+  /* Room for the index down the right. */
+  padding-right: 34px;
+}
+
+.app[data-phone] .artist-card .artwork {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1;
+}
+
+.app[data-phone] .artist-card > span:not(.subtitle) {
+  font-size: 13px;
+}
+
+/* ---- The A–Z index (components/AlphabetIndex.tsx) ----
+ * At rest a slim, quiet strip at the right edge; touched or hovered it opens into a glass
+ * capsule and the letters near the pointer swell and lean out, like the macOS dock. */
+.alphabet {
+  position: absolute;
+  top: 120px;
+  bottom: calc(var(--dock-height, 24px) + var(--space-4));
+  right: 2px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  width: 30px;
+  touch-action: none;
+  user-select: none;
+}
+
+.alphabet-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 18px;
+  height: min(100%, 560px);
+  margin-left: auto;
+  padding: 6px 0;
+  border-radius: var(--radius-pill);
+  transition:
+    width 300ms var(--ease-spring),
+    background-color 200ms,
+    box-shadow 200ms;
+}
+
+.alphabet-strip button {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 0;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  opacity: 0.55;
+  transform-origin: right center;
+  transition:
+    scale 160ms ease-out,
+    translate 160ms ease-out,
+    color 150ms,
+    opacity 150ms;
+}
+
+.alphabet[data-open] .alphabet-strip {
+  width: 26px;
+  background: color-mix(in srgb, var(--color-surface-glass) 85%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim, rgb(255 255 255 / 30%)),
+    0 6px 20px rgb(0 0 0 / 20%);
+}
+
+.alphabet[data-open] .alphabet-strip button {
+  opacity: 1;
+  color: var(--color-text);
+}
+
+.alphabet-strip button[aria-disabled] {
+  opacity: 0.2 !important;
+}
+
+.alphabet-strip button[data-on] {
+  color: var(--color-accent) !important;
+  opacity: 1;
+}
+
+:root[data-reduce-motion] .alphabet-strip button {
+  scale: none !important;
+  translate: none !important;
+}
+
+/* ---- The phone's page stack (App.tsx PageStack) ----
+ * Pages sit on top of each other; the one before is kept underneath, hidden, until a swipe back
+ * reveals it. While moving, a page carries the app's background and a shadow on its edge. */
+.app[data-phone] .phone-main {
+  position: relative;
+}
+
+.page-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--layer-bottom, 0);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.app[data-phone] {
+  --layer-bottom: var(--dock-height, 0);
+}
+
+:root[data-panels='liquid'] .app[data-phone] {
+  --layer-bottom: 0px;
+}
+
+.app[data-phone] .phone-main {
+  padding-bottom: 0;
+}
+
+.page-layer[data-under] {
+  visibility: hidden;
+}
+
+.page-layer[data-moving] {
+  background: var(--app-background, var(--color-bg));
+  box-shadow: -12px 0 32px rgb(0 0 0 / 28%);
+  will-change: transform;
 }

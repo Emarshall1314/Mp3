@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { api, onApiEvent, setPlayListener } from './api';
-import { attempt, useStore } from './store';
+import { attempt, type Route, useStore } from './store';
 import { useAppearance, useLook } from './hooks/useAppearance';
 import { useCurrentTrack } from './hooks/useCurrentTrack';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
@@ -27,9 +27,10 @@ import { TrashView } from './views/TrashView';
 import { LibraryView } from './views/LibraryView';
 import { MixView } from './views/Rediscover';
 import { PhonePlayer } from './components/PhonePlayer';
-import { PhoneTabBar, tabOf } from './components/PhoneTabBar';
+import { isTabTop, PhoneTabBar } from './components/PhoneTabBar';
 import { usePhone } from './hooks/usePhone';
 import { useLongPress } from './hooks/useLongPress';
+import type { TabId } from './theme/layout';
 import { useGlassLight, useGlassTouch, useLiquid } from './hooks/useGlass';
 import { useSwipeBack } from './hooks/useSwipeBack';
 import { useAndroidBack } from './hooks/useAndroidBack';
@@ -105,7 +106,11 @@ function useShortcuts() {
 }
 
 function Main() {
-  const route = useStore((s) => s.route);
+  return <Page route={useStore((s) => s.route)} />;
+}
+
+/// The page for a route.
+function Page({ route }: { route: Route }) {
   switch (route.name) {
     case 'home':
       return <HomeView />;
@@ -165,13 +170,7 @@ function Toast() {
 /// page has a back button.
 function PhoneApp() {
   const route = useStore((s) => s.route);
-  const back = useStore((s) => s.back.length > 0);
   const tabs = useLook((s) => s.look.layout.phoneTabs);
-  const tab = tabOf(route, tabs);
-  const atTabTop =
-    route.name === tab ||
-    (tab === 'library' && route.name === 'library') ||
-    (route.name === 'search' && tab === 'search');
   const liquid = useLiquid();
   const playing = useStore((s) => s.player?.trackId != null);
   useGlassLight(liquid);
@@ -180,7 +179,24 @@ function PhoneApp() {
   const app = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
-  useSwipeBack(main, true);
+  // While the dock rearranges, mark it so its glass drops the costly lens (main.css).
+  const firstGlide = useRef(true);
+  useEffect(() => {
+    if (firstGlide.current) {
+      firstGlide.current = false;
+      return;
+    }
+    const el = dock.current;
+    if (!el) return;
+    el.setAttribute('data-gliding', '');
+    const t = setTimeout(() => el.removeAttribute('data-gliding'), 720);
+    return () => clearTimeout(t);
+  }, [collapsed.value]);
+  const atTabTop = useCallback(
+    () => isTabTop(useStore.getState().route, useLook.getState().look.layout.phoneTabs),
+    [],
+  );
+  useSwipeBack(main, true, atTabTop);
   useAndroidBack();
   // Remember where music is started from, for Now Playing's swipe back to it.
   useEffect(() => setPlayListener((album) => useStore.getState().notePlaySource(album)), []);
@@ -199,18 +215,7 @@ function PhoneApp() {
     <div className="app" data-phone="" ref={app}>
       {liquid && <div className="phone-edge" aria-hidden />}
       <main className="main phone-main" ref={main}>
-        {back && !atTabTop && (
-          <div className="phone-top">
-            <button
-              className={`icon-button${liquid ? ' glass-button glass-lit' : ''}`}
-              aria-label="Back"
-              onClick={() => useStore.getState().goBack()}
-            >
-              <ChevronLeft size={22} />
-            </button>
-          </div>
-        )}
-        <Main />
+        <PageStack liquid={liquid} tabs={tabs} />
       </main>
       <div
         className="phone-dock"
@@ -228,6 +233,45 @@ function PhoneApp() {
       <EditFailures />
       <Toast />
     </div>
+  );
+}
+
+/// The phone's pages: the current one, and the one before it kept alive underneath (hidden),
+/// so swiping back reveals it already there, scrolled where it was, rather than building it
+/// afresh. Keys follow each page's place in the history, so React keeps the same instance as
+/// a page moves between current and underneath.
+function PageStack({ liquid, tabs }: { liquid: boolean; tabs: TabId[] }) {
+  const route = useStore((s) => s.route);
+  const back = useStore((s) => s.back);
+  const before = back.at(-1);
+  const layers: { route: Route; depth: number; under: boolean }[] = [];
+  if (before) layers.push({ route: before, depth: back.length - 1, under: true });
+  layers.push({ route, depth: back.length, under: false });
+  return (
+    <>
+      {layers.map((l) => (
+        <div
+          key={`${l.depth}:${JSON.stringify(l.route)}`}
+          className="page-layer"
+          data-under={l.under || undefined}
+          aria-hidden={l.under || undefined}
+          inert={l.under || undefined}
+        >
+          {l.depth > 0 && !isTabTop(l.route, tabs) && (
+            <div className="phone-top">
+              <button
+                className={`icon-button${liquid ? ' glass-button glass-lit' : ''}`}
+                aria-label="Back"
+                onClick={() => useStore.getState().goBack()}
+              >
+                <ChevronLeft size={22} />
+              </button>
+            </div>
+          )}
+          <Page route={l.route} />
+        </div>
+      ))}
+    </>
   );
 }
 

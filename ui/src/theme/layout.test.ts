@@ -21,12 +21,10 @@ describe('layout', () => {
         { id: 'nope', width: 50 },
         { id: 'artist', width: 90 },
       ],
-      views: { albums: 'list' },
     });
     expect(l.nav).toEqual(['songs', 'home']);
     expect(l.sidebarWidth).toBe(400);
     expect(l.playerPosition).toBe('bottom');
-    expect(l.views).toEqual({ albums: 'list', recent: 'grid', artists: 'list' });
     // The title column always stays; widths are clamped; duplicates dropped.
     expect(l.columns).toEqual([
       { id: 'title', width: 220 },

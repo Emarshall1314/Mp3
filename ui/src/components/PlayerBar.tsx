@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Heart,
   ListMusic,
@@ -20,6 +20,7 @@ import { attempt, useStore } from '../store';
 import { setFavourite } from '../actions';
 import type { TrackRow } from '../types';
 import { Artwork } from './Artwork';
+import { Slider } from './Slider';
 import { useLook } from '../hooks/useAppearance';
 import type { PlayerControl } from '../theme/layout';
 import { usePosition } from '../hooks/usePosition';
@@ -210,31 +211,33 @@ function RepeatButton() {
 
 export function Scrubber() {
   const durationMs = useStore((s) => s.player?.durationMs ?? 0);
+  // Where the finger is while dragging; then where it was let go, held briefly so the bar
+  // doesn't jump back before playback reports the new position.
   const [drag, setDrag] = useState<number | null>(null);
+  const [landed, setLanded] = useState<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const live = usePosition();
-  const position = drag ?? live;
+  const position = drag ?? landed ?? live;
+  const ms = (f: number) => Math.round(f * durationMs);
 
   return (
     <div className="scrubber">
       <span className="time">{duration(position)}</span>
-      <input
-        type="range"
-        aria-label="Position"
-        min={0}
-        max={Math.max(1, durationMs)}
-        step={100}
-        value={position}
+      <Slider
+        label="Position"
+        value={durationMs ? position / durationMs : 0}
+        valueText={`${duration(position)} of ${duration(durationMs)}`}
+        step={durationMs ? 5000 / durationMs : 0.05}
         disabled={!durationMs}
-        onChange={(e) => setDrag(Number(e.target.value))}
-        onPointerUp={() => {
-          if (drag !== null) void attempt(api.seek(drag));
+        onInput={(f) => setDrag(ms(f))}
+        onCommit={(f) => {
+          const to = ms(f);
           setDrag(null);
+          setLanded(to);
+          clearTimeout(timer.current);
+          timer.current = setTimeout(() => setLanded(null), 1200);
+          void attempt(api.seek(to));
         }}
-        onKeyUp={() => {
-          if (drag !== null) void attempt(api.seek(drag));
-          setDrag(null);
-        }}
-        style={{ ['--progress' as string]: `${durationMs ? (position / durationMs) * 100 : 0}%` }}
       />
       <span className="time">-{duration(Math.max(0, durationMs - position))}</span>
     </div>
@@ -246,23 +249,23 @@ function VolumeControl() {
   const [local, setLocal] = useState<number | null>(null);
   const v = local ?? volume;
   const Icon = v === 0 ? VolumeX : v < 0.5 ? Volume1 : Volume2;
+  const set = (nv: number) => void attempt(api.setVolume(nv));
   return (
     <div className="volume">
       <Icon size={16} aria-hidden />
-      <input
-        type="range"
-        aria-label="Volume"
-        min={0}
-        max={1}
-        step={0.01}
+      <Slider
+        label="Volume"
         value={v}
-        onChange={(e) => {
-          const nv = Number(e.target.value);
+        valueText={`${Math.round(v * 100)}%`}
+        step={0.05}
+        onInput={(nv) => {
           setLocal(nv);
-          void attempt(api.setVolume(nv));
+          set(nv);
         }}
-        onPointerUp={() => setLocal(null)}
-        style={{ ['--progress' as string]: `${v * 100}%` }}
+        onCommit={(nv) => {
+          setLocal(null);
+          set(nv);
+        }}
       />
     </div>
   );

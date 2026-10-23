@@ -10,19 +10,35 @@ import { usePhone } from '../hooks/usePhone';
 
 const PAGE = 120;
 
+/// Grid sizes, smallest cards first. A phone steps through columns (four down to one); the
+/// desktop through card sizes, with as many columns as fit.
+export const PHONE_COLUMNS = [4, 3, 2, 1];
+export const DESKTOP_SIZES = [120, 150, 180, 220, 260, 300];
+
 /// A virtualised grid of albums. `load` fetches a page; `count` is the total.
 export function AlbumGrid({
   count,
   load,
-  size,
+  zoom,
+  onZoom,
   resetKey,
 }: {
   count: number;
   load: (offset: number, limit: number) => Promise<AlbumRow[]>;
-  size: number;
+  /// Index into PHONE_COLUMNS or DESKTOP_SIZES.
+  zoom: number;
+  /// A pinch on the grid: +1 for bigger cards, −1 for smaller.
+  onZoom: (step: 1 | -1) => void;
   resetKey: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  // Two fingers on the grid pinch its size.
+  const fingers = useRef(new Map<number, [number, number]>());
+  const pinchFrom = useRef<number | null>(null);
+  const spread = () => {
+    const [a, b] = [...fingers.current.values()];
+    return fingers.current.size === 2 && a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : null;
+  };
   const [width, setWidth] = useState(800);
   const [pages, setPages] = useState<Map<number, AlbumRow[]>>(new Map());
   const pending = useRef(new Set<number>());
@@ -46,9 +62,10 @@ export function AlbumGrid({
   const phone = usePhone();
   const pad = phone ? 16 : 24;
   const gap = phone ? 14 : 24;
-  const fit = Math.max(1, Math.floor((width - 2 * pad + gap) / (size + gap)));
-  // A phone is too narrow for the slider's sizes: its small end means three columns.
-  const cols = phone ? (size < 160 ? 3 : 2) : fit;
+  const size = DESKTOP_SIZES[Math.min(zoom, DESKTOP_SIZES.length - 1)] ?? 180;
+  const cols = phone
+    ? (PHONE_COLUMNS[Math.min(zoom, PHONE_COLUMNS.length - 1)] ?? 2)
+    : Math.max(1, Math.floor((width - 2 * pad + gap) / (size + gap)));
   const card = Math.max(60, Math.floor((width - 2 * pad - (cols - 1) * gap) / cols));
   const rows = Math.ceil(count / cols);
   // Artwork, then the title and artist lines, then the space before the next row.
@@ -112,8 +129,45 @@ export function AlbumGrid({
   const album = (i: number): AlbumRow | undefined => pages.get(Math.floor(i / PAGE))?.[i % PAGE];
 
   return (
-    <div className="scroll" ref={scroller} onKeyDown={onKeyDown}>
-      <div style={{ height: v.getTotalSize(), position: 'relative' }}>
+    <div
+      className="scroll album-grid-scroll"
+      ref={scroller}
+      onKeyDown={onKeyDown}
+      onPointerDown={(e) => {
+        if (e.pointerType !== 'touch') return;
+        fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+        pinchFrom.current = spread();
+      }}
+      onPointerMove={(e) => {
+        if (!fingers.current.has(e.pointerId)) return;
+        fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+        const now = spread();
+        const from = pinchFrom.current;
+        if (now === null || from === null) return;
+        // Each 30 % of spread is one step; the next step measures from here.
+        if (now / from > 1.3) {
+          onZoom(1);
+          pinchFrom.current = now;
+        } else if (now / from < 0.77) {
+          onZoom(-1);
+          pinchFrom.current = now;
+        }
+      }}
+      onPointerUp={(e) => {
+        fingers.current.delete(e.pointerId);
+        pinchFrom.current = spread();
+      }}
+      onPointerCancel={(e) => {
+        fingers.current.delete(e.pointerId);
+        pinchFrom.current = spread();
+      }}
+    >
+      {/* Re-keyed when the columns change, so the new arrangement settles in. */}
+      <div
+        key={cols}
+        className="album-grid-body"
+        style={{ height: v.getTotalSize(), position: 'relative' }}
+      >
         {items.map((row) => (
           <div
             key={row.key}

@@ -70,7 +70,10 @@ interface Store {
 
   /// The full-screen Now Playing view, and which side panel it shows.
   nowPlaying: boolean;
-  setNowPlaying: (open: boolean) => void;
+  setNowPlaying: (open: boolean, fromLeft?: boolean) => void;
+  /// Now Playing is coming in from the left under a finger (a swipe on a tab's page), so it
+  /// starts off-screen instead of with its usual entrance.
+  nowPlayingFromLeft: boolean;
   nowPlayingPanel: 'lyrics' | 'queue' | null;
   setNowPlayingPanel: (p: 'lyrics' | 'queue' | null) => void;
 
@@ -156,7 +159,9 @@ export const useStore = create<Store>((set, get) => ({
   toggleQueue: () => get().toggleDock('queue'),
 
   nowPlaying: false,
-  setNowPlaying: (open) => set({ nowPlaying: open }),
+  setNowPlaying: (open, fromLeft = false) =>
+    set({ nowPlaying: open, nowPlayingFromLeft: open && fromLeft }),
+  nowPlayingFromLeft: false,
   nowPlayingPanel: 'lyrics',
   setNowPlayingPanel: (p) => set({ nowPlayingPanel: p }),
 

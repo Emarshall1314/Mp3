@@ -44,6 +44,7 @@ export function NowPlaying() {
   const [palette, setPalette] = useState<{ hash: string; colors: Rgb[] } | null>(null);
   const hash = track?.artHash ?? null;
   const style = useLook((s) => s.look.layout.nowPlaying);
+  const fromLeft = useStore((s) => s.nowPlayingFromLeft);
 
   // Lyrics-first opens on the lyrics.
   useEffect(() => {
@@ -106,6 +107,7 @@ export function NowPlaying() {
       ref={dialog}
       className="now-playing-view"
       data-style={style}
+      style={fromLeft ? { transform: 'translateX(-100%)', animation: 'none' } : undefined}
       role="dialog"
       aria-modal="true"
       aria-label="Now Playing"
@@ -200,6 +202,7 @@ function useSheetGestures(ref: RefObject<HTMLElement | null>, on: boolean, close
     let start: { x: number; y: number; t: number } | null = null;
     let axis: 'x' | 'y' | null = null;
     let moved = 0;
+    let was: Pick<ReturnType<typeof useStore.getState>, 'route' | 'back' | 'forward'> | null = null;
     const down = (e: PointerEvent) => {
       if (e.button !== 0 || (e.target as Element).closest(NO_SWIPE)) return;
       start = { x: e.clientX, y: e.clientY, t: e.timeStamp };
@@ -209,7 +212,16 @@ function useSheetGestures(ref: RefObject<HTMLElement | null>, on: boolean, close
       if (!start) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      axis ??= swipeAxis(dx, dy);
+      if (!axis) {
+        axis = swipeAxis(dx, dy);
+        // Swiping right: the page the music came from is put underneath straight away, so it's
+        // there as Now Playing slides off (and put back if the swipe is let go early).
+        if (axis === 'x') {
+          const s = useStore.getState();
+          was = { route: s.route, back: s.back, forward: s.forward };
+          s.goToPlaySource();
+        }
+      }
       // Lyrics and the queue scroll up and down themselves.
       if (axis === 'y' && (e.target as Element).closest('.np-panel')) axis = null;
       if (!axis) return;
@@ -230,15 +242,15 @@ function useSheetGestures(ref: RefObject<HTMLElement | null>, on: boolean, close
         sheet.style.transition = 'transform 220ms ease-in';
         sheet.style.transform =
           axis === 'x' ? `translateX(${innerWidth}px)` : `translateY(${innerHeight}px)`;
-        const toSource = axis === 'x';
-        setTimeout(() => {
-          close();
-          if (toSource) useStore.getState().goToPlaySource();
-        }, 200);
+        setTimeout(close, 200);
+        was = null;
       } else {
         sheet.style.transition = 'transform 420ms var(--ease-spring), border-radius 300ms';
         sheet.style.transform = '';
         sheet.style.borderRadius = '';
+        // Let go early: the page that was showing comes back.
+        if (was) useStore.setState(was);
+        was = null;
       }
       axis = null;
     };

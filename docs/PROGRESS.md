@@ -432,6 +432,35 @@ glass.
   the background (Android's `moveTaskToBack`, a new command in the Android plugin) with the
   music still playing, instead of closing. Tests: the order of what back does. Needs the
   phone; the Kotlin half builds in CI only.
+- **Owner's third round:**
+  - **Seeking fixed:** the position and volume bars are the app's own slider (pointer capture,
+    so a drag keeps following off the bar; the position holds where it was let go until
+    playback catches up, instead of snapping back). The web view's range input lost the release
+    on Android touch. Held, the bar thickens (no thumb in Now Playing on a phone, as on iOS).
+  - **Group by works on the phone:** grouped songs get a heading above each group (the desktop
+    keeps its group column); it was forced off on phones before.
+  - **Grid only** for Albums, Recently Added and Artists: the list and column views are gone
+    (the core's column browser query stays, unused by the UI).
+  - **Card size:** a small − / + capsule with dots instead of the big slider. A phone steps
+    through 4, 3, 2 or 1 columns; the desktop through six card sizes. On a phone, pinching the
+    grid changes it too; the grid settles into the new size.
+  - **Dock:** the player rises before the tabs widen and narrows before it drops, so it never
+    crosses Search; its up-and-down move is a transform, and while the dock rearranges its glass
+    is plain blur (the refraction redrawn every frame was what made it stutter).
+  - **Swipes:** the page before is kept alive under the current one (a page stack), so swiping
+    back reveals it already there, sliding in from the left and brightening, with the moving
+    page casting a shadow. Swiping right in Now Playing puts the album underneath at once, so
+    it's there as Now Playing slides off. On a tab's top page, swiping right brings Now Playing
+    in from the left under the finger, closing the loop Now Playing → album → albums → Now
+    Playing.
+  - **Artists A–Z:** a slim index down the right edge (libraries with more than 12 artists). It
+    opens into a glass strip when touched or hovered, letters near the finger swell like the
+    macOS dock, and the letter let go on narrows the grid to those artists ("The Beatles" is
+    under T and B; digits under #); a chip clears it. An artist's page shows everything.
+  - Tests: artist letters and the swell; layout without views. The slider has no unit test;
+    it was checked by hand in the app.
+  - Checked in the real app at phone and desktop size, with mouse drags. Touch-only parts
+    (pinch, the index under a thumb) need the phone.
 - Demo script: `docs/demos/M7.md`.
 
 ### Next

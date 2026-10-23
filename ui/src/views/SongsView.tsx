@@ -168,7 +168,7 @@ export function SongsView() {
   // A phone shows a simple list: the title with the artist under it, and the time.
   const columns = phone ? PHONE_COLUMNS : layoutColumns;
   const layoutGrouping = useLook((s) => s.look.layout.grouping);
-  const grouping = phone ? 'none' : layoutGrouping;
+  const grouping = layoutGrouping;
   // Grouped lists are sorted by their group (albums keep disc and track order within).
   const sortBy: SongSort = grouping === 'none' ? sort : grouping;
   const descending = grouping === 'none' ? desc : false;
@@ -184,12 +184,28 @@ export function SongsView() {
     pending.current.clear();
   }, [sortBy, descending, libraryVersion]);
 
+  // On a phone a group's first row carries its heading above it (there's no room for the
+  // desktop's group column), so those rows are taller.
+  const HEADING = 30;
+  const rowAt = (i: number) => pages.get(Math.floor(i / PAGE))?.[i % PAGE];
+  const startsGroup = (i: number) => {
+    if (grouping === 'none') return false;
+    const t = rowAt(i);
+    if (!t) return false;
+    const prev = i > 0 ? rowAt(i - 1) : undefined;
+    return i === 0 || (prev !== undefined && groupOf(grouping, prev) !== groupOf(grouping, t));
+  };
+  const headed = (i: number) => phone && startsGroup(i);
   const v = useVirtualizer({
     count: count ?? 0,
     getScrollElement: () => scroller.current,
-    estimateSize: () => ROW,
+    estimateSize: (i) => ROW + (headed(i) ? HEADING : 0),
     overscan: 20,
   });
+  // Headings depend on loaded rows: re-measure as pages arrive.
+  useEffect(() => {
+    if (phone && grouping !== 'none') v.measure();
+  }, [pages, phone, grouping, v]);
   const items = v.getVirtualItems();
   const first = items[0]?.index ?? 0;
   const last = items.at(-1)?.index ?? 0;
@@ -279,12 +295,12 @@ export function SongsView() {
         aria-rowcount={count ?? 0}
         style={
           {
-            '--song-cols': (grouping === 'none' ? '' : '180px ') + columnTemplate(columns),
+            '--song-cols': (grouping === 'none' || phone ? '' : '180px ') + columnTemplate(columns),
           } as React.CSSProperties
         }
       >
         <div className="song-head" role="row">
-          {grouping !== 'none' && (
+          {grouping !== 'none' && !phone && (
             <div role="columnheader" className="c-group">
               {GROUP_LABELS[grouping]}
             </div>
@@ -324,7 +340,8 @@ export function SongsView() {
                   aria-selected={selected === it.index}
                   tabIndex={it.index === tabRow ? 0 : -1}
                   className={`song-row ${it.index % 2 ? 'odd' : ''} ${t && t.id === playingId ? 'playing' : ''} ${selected === it.index ? 'selected' : ''} ${starts ? 'group-start' : ''}`}
-                  style={{ transform: `translateY(${it.start}px)`, height: ROW }}
+                  style={{ transform: `translateY(${it.start}px)`, height: it.size }}
+                  data-headed={phone && starts ? '' : undefined}
                   // On a phone a tap plays, as in every phone music app.
                   onClick={() => (phone ? play(it.index) : setSelected(it.index))}
                   onDoubleClick={() => play(it.index)}
@@ -333,7 +350,12 @@ export function SongsView() {
                 >
                   {t ? (
                     <>
-                      {grouping !== 'none' && (
+                      {phone && starts && grouping !== 'none' && (
+                        <div className="phone-group-heading" aria-hidden>
+                          {groupLabel(grouping, t) || `Unknown ${GROUP_LABELS[grouping]}`}
+                        </div>
+                      )}
+                      {!phone && grouping !== 'none' && (
                         <div role="gridcell" className="c-group">
                           {starts
                             ? groupLabel(grouping, t) || `Unknown ${GROUP_LABELS[grouping]}`
