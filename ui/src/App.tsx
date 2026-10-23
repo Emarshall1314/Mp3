@@ -25,6 +25,7 @@ import { SettingsView } from './views/SettingsView';
 import { SyncView } from './views/SyncView';
 import { TrashView } from './views/TrashView';
 import { LibraryView } from './views/LibraryView';
+import { MixView } from './views/Rediscover';
 import { PhonePlayer } from './components/PhonePlayer';
 import { PhoneTabBar, tabOf } from './components/PhoneTabBar';
 import { usePhone } from './hooks/usePhone';
@@ -133,6 +134,8 @@ function Main() {
       return <TrashView />;
     case 'library':
       return <LibraryView />;
+    case 'mix':
+      return <MixView id={route.id} />;
   }
 }
 

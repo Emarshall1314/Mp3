@@ -565,3 +565,51 @@ fn trash_hides_a_song_and_restore_brings_it_back_with_its_history() {
     assert!(!path.exists());
     assert!(s.lib.restore(items[0].id).is_err());
 }
+
+#[test]
+fn rediscover_brings_back_old_favourites_and_unplayed_albums() {
+    use cadenza_library::AlbumSort;
+
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    let albums = s.lib.albums(AlbumSort::Artist, 0, 100).unwrap();
+    // Play every song of the first albums three times, now.
+    let mut played = Vec::new();
+    for a in albums.iter().take(4) {
+        for t in s.lib.album(a.id).unwrap().tracks {
+            for _ in 0..3 {
+                s.lib.record_play(t.id, 1000, true, None).unwrap();
+            }
+            played.push(t.id);
+        }
+    }
+    assert!(played.len() >= 6, "enough songs for a mix");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    // Today: nothing is forgotten yet, and nothing has waited long enough to be "still unplayed".
+    let today = s.lib.rediscover(now, 0).unwrap();
+    assert!(today.mixes.iter().all(|m| m.id != "forgotten"));
+    assert!(today.unplayed.is_empty());
+    assert_eq!(
+        today,
+        s.lib.rediscover(now + 60, 0).unwrap(),
+        "fixed for the day"
+    );
+
+    // A hundred days on: the played songs are forgotten favourites; the other albums wait.
+    let later = s.lib.rediscover(now + 100 * 86_400, 0).unwrap();
+    let forgotten = later
+        .mixes
+        .iter()
+        .find(|m| m.id == "forgotten")
+        .expect("a mix");
+    assert!(forgotten.track_ids.iter().all(|id| played.contains(id)));
+    assert!(!forgotten.art.is_empty());
+    let first: Vec<i64> = albums.iter().take(4).map(|a| a.id).collect();
+    assert!(!later.unplayed.is_empty());
+    assert!(later.unplayed.iter().all(|a| !first.contains(&a.id)));
+    assert!(later.album_of_the_day.is_some());
+}

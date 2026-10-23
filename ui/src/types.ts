@@ -62,6 +62,24 @@ export interface Home {
   mostPlayed: AlbumRow[];
 }
 
+/// A Rediscover mix: songs picked for the day from the owner's library and listening.
+export interface Mix {
+  id: string;
+  title: string;
+  subtitle: string;
+  refresh: 'daily' | 'weekly';
+  trackIds: number[];
+  /// Up to four artworks from the mix, for its cover.
+  art: string[];
+}
+
+export interface Rediscover {
+  albumOfTheDay: AlbumRow | null;
+  /// Albums added a while ago and never played: a new set each week.
+  unplayed: AlbumRow[];
+  mixes: Mix[];
+}
+
 export interface AlbumDetail {
   album: AlbumRow;
   date: string | null;

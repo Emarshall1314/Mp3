@@ -24,7 +24,8 @@ export type Route =
   | { name: 'settings' }
   | { name: 'sync' }
   | { name: 'trash' }
-  | { name: 'library' };
+  | { name: 'library' }
+  | { name: 'mix'; id: string };
 
 export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 

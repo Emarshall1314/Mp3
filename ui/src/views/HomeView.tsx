@@ -6,6 +6,7 @@ import { AlbumCard } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
 import { useLook } from '../hooks/useAppearance';
 import { SHELF_LABELS } from '../theme/layout';
+import { RediscoverShelf } from './Rediscover';
 
 /// Home: shelves of what you've been listening to and what's new. Shelves without albums are
 /// left out rather than shown empty.
@@ -28,14 +29,18 @@ export function HomeView() {
       <header className="view-header">
         <h1>Home</h1>
       </header>
-      {shelves.map((id) => (
-        <Shelf
-          key={id}
-          title={SHELF_LABELS[id]}
-          albums={home[id]}
-          more={id === 'recentlyAdded' ? { name: 'recent' } : undefined}
-        />
-      ))}
+      {shelves.map((id) =>
+        id === 'rediscover' ? (
+          <RediscoverShelf key={id} />
+        ) : (
+          <Shelf
+            key={id}
+            title={SHELF_LABELS[id]}
+            albums={home[id]}
+            more={id === 'recentlyAdded' ? { name: 'recent' } : undefined}
+          />
+        ),
+      )}
       {shelves.length === 0 && (
         <p className="muted home-hint">All shelves are hidden. Choose them in Settings, Layout.</p>
       )}

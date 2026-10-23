@@ -9,6 +9,7 @@ mod hash;
 mod history;
 mod lyrics;
 mod pages;
+mod rediscover;
 mod scan;
 mod search;
 mod shared;
@@ -23,6 +24,7 @@ pub use art::{StoredArt, THUMB_SIZES};
 pub use history::{EditBatch, EditChange};
 pub use lyrics::{LyricLine, Lyrics};
 pub use pages::{ArtistPage, Browse, BrowseItem, Home, ReleaseSection};
+pub use rediscover::{Mix, Rediscover};
 pub use scan::{ScanPhase, ScanProgress, ScanReport};
 pub use shared::{TRASH_DAYS, TrackFile, TrashItem, UnsyncedPlay};
 

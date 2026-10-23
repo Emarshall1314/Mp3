@@ -10,8 +10,8 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Remote, RenamePlan, Repeat,
-    ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
+    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Rediscover, Remote, RenamePlan,
+    Repeat, ReplayGainSettings, Root, SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings,
     SongSort, StoredArt, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit,
     TrackRow, TrackTags, TrashItem,
 };
@@ -478,6 +478,11 @@ fn home(app: App<'_>) -> Res<Home> {
 }
 
 #[tauri::command(async)]
+fn rediscover(app: App<'_>, offset_min: i32) -> Res<Rediscover> {
+    app.rediscover(offset_min).map_err(e)
+}
+
+#[tauri::command(async)]
 fn lyrics(app: App<'_>, track_id: i64) -> Res<Option<Lyrics>> {
     app.lyrics(track_id).map_err(e)
 }
@@ -755,6 +760,7 @@ pub fn run() {
             artist_page,
             browse,
             home,
+            rediscover,
             lyrics,
             artwork_palette,
             toggle_mini_player,

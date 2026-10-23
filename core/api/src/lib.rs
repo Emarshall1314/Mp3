@@ -28,8 +28,8 @@ pub use cadenza_engine::{
 pub use cadenza_library::TrashItem;
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Browse, BrowseItem, EditBatch,
-    EditChange, Home, LibraryStats, LyricLine, Lyrics, ReleaseSection, Root, SavedSearch,
-    ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
+    EditChange, Home, LibraryStats, LyricLine, Lyrics, Mix, Rediscover, ReleaseSection, Root,
+    SavedSearch, ScanPhase, ScanProgress, ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
 pub use cadenza_sync::Remote;
 pub use edit::{
@@ -559,6 +559,19 @@ impl Cadenza {
     /// Home shelves: recently played, recently added, most played.
     pub fn home(&self) -> Result<Home> {
         Ok(self.library.home()?)
+    }
+
+    /// Today's Rediscover: mixes and albums from the owner's own library and listening.
+    /// `offset_min` is the owner's time zone (minutes east of UTC), so days start at their
+    /// midnight.
+    pub fn rediscover(&self, offset_min: i32) -> Result<Rediscover> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        Ok(self
+            .library
+            .rediscover(now, offset_min.clamp(-14 * 60, 14 * 60))?)
     }
 
     /// The track's lyrics (sidecar `.lrc`, else embedded), if any.

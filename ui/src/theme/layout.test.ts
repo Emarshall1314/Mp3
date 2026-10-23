@@ -79,3 +79,13 @@ describe('layout', () => {
     expect(normaliseLayout({ miniPlayer: 'huge' }).miniPlayer).toBe('floating');
   });
 });
+
+describe('Home shelves', () => {
+  it('adds a new shelf at the top of a layout saved before it, once', () => {
+    const old = normaliseLayout({ shelves: ['recentlyAdded', 'mostPlayed'] });
+    expect(old.shelves).toEqual(['rediscover', 'recentlyAdded', 'mostPlayed']);
+    // Hidden afterwards, it stays hidden.
+    const hidden = normaliseLayout({ ...old, shelves: ['recentlyAdded'] });
+    expect(hidden.shelves).toEqual(['recentlyAdded']);
+  });
+});

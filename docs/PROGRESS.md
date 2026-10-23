@@ -413,6 +413,20 @@ glass.
   - Search results: the albums row is no longer squashed.
   - Tests: swipe direction and completion rules; where music came from.
   - Checked in the real app with mouse drags (the same pointer events as touch).
+- **Rediscover on Home** (D59; the owner chose this from the recommendation options):
+  - Album of the Day: an album not played for three months, or never (those favoured); Play
+    from the card.
+  - Mixes, new each day: Forgotten Favourites, Deep Cuts, On This Day, and Your Mornings /
+    Afternoons / Evenings / Late Nights. Each has a cover (four artworks under a colour wash,
+    with its title) and a page with Play, Shuffle and its songs.
+  - Still Unplayed · this week: albums added a while ago and never played, a new set each week.
+  - Everything comes from this device's library and listening; nothing is sent anywhere. Parts
+    with too little to show are left out, and a new library says how the shelf fills up.
+  - A shelf of its own in Settings → Layout → Home; added at the top of existing layouts once.
+  - Tests: weighted, seeded picks; each mix's rules; dates and the owner's time zone; a real
+    scanned library over time; the shelf migration.
+  - Checked in the real app at phone size (the test library only has recent listening, so it
+    showed the time-of-day mix).
 - Demo script: `docs/demos/M7.md`.
 
 ### Next
@@ -427,8 +441,9 @@ glass.
    and api.acoustid.org.
 3. **M7: Mobile** (in progress): see the M7 section of `docs/ROADMAP.md`. The Android settings
    reset is fixed on the phone (owner's build, October 2026).
-   - **Home recommendations:** options put to the owner (from their own library and listening,
-     or with an opt-in online source for music they don't have); waiting for their choice.
+   - **Home recommendations:** Rediscover is built (option 3). Possible later: daily genre/era
+     mixes, "because you played" from listening together, an opt-in online source for music the
+     owner doesn't have yet.
 4. **Revisit later: sync on real devices.** The owner can't test sync yet. When possible, run
    `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud), and fix whatever it
    finds before more sync features are built.

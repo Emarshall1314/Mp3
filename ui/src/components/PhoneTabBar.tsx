@@ -43,6 +43,7 @@ const ROUTES: Record<TabId, Route> = {
 export function tabOf(route: Route, tabs: TabId[]): TabId {
   const own: Partial<Record<Route['name'], TabId>> = {
     home: 'home',
+    mix: 'home',
     library: 'library',
     search: 'search',
     albums: 'albums',

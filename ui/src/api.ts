@@ -17,6 +17,7 @@ import type {
   DspSettings,
   EqBand,
   Home,
+  Rediscover,
   ImportedEq,
   LibraryStats,
   LoudnessStatus,
@@ -101,6 +102,9 @@ export const api = {
     invoke<Browse>('browse', { genre, artist }),
   artistPage: (name: string) => invoke<ArtistPage>('artist_page', { name }),
   home: () => invoke<Home>('home'),
+  /// Today's Rediscover, by the owner's clock (days start at their midnight).
+  rediscover: () =>
+    invoke<Rediscover>('rediscover', { offsetMin: -new Date().getTimezoneOffset() }),
   search: (query: string, limit: number) => invoke<SearchResults>('search', { query, limit }),
   savedSearches: () => invoke<SavedSearch[]>('saved_searches'),
   saveSearch: (name: string, query: string) => invoke<SavedSearch>('save_search', { name, query }),

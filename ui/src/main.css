@@ -4316,3 +4316,156 @@ kbd {
 .app[data-phone] .card-row::-webkit-scrollbar {
   display: none;
 }
+
+/* ---- Rediscover (views/Rediscover.tsx) ---- */
+.shelf-subtitle {
+  margin: var(--space-4) var(--space-6) var(--space-2);
+  font-size: var(--font-size-200);
+  color: var(--color-text-secondary);
+}
+
+.album-of-the-day {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 var(--space-6) var(--space-4);
+  padding: var(--space-3);
+  border-radius: 22px;
+  background: var(--color-surface);
+}
+
+:root[data-panels='liquid'] .album-of-the-day {
+  background: color-mix(in srgb, var(--color-surface-glass) 70%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.aotd-art .artwork {
+  border-radius: 14px;
+  box-shadow: var(--shadow-artwork);
+}
+
+.aotd-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.aotd-text :is(.title, .subtitle) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aotd-text .title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.aotd-text .pill {
+  margin-top: var(--space-2);
+}
+
+.aotd-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.mix-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 170px;
+  flex: none;
+}
+
+.mix-card .subtitle {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.mix-card .play-overlay {
+  /* Top corner: the bottom of the cover carries the title. */
+  top: var(--space-2);
+  bottom: auto;
+  left: auto;
+  right: var(--space-2);
+}
+
+.mix-card:hover .play-overlay,
+.mix-card:has(:focus-visible) .play-overlay,
+.app[data-phone] .mix-card .play-overlay {
+  opacity: 1;
+}
+
+/* A mix's cover: a square of four artworks under a wash of colour, with the title on it. */
+.mix-cover {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-artwork);
+}
+
+.mix-cover:has(> .artwork:only-of-type) {
+  grid-template-columns: 1fr;
+}
+
+.mix-cover .artwork {
+  border-radius: 0;
+}
+
+.mix-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(160deg, var(--mix-tint, rgb(232 52 78 / 55%)), transparent 55%),
+    linear-gradient(transparent 40%, rgb(0 0 0 / 65%));
+}
+
+.mix-cover[data-mix='forgotten'] {
+  --mix-tint: rgb(255 140 60 / 55%);
+}
+
+.mix-cover[data-mix='deep-cuts'] {
+  --mix-tint: rgb(90 110 255 / 55%);
+}
+
+.mix-cover[data-mix='on-this-day'] {
+  --mix-tint: rgb(40 190 150 / 55%);
+}
+
+.mix-cover[data-mix='daypart'] {
+  --mix-tint: rgb(200 80 220 / 55%);
+}
+
+.mix-cover-title {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 1;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 40%);
+}
+
+.mix-page .album-hero .mix-cover-title {
+  font-size: 24px;
+}
+
+.mix-page .result-songs {
+  padding: 0 var(--space-6) var(--space-6);
+}

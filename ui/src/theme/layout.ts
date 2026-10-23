@@ -21,7 +21,15 @@ export type ColumnId =
 export type GridOrList = 'grid' | 'list';
 export type AlbumsView = GridOrList | 'columns';
 export type Grouping = 'none' | 'album' | 'artist' | 'genre';
-export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
+export type ShelfId = 'rediscover' | 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
+export const ALL_SHELVES: readonly ShelfId[] = [
+  'rediscover',
+  'recentlyPlayed',
+  'recentlyAdded',
+  'mostPlayed',
+];
+/// The shelves there were before Rediscover; a saved layout from then lists only these.
+const FIRST_SHELVES: readonly ShelfId[] = ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'];
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal' | 'visualizer';
 /// The phone's tab bar.
 export type TabId =
@@ -62,6 +70,9 @@ export interface Layout {
   dock: Dock;
   /// Home's shelves in order; ones not listed are hidden.
   shelves: ShelfId[];
+  /// Every shelf this layout has been offered, so a shelf added in a later version appears
+  /// once (at the top) instead of counting as hidden.
+  knownShelves: ShelfId[];
   /// The song list grouped (and sorted) by album, artist or genre.
   grouping: Grouping;
   /// Song Info opens in the side panel instead of over the page.
@@ -85,6 +96,7 @@ export const NAV_LABELS: Record<NavId, string> = {
 };
 
 export const SHELF_LABELS: Record<ShelfId, string> = {
+  rediscover: 'Rediscover',
   recentlyPlayed: 'Recently Played',
   recentlyAdded: 'Recently Added',
   mostPlayed: 'Most Played',
@@ -163,7 +175,8 @@ export const DEFAULT_LAYOUT: Layout = {
   ).map((id) => col(id)),
   nowPlaying: 'artwork',
   dock: { position: 'right', size: 320, x: 80, y: 80, w: 340, h: 420 },
-  shelves: ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
+  shelves: ['rediscover', 'recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
+  knownShelves: [...ALL_SHELVES],
   grouping: 'none',
   tagEditorDocked: false,
   phoneTabs: ['home', 'library', 'search', 'settings'],
@@ -258,10 +271,22 @@ export function normaliseLayout(value: unknown): Layout {
     dock: normaliseDock(v.dock),
     tagEditorDocked: typeof v.tagEditorDocked === 'boolean' ? v.tagEditorDocked : d.tagEditorDocked,
     grouping: pick(v.grouping, ['none', 'album', 'artist', 'genre'], d.grouping),
-    shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),
+    ...shelves(
+      list(v.shelves, ALL_SHELVES, d.shelves),
+      list(v.knownShelves, ALL_SHELVES, Array.isArray(v.shelves) ? [...FIRST_SHELVES] : []),
+    ),
     phoneTabs: phoneTabs(list(v.phoneTabs, ALL_TABS, d.phoneTabs)),
     miniPlayer: pick(v.miniPlayer, ['floating', 'bar', 'minimal'], d.miniPlayer),
   };
+}
+
+/// Shelves new since the layout was saved go at the top, once; after that, hiding one sticks.
+function shelves(
+  saved: ShelfId[],
+  known: ShelfId[],
+): { shelves: ShelfId[]; knownShelves: ShelfId[] } {
+  const added = ALL_SHELVES.filter((s) => !known.includes(s) && !saved.includes(s));
+  return { shelves: [...added, ...saved], knownShelves: [...ALL_SHELVES] };
 }
 
 /// Library is always a tab (everything else is reachable from it), and five at most fit.
