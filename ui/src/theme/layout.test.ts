@@ -58,4 +58,24 @@ describe('layout', () => {
     expect(moveTo(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['b', 'c', 'a', 'd']);
     expect(moveTo(['a', 'b', 'c', 'd'], 3, 1)).toEqual(['a', 'd', 'b', 'c']);
   });
+  it('keeps the phone tabs usable', () => {
+    expect(normaliseLayout({}).phoneTabs).toEqual(['home', 'library', 'search', 'settings']);
+    // Library is always there, and at most five tabs fit.
+    expect(normaliseLayout({ phoneTabs: ['songs', 'home'] }).phoneTabs).toEqual([
+      'library',
+      'songs',
+      'home',
+    ]);
+    expect(
+      normaliseLayout({
+        phoneTabs: ['home', 'library', 'search', 'albums', 'artists', 'songs', 'sync'],
+      }).phoneTabs,
+    ).toHaveLength(5);
+    expect(normaliseLayout({ phoneTabs: ['nonsense', 'home', 'home'] }).phoneTabs).toEqual([
+      'library',
+      'home',
+    ]);
+    expect(normaliseLayout({ miniPlayer: 'bar' }).miniPlayer).toBe('bar');
+    expect(normaliseLayout({ miniPlayer: 'huge' }).miniPlayer).toBe('floating');
+  });
 });

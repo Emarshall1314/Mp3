@@ -2418,7 +2418,8 @@ kbd {
   --glass-sheen: rgb(255 255 255 / 9%);
 }
 
-:root[data-panels='liquid'] :is(.sidebar, .player-bar, .popover, .queue-panel, .context-menu) {
+:root[data-panels='liquid']
+  :is(.sidebar, .player-bar, .popover, .queue-panel, .context-menu, .phone-tabs, .phone-player) {
   backdrop-filter: blur(var(--blur-glass)) saturate(210%) brightness(1.05);
   background-image: linear-gradient(
     135deg,
@@ -2436,7 +2437,7 @@ kbd {
 
 /* Chromium (Android) also bends what is behind the panel at its edges. */
 :root[data-panels='liquid'][data-refraction]
-  :is(.sidebar, .player-bar, .popover, .queue-panel, .context-menu) {
+  :is(.sidebar, .player-bar, .popover, .queue-panel, .context-menu, .phone-tabs, .phone-player) {
   backdrop-filter: url(#cadenza-liquid) blur(var(--blur-glass)) saturate(210%) brightness(1.05);
 }
 
@@ -3202,4 +3203,277 @@ kbd {
 .folder-setup .field-row select {
   flex: 1 1 360px;
   max-width: 520px;
+}
+
+/* ---- Phone layout: one page, the mini player and the tabs ---- */
+.app[data-phone] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app[data-phone] .phone-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Room for the mini player floating over the bottom of the page. */
+  padding-bottom: 72px;
+}
+
+.app[data-phone] {
+  /* Pages' large gutters shrink to a phone's 16 px. */
+  --space-6: 16px;
+}
+
+.app[data-phone] .view-header {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.app[data-phone] .view-header h1 {
+  font-size: 28px;
+}
+
+.phone-top {
+  display: flex;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--space-2)) var(--space-2) 0;
+}
+
+.phone-tabs {
+  display: flex;
+  justify-content: space-around;
+  padding: var(--space-1) var(--space-2) calc(env(safe-area-inset-bottom, 0px) + var(--space-1));
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  border-top: 1px solid var(--color-separator);
+}
+
+.phone-tabs button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  min-height: 48px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.phone-tabs button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-tabs button.on {
+  color: var(--color-accent);
+}
+
+.phone-player {
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.phone-player[data-style='bar'] {
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 62px);
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--color-separator);
+}
+
+.phone-player[data-style='minimal'] {
+  left: auto;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+}
+
+.phone-player .artwork {
+  flex-shrink: 0;
+}
+
+.phone-player[data-style='minimal'] .artwork {
+  border-radius: 50%;
+}
+
+.phone-player-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-player-text :is(.title, .subtitle) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-player-text .title {
+  font-weight: 600;
+}
+
+.phone-player-text .subtitle {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.phone-player-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--color-accent);
+}
+
+.phone-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--space-3)) var(--space-6) var(--space-2);
+  background: var(--color-bg);
+}
+
+.phone-search input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-m);
+  font-size: 16px;
+}
+
+.search-help {
+  margin: var(--space-3) var(--space-6);
+}
+
+.library-list {
+  list-style: none;
+  margin: 0 var(--space-6) var(--space-4);
+  padding: 0;
+}
+
+.library-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--space-1);
+  border-bottom: 1px solid var(--color-separator);
+  font-size: 17px;
+  text-align: left;
+}
+
+.library-row svg:first-child {
+  color: var(--color-accent);
+}
+
+.library-row span {
+  flex: 1;
+}
+
+.library-row .chevron {
+  color: var(--color-text-secondary);
+}
+
+.np-grab {
+  display: flex;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--space-2)) 0 var(--space-2);
+  touch-action: none;
+  position: relative;
+  z-index: 1;
+}
+
+.np-grab span {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 45%);
+}
+
+/* Album and artist pages: the picture above the text on a phone. */
+.app[data-phone] :is(.album-hero, .artist-hero) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.app[data-phone] .hero-art {
+  /* The artwork's size is set inline for the desktop; a phone shows it at most screen-wide. */
+  width: min(72vw, 300px) !important;
+  height: min(72vw, 300px) !important;
+  align-self: center;
+}
+
+.app[data-phone] .album-hero-text h1 {
+  font-size: 26px;
+}
+
+/* Now Playing on a phone: a large cover; lyrics or the queue take the screen, with the controls
+   below them. */
+.app[data-phone] .np-top {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.app[data-phone] .np-body {
+  padding: 0 var(--space-4) calc(env(safe-area-inset-bottom, 0px) + var(--space-4));
+}
+
+.app[data-phone] .np-art {
+  width: min(86vw, 52vh);
+}
+
+.app[data-phone] .np-body.with-panel {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+}
+
+.app[data-phone] .np-body.with-panel .np-panel {
+  order: -1;
+}
+
+.app[data-phone] .np-body.with-panel .np-art {
+  display: none;
+}
+
+/* Songs on a phone: the title with the artist under it. */
+.app[data-phone] .song-row .c-title {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.app[data-phone] .song-row .c-title :is(.title, .subtitle) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app[data-phone] .song-row .c-title .subtitle {
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }

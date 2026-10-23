@@ -23,7 +23,7 @@ Two kinds of test so far:
 
 **M5 (Customisation) is done for Linux**: themes, the theme editor, liquid glass, layouts and
 presets, the dockable panel (with the tag editor), the column browser, grouping, the visualizer,
-remappable and system-wide shortcuts, and custom CSS. The phone's own layout options wait for M7. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
+remappable and system-wide shortcuts, and custom CSS. The phone's own layout options are in M7. **M4 (Tag editing) is done for Linux except online lookup**, on top of M1–M3. Online lookup
 (MusicBrainz, Cover Art Archive, Discogs, AcoustID) waits for network access to those services
 from the development environment, so it can be built against the real services rather than
 guessed responses. `cargo xtask ci` passes. M3 was checked in the real app on a virtual display; the tray icon and
@@ -336,6 +336,26 @@ glass.
     - A regression test for calls from an app's async runtime.
 - Demo script: `docs/demos/M6.md`, with a second-device helper (`cargo run -p cadenza-api
   --example sync_device`).
+
+### M7: Mobile (in progress)
+- **Settings that survive:** a settings file that partly fails to load keeps every value that
+  reads; the unreadable file is kept as `settings.json.unreadable`, and the app says so when it
+  starts. Whether this fixes the Android reset needs the phone (Known issues).
+- **Phone layout** (any window narrower than 700 px, so it can be tried on the desktop):
+  - Tabs along the bottom. Which tabs and their order are set in Settings → Layout → Phone
+    (Library is always one; at most 5).
+  - **Library** page: Recently Added, Artists, Albums, Songs, Saved Searches, then the rest of
+    the app (Music Folders, Sync, Trash, Sound, Settings).
+  - **Search** tab with its own search box.
+  - A mini player above the tabs in three styles (floating, bar, minimal). Tap it or swipe it up
+    for Now Playing; drag Now Playing's handle down to close it.
+  - Song lists show title over artist and time, with taller rows; a tap plays.
+  - Album and artist pages stack; Now Playing fits the screen, and lyrics or the queue take it
+    over when open.
+  - Long-press opens a song's menu on touch screens.
+  - Checked in the real app at 412×860 on a virtual display. Not checked: long-press (needs a
+    touch screen) and anything on a real phone.
+- Demo script: `docs/demos/M7.md`.
 
 ### Next
 1. **Owner tests**:

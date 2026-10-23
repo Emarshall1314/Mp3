@@ -10,7 +10,12 @@ import {
   DEFAULT_LAYOUT,
   type AlbumsView,
   type Layout,
+  MAX_TABS,
+  MINI_PLAYER_LABELS,
   NAV_LABELS,
+  TAB_LABELS,
+  type MiniPlayerStyle,
+  type TabId,
   type NavId,
   type PlayerControl,
   SHELF_LABELS,
@@ -54,6 +59,7 @@ function OrderList<T extends string>({
   shown,
   names,
   locked = [],
+  max,
   onChange,
 }: {
   label: string;
@@ -61,8 +67,11 @@ function OrderList<T extends string>({
   shown: T[];
   names: Record<T, string>;
   locked?: T[];
+  /// At most this many can be on.
+  max?: number;
   onChange: (shown: T[]) => void;
 }) {
+  const full = max !== undefined && shown.length >= max;
   const hidden = all.filter((i) => !shown.includes(i));
   return (
     <ul className="order-list" aria-label={label}>
@@ -75,7 +84,7 @@ function OrderList<T extends string>({
               <input
                 type="checkbox"
                 checked={on}
-                disabled={locked.includes(id)}
+                disabled={locked.includes(id) || (full && !on)}
                 onChange={(e) =>
                   onChange(e.target.checked ? [...shown, id] : shown.filter((s) => s !== id))
                 }
@@ -112,6 +121,8 @@ const RIGHT_CONTROLS = (['volume', 'output', 'miniPlayer', 'queue'] as PlayerCon
   (c) => !(isAndroid && c === 'miniPlayer'),
 );
 const ALL_SHELVES = Object.keys(SHELF_LABELS) as ShelfId[];
+const ALL_TABS = Object.keys(TAB_LABELS) as TabId[];
+const MINI_PLAYERS = Object.entries(MINI_PLAYER_LABELS) as [MiniPlayerStyle, string][];
 const ALL_COLUMNS = Object.keys(COLUMN_SPECS) as ColumnId[];
 const COLUMN_NAMES = Object.fromEntries(
   ALL_COLUMNS.map((c) => [c, COLUMN_SPECS[c].label]),
@@ -231,6 +242,32 @@ export function LayoutSettings() {
           names={SHELF_LABELS}
           onChange={(shelves) => updateLayout({ shelves })}
         />
+      </div>
+
+      <div className="settings-group">
+        <h2>Phone</h2>
+        <p className="muted small">
+          On a phone (or a narrow window): the tabs along the bottom, in order, and the player above
+          them. Library is always a tab; {MAX_TABS} fit.
+        </p>
+        <OrderList
+          label="Phone tabs"
+          all={ALL_TABS}
+          shown={layout.phoneTabs}
+          names={TAB_LABELS}
+          locked={['library']}
+          max={MAX_TABS}
+          onChange={(phoneTabs) => updateLayout({ phoneTabs })}
+        />
+        <div className="form-grid">
+          <span>Mini player</span>
+          <Segmented
+            label="Mini player style"
+            value={layout.miniPlayer}
+            options={MINI_PLAYERS}
+            onChange={(miniPlayer) => updateLayout({ miniPlayer })}
+          />
+        </div>
       </div>
 
       <div className="settings-group">

@@ -18,6 +18,7 @@ import {
 } from '../theme/layout';
 import { DENSITY } from '../theme/look';
 import { QualityBadge } from '../components/QualityBadge';
+import { usePhone } from '../hooks/usePhone';
 
 const PAGE = 200;
 
@@ -40,6 +41,11 @@ function groupLabel(g: Grouping, t: TrackRow): string {
   if (g === 'album') return [t.album, t.albumartist].filter(Boolean).join(' — ');
   return groupOf(g, t);
 }
+
+const PHONE_COLUMNS: Column[] = [
+  { id: 'title', width: 200 },
+  { id: 'time', width: 56 },
+];
 
 /// One cell's content for a column.
 function cell(id: ColumnId, t: TrackRow) {
@@ -156,12 +162,17 @@ export function SongsView() {
   const [selected, setSelected] = useState<number | null>(null);
   const pending = useRef(new Set<number>());
   const scroller = useRef<HTMLDivElement>(null);
-  const columns = useLook((s) => s.look.layout.columns);
-  const grouping = useLook((s) => s.look.layout.grouping);
+  const phone = usePhone();
+  const layoutColumns = useLook((s) => s.look.layout.columns);
+  // A phone shows a simple list: the title with the artist under it, and the time.
+  const columns = phone ? PHONE_COLUMNS : layoutColumns;
+  const layoutGrouping = useLook((s) => s.look.layout.grouping);
+  const grouping = phone ? 'none' : layoutGrouping;
   // Grouped lists are sorted by their group (albums keep disc and track order within).
   const sortBy: SongSort = grouping === 'none' ? sort : grouping;
   const descending = grouping === 'none' ? desc : false;
-  const ROW = DENSITY[useLook((s) => s.look.density)].row;
+  const density = DENSITY[useLook((s) => s.look.density)].row;
+  const ROW = phone ? Math.max(56, density) : density;
 
   useEffect(() => {
     void api.stats().then((s) => setCount(s.tracks));
@@ -311,7 +322,8 @@ export function SongsView() {
                   tabIndex={it.index === tabRow ? 0 : -1}
                   className={`song-row ${it.index % 2 ? 'odd' : ''} ${t && t.id === playingId ? 'playing' : ''} ${selected === it.index ? 'selected' : ''} ${starts ? 'group-start' : ''}`}
                   style={{ transform: `translateY(${it.start}px)`, height: ROW }}
-                  onClick={() => setSelected(it.index)}
+                  // On a phone a tap plays, as in every phone music app.
+                  onClick={() => (phone ? play(it.index) : setSelected(it.index))}
                   onDoubleClick={() => play(it.index)}
                   onKeyDown={(e) => onRowKey(e, it.index)}
                   onContextMenu={t ? menuHandler(() => trackMenu(t)) : undefined}
@@ -327,7 +339,14 @@ export function SongsView() {
                       )}
                       {columns.map((c) => (
                         <div key={c.id} role="gridcell" className={`c-${c.id}`}>
-                          {cell(c.id, t)}
+                          {phone && c.id === 'title' ? (
+                            <>
+                              <span className="title">{t.title}</span>
+                              <span className="subtitle">{t.artist}</span>
+                            </>
+                          ) : (
+                            cell(c.id, t)
+                          )}
                         </div>
                       ))}
                     </>

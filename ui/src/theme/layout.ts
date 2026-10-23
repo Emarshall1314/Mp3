@@ -23,6 +23,11 @@ export type AlbumsView = GridOrList | 'columns';
 export type Grouping = 'none' | 'album' | 'artist' | 'genre';
 export type ShelfId = 'recentlyPlayed' | 'recentlyAdded' | 'mostPlayed';
 export type NowPlayingStyle = 'artwork' | 'lyrics' | 'minimal' | 'visualizer';
+/// The phone's tab bar.
+export type TabId =
+  'home' | 'library' | 'search' | 'albums' | 'artists' | 'songs' | 'recent' | 'sync' | 'settings';
+/// The phone's player above the tabs: a floating card, a full-width bar, or just the essentials.
+export type MiniPlayerStyle = 'floating' | 'bar' | 'minimal';
 
 export interface Column {
   id: ColumnId;
@@ -61,6 +66,9 @@ export interface Layout {
   grouping: Grouping;
   /// Song Info opens in the side panel instead of over the page.
   tagEditorDocked: boolean;
+  /// The phone's tabs in order (at most five).
+  phoneTabs: TabId[];
+  miniPlayer: MiniPlayerStyle;
 }
 
 export interface Preset {
@@ -81,6 +89,28 @@ export const SHELF_LABELS: Record<ShelfId, string> = {
   recentlyAdded: 'Recently Added',
   mostPlayed: 'Most Played',
 };
+
+export const TAB_LABELS: Record<TabId, string> = {
+  home: 'Home',
+  library: 'Library',
+  search: 'Search',
+  albums: 'Albums',
+  artists: 'Artists',
+  songs: 'Songs',
+  recent: 'Recently Added',
+  sync: 'Sync',
+  settings: 'Settings',
+};
+
+export const MINI_PLAYER_LABELS: Record<MiniPlayerStyle, string> = {
+  floating: 'Floating',
+  bar: 'Bar',
+  minimal: 'Minimal',
+};
+
+/// Phone tabs: at most this many fit across a phone.
+export const MAX_TABS = 5;
+const ALL_TABS = Object.keys(TAB_LABELS) as TabId[];
 
 export const CONTROL_LABELS: Record<PlayerControl, string> = {
   shuffle: 'Shuffle',
@@ -136,6 +166,8 @@ export const DEFAULT_LAYOUT: Layout = {
   shelves: ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'],
   grouping: 'none',
   tagEditorDocked: false,
+  phoneTabs: ['home', 'library', 'search', 'settings'],
+  miniPlayer: 'floating',
 };
 
 export const BUILT_IN_PRESETS: Preset[] = [
@@ -227,7 +259,15 @@ export function normaliseLayout(value: unknown): Layout {
     tagEditorDocked: typeof v.tagEditorDocked === 'boolean' ? v.tagEditorDocked : d.tagEditorDocked,
     grouping: pick(v.grouping, ['none', 'album', 'artist', 'genre'], d.grouping),
     shelves: list(v.shelves, ['recentlyPlayed', 'recentlyAdded', 'mostPlayed'] as const, d.shelves),
+    phoneTabs: phoneTabs(list(v.phoneTabs, ALL_TABS, d.phoneTabs)),
+    miniPlayer: pick(v.miniPlayer, ['floating', 'bar', 'minimal'], d.miniPlayer),
   };
+}
+
+/// Library is always a tab (everything else is reachable from it), and five at most fit.
+function phoneTabs(tabs: TabId[]): TabId[] {
+  const withLibrary = tabs.includes('library') ? tabs : ['library' as TabId, ...tabs];
+  return withLibrary.slice(0, MAX_TABS);
 }
 
 function normaliseDock(value: unknown): Dock {

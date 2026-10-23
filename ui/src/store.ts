@@ -23,7 +23,8 @@ export type Route =
   | { name: 'sound' }
   | { name: 'settings' }
   | { name: 'sync' }
-  | { name: 'trash' };
+  | { name: 'trash' }
+  | { name: 'library' };
 
 export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 

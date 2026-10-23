@@ -6,6 +6,7 @@ import type { SearchResults } from '../types';
 import { Artwork } from '../components/Artwork';
 import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
+import { usePhone } from '../hooks/usePhone';
 
 const HELP =
   'Try artist:"Name", year:>2000, format:flac, quality:hires, plays:>10, added:<30, -exclude';
@@ -14,13 +15,17 @@ const HELP =
 export function SearchView({ query }: { query: string }) {
   const navigate = useStore((s) => s.navigate);
   const libraryVersion = useStore((s) => s.libraryVersion);
-  const [results, setResults] = useState<SearchResults | null>(null);
+  const [found, setResults] = useState<SearchResults | null>(null);
+  // An empty box (the phone's Search tab) shows no results.
+  const results = query.trim() ? found : null;
   const [error, setError] = useState<string | null>(null);
   // The query that was last saved; the button resets as soon as the query changes.
   const [savedQuery, setSavedQuery] = useState<string | null>(null);
   const saved = savedQuery === query;
+  const phone = usePhone();
 
   useEffect(() => {
+    if (!query.trim()) return;
     let live = true;
     // Debounce slightly so fast typing does not queue a search per key.
     const t = setTimeout(() => {
@@ -47,14 +52,32 @@ export function SearchView({ query }: { query: string }) {
 
   return (
     <section className="view scroll search-view">
-      <header className="view-header">
-        <h1>“{query}”</h1>
-        <div className="view-controls">
-          <button className="pill" onClick={() => void save()} disabled={saved}>
-            <Bookmark size={14} aria-hidden /> {saved ? 'Saved' : 'Save Search'}
-          </button>
+      {phone && (
+        <div className="phone-search">
+          <input
+            type="search"
+            // The Search tab opens ready to type.
+            autoFocus={query === ''}
+            placeholder="Songs, artists, albums…"
+            aria-label="Search"
+            value={query}
+            onChange={(e) =>
+              useStore.setState({ route: { name: 'search', query: e.target.value } })
+            }
+          />
         </div>
-      </header>
+      )}
+      {(!phone || query !== '') && (
+        <header className="view-header">
+          <h1>{query ? `“${query}”` : 'Search'}</h1>
+          <div className="view-controls">
+            <button className="pill" onClick={() => void save()} disabled={saved || !query}>
+              <Bookmark size={14} aria-hidden /> {saved ? 'Saved' : 'Save Search'}
+            </button>
+          </div>
+        </header>
+      )}
+      {query === '' && <p className="muted search-help">{HELP}</p>}
       {error && (
         <p role="alert" className="muted">
           {error}

@@ -24,6 +24,11 @@ import { SoundView } from './views/SoundView';
 import { SettingsView } from './views/SettingsView';
 import { SyncView } from './views/SyncView';
 import { TrashView } from './views/TrashView';
+import { LibraryView } from './views/LibraryView';
+import { PhonePlayer } from './components/PhonePlayer';
+import { PhoneTabBar, tabOf } from './components/PhoneTabBar';
+import { usePhone } from './hooks/usePhone';
+import { useLongPress } from './hooks/useLongPress';
 
 function useCoreEvents() {
   useEffect(() => {
@@ -124,7 +129,68 @@ function Main() {
       return <SyncView />;
     case 'trash':
       return <TrashView />;
+    case 'library':
+      return <LibraryView />;
   }
+}
+
+function Toast() {
+  const toast = useStore((s) => s.toast);
+  if (!toast) return null;
+  return (
+    <div className="toast" role="status">
+      <span>{toast.message}</span>
+      {toast.action && (
+        <button
+          className="link toast-action"
+          onClick={() => {
+            useStore.setState({ toast: null });
+            toast.action?.run();
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/// The phone: one page at a time, the mini player and the tabs. A page reached from a tab's
+/// page has a back button.
+function PhoneApp() {
+  const route = useStore((s) => s.route);
+  const back = useStore((s) => s.back.length > 0);
+  const tabs = useLook((s) => s.look.layout.phoneTabs);
+  const tab = tabOf(route, tabs);
+  const atTabTop =
+    route.name === tab ||
+    (tab === 'library' && route.name === 'library') ||
+    (route.name === 'search' && tab === 'search');
+  return (
+    <div className="app" data-phone="">
+      <main className="main phone-main">
+        {back && !atTabTop && (
+          <div className="phone-top">
+            <button
+              className="icon-button"
+              aria-label="Back"
+              onClick={() => useStore.getState().goBack()}
+            >
+              <ChevronLeft size={22} />
+            </button>
+          </div>
+        )}
+        <Main />
+      </main>
+      <PhonePlayer />
+      <PhoneTabBar />
+      <NowPlaying />
+      <ContextMenu />
+      <SongInfo />
+      <EditFailures />
+      <Toast />
+    </div>
+  );
 }
 
 export function App() {
@@ -133,11 +199,13 @@ export function App() {
   const playing = useCurrentTrack();
   useAppearance(playing?.artHash ?? null);
   useGlobalShortcuts();
+  useLongPress();
+  const phone = usePhone();
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);
-  const toast = useStore((s) => s.toast);
   const dockPosition = useLook((s) => s.look.layout.dock.position);
 
+  if (phone) return <PhoneApp />;
   return (
     <div className="app">
       <Sidebar />
@@ -182,22 +250,7 @@ export function App() {
       <ContextMenu />
       <SongInfo />
       <EditFailures />
-      {toast && (
-        <div className="toast" role="status">
-          <span>{toast.message}</span>
-          {toast.action && (
-            <button
-              className="link toast-action"
-              onClick={() => {
-                useStore.setState({ toast: null });
-                toast.action?.run();
-              }}
-            >
-              {toast.action.label}
-            </button>
-          )}
-        </div>
-      )}
+      <Toast />
     </div>
   );
 }

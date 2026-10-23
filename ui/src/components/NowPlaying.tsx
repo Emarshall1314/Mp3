@@ -9,6 +9,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { api } from '../api';
+import { usePhone } from '../hooks/usePhone';
 import { useCurrentTrack } from '../hooks/useCurrentTrack';
 import { attempt, useStore } from '../store';
 import { Artwork } from './Artwork';
@@ -60,6 +61,9 @@ export function NowPlaying() {
   }, [open, hash]);
 
   const dialog = useRef<HTMLDivElement>(null);
+  const phone = usePhone();
+  // Where a swipe down from the top began.
+  const grab = useRef<number | null>(null);
   const close = useCallback(() => setOpen(false), [setOpen]);
   useModal(open, dialog, close);
 
@@ -82,6 +86,27 @@ export function NowPlaying() {
           <span key={i} className={`np-blob b${i}`} style={{ background: `rgb(${c.join(' ')})` }} />
         ))}
       </div>
+      {phone && (
+        <div
+          className="np-grab"
+          aria-hidden
+          onPointerDown={(e) => {
+            grab.current = e.clientY;
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (grab.current !== null && e.clientY - grab.current > 60) {
+              grab.current = null;
+              close();
+            }
+          }}
+          onPointerUp={() => {
+            grab.current = null;
+          }}
+        >
+          <span />
+        </div>
+      )}
       <header className="np-top">
         <button
           className="icon-button"
