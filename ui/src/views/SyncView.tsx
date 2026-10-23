@@ -4,6 +4,7 @@ import { api } from '../api';
 import { attempt, useStore } from '../store';
 import type { Remote, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
 import { pickFolder } from './EmptyLibrary';
+import { duration } from '../format';
 
 const FIELD_NAMES: Record<string, string> = {
   favourite: 'Favourite',
@@ -518,6 +519,37 @@ export function SyncView() {
                 ))}
               </ul>
             </details>
+          )}
+
+          {status.handoffs.length > 0 && (
+            <>
+              <h2 className="section-title">Continue Listening</h2>
+              <ul className="history-list">
+                {status.handoffs.map((h) => (
+                  <li key={h.deviceId}>
+                    <div>
+                      <span>
+                        {h.title || 'A song'}
+                        {h.artist && ` — ${h.artist}`}
+                      </span>
+                      <span className="muted small">
+                        {h.deviceName}, {when(h.atMs)} · at {duration(h.positionMs)}
+                        {h.here < h.songs &&
+                          ` · ${h.here} of ${h.songs} songs in that queue are on this device`}
+                      </span>
+                    </div>
+                    <button
+                      className="pill primary"
+                      disabled={h.here === 0}
+                      title={h.here === 0 ? 'None of those songs are on this device' : undefined}
+                      onClick={() => void attempt(api.continueFrom(h.deviceId))}
+                    >
+                      Continue Here
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <h2 className="section-title">Devices</h2>

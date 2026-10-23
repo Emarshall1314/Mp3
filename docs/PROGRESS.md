@@ -1,11 +1,25 @@
 # Progress
 
-## Status (2026-10-22)
+## Status (2026-10-23)
 
-**M6 (Sync) has started**: the sync core (`cadenza-sync`) is built and tested on its own (D55).
-The next step connects it to the library: tag edits, favourites and plays become ops, and other
-devices' ops rewrite this device's tags. Then a folder store in Settings, and cloud providers once
-the network allows.
+**M6 (Sync) works end to end on Linux**, through a shared folder or a WebDAV/S3 server:
+- What syncs: tag edits, artwork, favourites, listens and the Trash.
+- Concurrent edits are kept as conflicts to review.
+- Optional encryption.
+- Songs can be shared between devices.
+- A device can carry on listening where another stopped.
+
+Not done yet:
+- Downloading only some albums, with a storage cap. The phone needs this most, so it comes with
+  M7.
+- LAN transfer and remote control.
+- Dropbox, Google Drive and OneDrive, which need app registrations of the owner's own (see Known
+  limitations).
+
+Two kinds of test so far:
+- **Real devices:** none yet. Try it with `docs/demos/M6.md`.
+- **Automated:** simulated devices on one machine, through local folders and local WebDAV and S3
+  servers.
 
 **M5 (Customisation) is done for Linux**: themes, the theme editor, liquid glass, layouts and
 presets, the dockable panel (with the tag editor), the column browser, grouping, the visualizer,
@@ -274,7 +288,9 @@ glass.
   from artwork), theme file validation and storage (core), layout normalisation and presets,
   remapped shortcuts.
 - Demo script: `docs/demos/M5.md`.
-- **M6 sync core** (`cadenza-sync`, D55), not yet connected to the app:
+
+### M6: Sync
+- **M6 sync core** (`cadenza-sync`, D55):
   - Hybrid logical clocks, which order changes across devices whose clocks disagree.
   - Ops for tag fields, favourites, the trash and plays, keyed by audio hash.
   - Log segments (CBOR, zstd), one immutable file per push.
@@ -283,6 +299,43 @@ glass.
     plays only add up. A gap in another device's log waits for the missing segment.
   - Tests: randomised offline edits on three devices with skewed clocks always converge (state,
     conflicts, and what each device applied), plus restart and gap tests.
+- **M6 sync in the app** (D56):
+  - The **Sync** page:
+    - Where to sync: a folder, or a server (WebDAV such as Nextcloud, or S3-compatible such as
+      Backblaze B2).
+    - This device's name, pause, and status with transfer progress.
+    - Devices, conflicts to resolve (either value can win), and Continue Listening.
+  - Applying changes from other devices:
+    - Tag edits are written through the normal safe tag writer and appear in the undo history.
+    - They are never sent back out.
+    - A change for a song this device doesn't have yet applies when the song turns up.
+  - Favourites: in every song's menu, and a heart in the player bar.
+  - The **Trash**:
+    - Files are kept 30 days, with Restore and Delete Now.
+    - Trashing and restoring follow on other devices; deleting now only affects this device.
+  - **Sharing songs** (optional, per device):
+    - Copies this device's songs to the sync place.
+    - Downloads ones other devices shared into the first music folder.
+    - Downloads resume where they stopped, and a partial download is never seen as a song.
+  - **Continue Listening:** pausing publishes the queue and position. Another device can carry on
+    with the songs it has.
+  - **Encryption** (D57), optional:
+    - Chosen when a folder or server is first used.
+    - The sync place sees no titles, device names or song files.
+    - A device can't join without the passphrase.
+  - **Servers:**
+    - OpenDAL (Apache-2.0), with retries, timeouts and an optional bandwidth cap.
+    - Checking a server fails in seconds rather than retrying for minutes.
+    - The password is kept in an owner-only file in the data folder.
+  - **Fixtures:** every library fixture song now has its own audio, as in a real library.
+  - **Tests:**
+    - Two and three simulated devices, covering every item above.
+    - An encrypted folder checked for readable content.
+    - WebDAV and S3 stores tested against local servers (wsgidav, moto) that `cargo xtask`
+      starts, including encrypted and interrupted transfers.
+    - A regression test for calls from an app's async runtime.
+- Demo script: `docs/demos/M6.md`, with a second-device helper (`cargo run -p cadenza-api
+  --example sync_device`).
 
 ### Next
 1. **Owner tests**:
@@ -294,13 +347,30 @@ glass.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **M6: Sync**: connect the core to the library, a sync folder in Settings, the conflicts view
-   and trash, then audio blobs, then cloud providers (once the network allows).
-4. **M7: the phone layout**, including reordering its tabs and the mini-player style (they will
+3. **M6 owner test**: `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud).
+4. **The rest of M6**:
+   - Partial mirrors: pin albums, a storage cap, and streaming from the sync place. Mostly for
+     the phone, so with M7.
+   - LAN transfer and remote control.
+5. **M7: the phone layout**, including reordering its tabs and the mini-player style (they will
    use the same layout settings as the sidebar).
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
+- **Sync**:
+  - Only edits made in Cadenza sync. Changes made by other taggers are picked up by each device's
+    scan but not sent to the others.
+  - Bit-identical copies of a song are one song to sync.
+  - Moving files (the organiser) never syncs: where files live is each device's business.
+  - Changing where a device syncs starts it afresh there. Its earlier listens stay where they
+    were; its favourites are shared again.
+  - WebDAV uploads each song in one request, so a song is read into memory whole. That's fine for
+    normal files but heavy for multi-gigabyte DSD.
+  - **Dropbox, Google Drive and OneDrive:** not offered. Each needs an app registered with that
+    company (a client ID, and for Google a verification review), which only the owner can do, and
+    the development environment can't reach them to test. Nextcloud or any WebDAV server, and
+    S3-compatible storage (Backblaze B2, Wasabi, AWS), work now.
+  - Playlists sync when playlists exist (a later milestone).
 - **Untested on hardware.** Exclusive output, device reservation, DoP and native DSD have only run
   against ALSA's `null` and `file` devices (see Status).
 - **Untested on a real desktop.** MPRIS was checked over D-Bus (`busctl`), not with media keys. The

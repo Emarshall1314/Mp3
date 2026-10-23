@@ -219,7 +219,33 @@ impl std::fmt::Debug for Engine {
     }
 }
 
+/// A read-only view of the player for other parts of the app (sync's handoff): its state and
+/// queue, without control.
+#[derive(Debug, Clone)]
+pub struct Observer {
+    state: Arc<Mutex<PlayerState>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
+}
+
+impl Observer {
+    pub fn state(&self) -> PlayerState {
+        self.state.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Track ids in play order.
+    pub fn queue(&self) -> Vec<i64> {
+        self.queue_ids.lock().map(|q| q.clone()).unwrap_or_default()
+    }
+}
+
 impl Engine {
+    pub fn observer(&self) -> Observer {
+        Observer {
+            state: Arc::clone(&self.state),
+            queue_ids: Arc::clone(&self.queue_ids),
+        }
+    }
+
     pub fn new(
         backend: Box<dyn OutputBackend>,
         on_event: impl Fn(Event) + Send + Sync + 'static,

@@ -368,6 +368,11 @@ fn sync_remote_info(app: App<'_>, remote: Remote, password: String) -> Res<SyncF
 }
 
 #[tauri::command(async)]
+fn continue_from(app: App<'_>, device_id: String) -> Res<()> {
+    app.continue_from(&device_id).map_err(e)
+}
+
+#[tauri::command(async)]
 fn sync_folder_info(app: App<'_>, folder: String) -> Res<SyncFolderInfo> {
     app.sync_folder_info(&folder).map_err(e)
 }
@@ -775,6 +780,7 @@ pub fn run() {
             sync_status,
             set_sync_settings,
             sync_folder_info,
+            continue_from,
             sync_remote_info,
             sync_now,
             sync_conflicts,

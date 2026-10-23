@@ -128,6 +128,7 @@ export const api = {
     invoke<SyncFolderInfo>('sync_remote_info', { remote, password }),
   syncFolderInfo: (folder: string) => invoke<SyncFolderInfo>('sync_folder_info', { folder }),
   syncNow: () => invoke<null>('sync_now'),
+  continueFrom: (deviceId: string) => invoke<null>('continue_from', { deviceId }),
   syncConflicts: () => invoke<SyncConflict[]>('sync_conflicts'),
   resolveConflict: (audioHash: string, field: string, values: string[]) =>
     invoke<null>('resolve_conflict', { audioHash, field, values }),

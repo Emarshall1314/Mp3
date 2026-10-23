@@ -553,3 +553,52 @@ fn two_devices_sync_through_a_webdav_server() {
     let shown = serde_json::to_string(&b.app.sync_status()).unwrap();
     assert!(!shown.contains(pass));
 }
+
+#[test]
+fn another_device_carries_on_where_this_one_stopped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("shared");
+    std::fs::create_dir_all(&folder).unwrap();
+    let a = Device::open(tmp.path(), "laptop", true, &folder);
+    let b = Device::open(tmp.path(), "desktop", true, &folder);
+    let titles = a.songs();
+    let ids: Vec<i64> = titles.iter().map(|t| a.song(t)).collect();
+    // The test output plays faster than real time and the songs are short: pause at once.
+    a.app.play_tracks(&ids, 1, false).unwrap();
+    a.app.pause();
+    wait("a queue", || {
+        let s = a.app.player();
+        s.queue_length == ids.len()
+            && s.track_id.is_some()
+            && s.status != cadenza_api::Status::Playing
+    });
+    let at = a.app.player().index;
+    a.sync();
+    b.sync();
+
+    let offers = b.app.sync_status().handoffs;
+    assert_eq!(offers.len(), 1, "{offers:?}");
+    assert_eq!(offers[0].device_name, "laptop");
+    assert_eq!(offers[0].songs, ids.len());
+    assert_eq!(offers[0].here, ids.len());
+    let playing_title = a.app.tracks(&[a.app.player().track_id.unwrap()]).unwrap()[0]
+        .title
+        .clone();
+    assert_eq!(offers[0].title, playing_title);
+    assert!(
+        a.app.sync_status().handoffs.is_empty(),
+        "a device isn't offered its own"
+    );
+
+    b.app.continue_from(&offers[0].device_id).unwrap();
+    b.app.pause();
+    wait("carrying on", || {
+        b.app
+            .player()
+            .track_id
+            .is_some_and(|id| b.app.tracks(&[id]).unwrap()[0].title == playing_title)
+    });
+    let state = b.app.player();
+    assert_eq!(state.queue_length, ids.len());
+    assert_eq!(state.index, at);
+}

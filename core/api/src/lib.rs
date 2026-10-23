@@ -38,7 +38,9 @@ pub use edit::{
 };
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
-pub use sync::{SyncConflict, SyncDevice, SyncFolderInfo, SyncSettings, SyncStatus, Transfer};
+pub use sync::{
+    Handoff, SyncConflict, SyncDevice, SyncFolderInfo, SyncSettings, SyncStatus, Transfer,
+};
 pub use themes::SavedTheme;
 
 use cadenza_engine::{Engine, OutputBackend, QueueItem, TrackGain};
@@ -108,7 +110,7 @@ pub enum ApiEvent {
     },
     /// Sync's settings, progress or results changed.
     Sync {
-        status: SyncStatus,
+        status: Box<SyncStatus>,
     },
 }
 
@@ -257,6 +259,13 @@ impl Cadenza {
             {
                 syncer.play(*track_id, *played_ms as i64, *completed);
             }
+            // Pausing or stopping publishes where this device got to, for handoff.
+            if let PlayerEvent::State(state) = &event
+                && state.status != Status::Playing
+                && let Some(syncer) = count_into.get()
+            {
+                syncer.sync_now();
+            }
             player_emit(ApiEvent::Player { event });
         });
         let analyzer = Arc::new(loudness::Analyzer::new(
@@ -290,6 +299,7 @@ impl Cadenza {
             Arc::clone(&scanner),
             Arc::clone(&scanner.emit),
             data_dir,
+            engine.observer(),
         );
         syncer.backups.store(saved.tag_backups, Ordering::Release);
         let _ = counting.set(Arc::clone(&syncer));
@@ -897,6 +907,16 @@ impl Cadenza {
     pub fn sync_blocking(&self) -> SyncStatus {
         self.syncer.round();
         self.syncer.status()
+    }
+
+    /// Plays what another device was playing, from where it got to.
+    pub fn continue_from(&self, device_id: &str) -> Result<()> {
+        let r = self.syncer.resume(device_id)?;
+        self.play_tracks(&r.ids, r.index, false)?;
+        if r.position_ms > 0 {
+            self.engine.seek(r.position_ms);
+        }
+        Ok(())
     }
 
     pub fn sync_conflicts(&self) -> Vec<SyncConflict> {

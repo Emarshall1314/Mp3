@@ -261,6 +261,20 @@ export interface SyncStatus {
   encrypted: boolean;
   /** Encrypted, and this device needs the passphrase. */
   locked: boolean;
+  /** What other devices were last playing, newest first. */
+  handoffs: Handoff[];
+}
+
+export interface Handoff {
+  deviceId: string;
+  deviceName: string;
+  atMs: number;
+  title: string;
+  artist: string;
+  positionMs: number;
+  /** Songs in that queue, and how many of them this device has. */
+  songs: number;
+  here: number;
 }
 
 export interface SyncFolderInfo {

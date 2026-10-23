@@ -5,6 +5,9 @@
 //! cargo run -p cadenza-api --example sync_device -- <data dir> <music dir> <sync folder> <name> [title=<old>=<new>] [artist=<title>=<new>]
 //! ```
 //!
+//! `play=<title>` starts the library's songs from that one and pauses at once, so other devices
+//! are offered to continue it.
+//!
 //! It scans the music folder, applies the edits given (by song title), syncs, waits for any tag
 //! changes from other devices to be written, and syncs again. With `CADENZA_PASSPHRASE` set, it
 //! encrypts a new sync folder or unlocks an encrypted one.
@@ -55,6 +58,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     for edit in edits {
+        if let Some(title) = edit.strip_prefix("play=") {
+            let songs = app.songs(SongSort::Title, false, 0, 10_000)?;
+            let start = songs
+                .iter()
+                .position(|t| t.title == title)
+                .ok_or_else(|| format!("no song called {title}"))?;
+            let ids: Vec<i64> = songs.iter().map(|t| t.id).collect();
+            app.play_tracks(&ids, start, false)?;
+            app.pause();
+            std::thread::sleep(Duration::from_millis(300));
+            println!("{name}: playing “{title}”, paused");
+            continue;
+        }
         let mut parts = edit.splitn(3, '=');
         let (Some(field), Some(title), Some(value)) = (parts.next(), parts.next(), parts.next())
         else {

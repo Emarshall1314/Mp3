@@ -96,6 +96,8 @@ pub struct SyncStatus {
     pub encrypted: bool,
     /// The library is encrypted and this device doesn't have the key: it needs the passphrase.
     pub locked: bool,
+    /// What other devices were last playing, newest first.
+    pub handoffs: Vec<Handoff>,
 }
 
 /// What a folder chosen for sync already holds.
@@ -128,6 +130,52 @@ pub struct SyncConflict {
     pub lost_device: String,
     pub lost_at_ms: u64,
 }
+
+/// What a device was last playing, as it publishes it for the others (`handoff/<device>.json`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct HandoffFile {
+    device: String,
+    name: String,
+    /// When published, ms since the Unix epoch.
+    at_ms: u64,
+    /// Audio hashes in play order.
+    queue: Vec<String>,
+    index: usize,
+    position_ms: u64,
+    title: String,
+    artist: String,
+}
+
+/// Another device's listening, to carry on here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Handoff {
+    pub device_id: String,
+    pub device_name: String,
+    pub at_ms: u64,
+    pub title: String,
+    pub artist: String,
+    pub position_ms: u64,
+    /// Songs in that queue, and how many of them this device has.
+    pub songs: usize,
+    pub here: usize,
+}
+
+/// A handoff turned into this device's queue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Resume {
+    pub ids: Vec<i64>,
+    pub index: usize,
+    pub position_ms: u64,
+}
+
+/// How long a device's listening stays on offer to the others.
+const HANDOFF_DAYS: u64 = 14;
+/// At most this many songs of a queue are published (around the playing one).
+const HANDOFF_SONGS: usize = 1000;
+
+/// What was last published for handoff: queue version, index, position in 10 s steps, playing.
+type PublishMark = (u64, Option<usize>, u64, bool);
 
 /// What `replica.cbor` holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +220,12 @@ pub(crate) struct Syncer {
     round_lock: Mutex<()>,
     /// Back up files before applying tag changes (the tag-backups setting).
     pub(crate) backups: AtomicBool,
+    /// The player, for handoff.
+    player: cadenza_engine::Observer,
+    /// The last listening published.
+    published: Mutex<Option<PublishMark>>,
+    /// Other devices' listening as last read.
+    handoffs: Mutex<Vec<HandoffFile>>,
 }
 
 fn platform() -> String {
@@ -226,6 +280,7 @@ impl Syncer {
         scanner: Arc<Scanner>,
         emit: Emit,
         data_dir: &Path,
+        player: cadenza_engine::Observer,
     ) -> Arc<Self> {
         let dir = data_dir.join("sync");
         let mut settings: SyncSettings = std::fs::read(dir.join("config.json"))
@@ -255,6 +310,9 @@ impl Syncer {
             stop: AtomicBool::new(false),
             round_lock: Mutex::new(()),
             backups: AtomicBool::new(false),
+            player,
+            published: Mutex::new(None),
+            handoffs: Mutex::new(Vec::new()),
         });
         me.refresh_status();
         let (tx, rx) = channel();
@@ -309,7 +367,9 @@ impl Syncer {
             f(&mut s);
             s.clone()
         };
-        (self.emit)(ApiEvent::Sync { status });
+        (self.emit)(ApiEvent::Sync {
+            status: Box::new(status),
+        });
     }
 
     /// Copies settings, device and counts into the status.
@@ -825,6 +885,9 @@ impl Syncer {
         };
         problems.extend(report.unreadable);
         self.read_devices(store);
+        if let Err(e) = self.handoff(store, settings) {
+            problems.push(format!("Sharing what's playing: {e}"));
+        }
 
         let mut changed = false;
         for effect in effects {
@@ -856,6 +919,139 @@ impl Syncer {
             self.download_audio(store, problems)?;
         }
         Ok(())
+    }
+
+    /// Publishes what this device is playing (if it changed) and reads what the others are.
+    fn handoff(&self, store: &dyn Store, settings: &SyncSettings) -> Result<()> {
+        let me = {
+            let inner = self.inner();
+            inner.saved.as_ref().map(|s| s.replica.device().to_string())
+        };
+        let Some(me) = me else { return Ok(()) };
+        let state = self.player.state();
+        let playing = state.status == cadenza_engine::Status::Playing;
+        let mark = (
+            state.queue_version,
+            state.index,
+            state.position_ms / 10_000,
+            playing,
+        );
+        let changed = self
+            .published
+            .lock()
+            .map(|p| *p != Some(mark))
+            .unwrap_or(true);
+        if changed && let (Some(index), Some(track)) = (state.index, state.track_id) {
+            let queue = self.player.queue();
+            // Up to HANDOFF_SONGS around the playing song.
+            let start = index.saturating_sub(HANDOFF_SONGS / 2);
+            let window: Vec<i64> = queue
+                .iter()
+                .skip(start)
+                .take(HANDOFF_SONGS)
+                .copied()
+                .collect();
+            let hashes: HashMap<i64, String> =
+                self.library.audio_hashes(&window)?.into_iter().collect();
+            let mut list = Vec::new();
+            let mut at = 0;
+            for (i, id) in window.iter().enumerate() {
+                if let Some(h) = hashes.get(id) {
+                    if start + i == index {
+                        at = list.len();
+                    }
+                    list.push(h.clone());
+                }
+            }
+            let row = self.library.tracks(&[track])?.into_iter().next();
+            if !list.is_empty() {
+                let file = HandoffFile {
+                    device: me.clone(),
+                    name: settings.device_name.clone(),
+                    at_ms: wall_ms(),
+                    queue: list,
+                    index: at,
+                    position_ms: state.position_ms,
+                    title: row.as_ref().map(|r| r.title.clone()).unwrap_or_default(),
+                    artist: row.map(|r| r.artist).unwrap_or_default(),
+                };
+                let json = serde_json::to_vec(&file).map_err(|e| Error::Other(e.to_string()))?;
+                store
+                    .put(&format!("handoff/{me}.json"), &json)
+                    .map_err(other)?;
+            }
+            if let Ok(mut p) = self.published.lock() {
+                *p = Some(mark);
+            }
+        }
+
+        let cutoff = wall_ms().saturating_sub(HANDOFF_DAYS * 86_400_000);
+        let mut others: Vec<HandoffFile> = store
+            .list("handoff")
+            .map_err(other)?
+            .into_iter()
+            .filter(|n| n.ends_with(".json") && *n != format!("{me}.json"))
+            .filter_map(|n| store.get(&format!("handoff/{n}")).ok().flatten())
+            .filter_map(|b| serde_json::from_slice::<HandoffFile>(&b).ok())
+            .filter(|h| h.at_ms >= cutoff && h.index < h.queue.len())
+            .collect();
+        others.sort_by_key(|h| std::cmp::Reverse(h.at_ms));
+        let mut shown = Vec::new();
+        for h in &others {
+            let here = self.library.tracks_with_hashes(&h.queue)?;
+            let present: std::collections::HashSet<&String> = here.iter().map(|(k, _)| k).collect();
+            shown.push(Handoff {
+                device_id: h.device.clone(),
+                device_name: h.name.chars().take(60).collect(),
+                at_ms: h.at_ms,
+                title: h.title.chars().take(200).collect(),
+                artist: h.artist.chars().take(200).collect(),
+                position_ms: h.position_ms,
+                songs: h.queue.len(),
+                here: h.queue.iter().filter(|q| present.contains(q)).count(),
+            });
+        }
+        if let Ok(mut slot) = self.handoffs.lock() {
+            *slot = others;
+        }
+        self.set_status(|s| s.handoffs = shown);
+        Ok(())
+    }
+
+    /// Another device's listening as a queue of this device's songs.
+    pub(crate) fn resume(&self, device_id: &str) -> Result<Resume> {
+        let h = self
+            .handoffs
+            .lock()
+            .ok()
+            .and_then(|list| list.iter().find(|h| h.device == device_id).cloned())
+            .ok_or_else(|| Error::Other("that device's listening is no longer on offer".into()))?;
+        let mut first: HashMap<String, i64> = HashMap::new();
+        for (hash, id) in self.library.tracks_with_hashes(&h.queue)? {
+            first.entry(hash).or_insert(id);
+        }
+        let mut ids = Vec::new();
+        let mut index = None;
+        for (i, hash) in h.queue.iter().enumerate() {
+            if let Some(&id) = first.get(hash) {
+                if i >= h.index && index.is_none() {
+                    index = Some(ids.len());
+                }
+                ids.push(id);
+            }
+        }
+        let index = index.ok_or_else(|| {
+            Error::Other("this device has none of the songs that were playing there".into())
+        })?;
+        // Only the song that was playing resumes part-way.
+        let same = first
+            .get(&h.queue[h.index])
+            .is_some_and(|id| ids.get(index) == Some(id));
+        Ok(Resume {
+            ids,
+            index,
+            position_ms: if same { h.position_ms } else { 0 },
+        })
     }
 
     /// Listens from before sync was on (or while it was off), and favourites the first time.
