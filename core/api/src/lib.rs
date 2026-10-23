@@ -198,6 +198,8 @@ pub struct Cadenza {
     scanner: Arc<Scanner>,
     editor: Arc<edit::Editor>,
     syncer: Arc<sync::Syncer>,
+    /// What went wrong while starting (settings that couldn't be read), for the UI to say.
+    startup_problems: Vec<String>,
     _watcher: Mutex<Option<watch::Watcher>>,
 }
 
@@ -242,7 +244,7 @@ impl Cadenza {
     ) -> Result<Self> {
         let library = Arc::new(Library::open(data_dir)?);
         let store = settings::Store::new(data_dir);
-        let saved = store.load();
+        let (saved, settings_problems) = store.load();
         let output = output.unwrap_or_else(|| backend_for(&saved));
         let emit: Emit = Arc::new(on_event);
         let player_emit = Arc::clone(&emit);
@@ -319,6 +321,7 @@ impl Cadenza {
             scanner,
             editor,
             syncer,
+            startup_problems: settings_problems,
             _watcher: Mutex::new(None),
         };
         me.restart_watcher();
@@ -797,6 +800,11 @@ impl Cadenza {
     /// Measures every track without ReplayGain, in the background.
     pub fn analyze_loudness(&self) {
         self.analyzer.start();
+    }
+
+    /// Problems met while starting, such as settings that couldn't be read; empty normally.
+    pub fn startup_problems(&self) -> Vec<String> {
+        self.startup_problems.clone()
     }
 
     pub fn settings(&self) -> Settings {

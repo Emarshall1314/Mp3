@@ -32,6 +32,10 @@ function useCoreEvents() {
     void api.scanStatus().then((scan) => s.setScan(scan));
     void api.loudnessStatus().then(s.setLoudness);
     void api.syncStatus().then(s.setSync);
+    // Settings that couldn't be read are said, not silently replaced.
+    void api.startupProblems().then((problems) => {
+      if (problems.length) s.showToast(`Cadenza started with defaults: ${problems.join('; ')}`);
+    });
     const unlisten = onApiEvent((e) => {
       const st = useStore.getState();
       switch (e.kind) {

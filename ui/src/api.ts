@@ -112,6 +112,7 @@ export const api = {
     invoke<RenamePlan[]>('preview_organise', { ids, pattern }),
   organise: (ids: number[], pattern: string) => invoke<number>('organise', { ids, pattern }),
   setTagBackups: (on: boolean) => invoke<null>('set_tag_backups', { on }),
+  startupProblems: () => invoke<string[]>('startup_problems'),
   setFavourite: (ids: number[], on: boolean) => invoke<null>('set_favourite', { ids, on }),
   trash: (ids: number[]) => invoke<TrashItem[]>('trash', { ids }),
   trashItems: () => invoke<TrashItem[]>('trash_items'),

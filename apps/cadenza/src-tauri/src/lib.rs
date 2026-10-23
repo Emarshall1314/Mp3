@@ -311,6 +311,11 @@ fn organise(app: App<'_>, ids: Vec<i64>, pattern: String) -> Res<i64> {
     app.organise(&ids, &pattern).map_err(e)
 }
 
+#[tauri::command]
+fn startup_problems(app: App<'_>) -> Vec<String> {
+    app.startup_problems()
+}
+
 #[tauri::command(async)]
 fn set_tag_backups(app: App<'_>, on: bool) -> Res<()> {
     app.set_tag_backups(on).map_err(e)
@@ -771,6 +776,7 @@ pub fn run() {
             edit_changes,
             undo_edit,
             set_tag_backups,
+            startup_problems,
             set_favourite,
             trash,
             trash_items,

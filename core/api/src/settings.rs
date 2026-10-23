@@ -91,12 +91,58 @@ impl Store {
         }
     }
 
-    /// The saved settings; defaults if there are none or the file is unreadable.
-    pub(crate) fn load(&self) -> Settings {
-        std::fs::read(&self.path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+    /// The saved settings, and anything about them that couldn't be read.
+    ///
+    /// One unreadable value never costs the rest: each setting that reads is kept and only the
+    /// ones that don't fall back to their defaults. If the file can't be read at all, a copy is
+    /// kept beside it (`settings.json.unreadable`) before anything saves over it.
+    pub(crate) fn load(&self) -> (Settings, Vec<String>) {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return (Settings::default(), Vec::new());
+            }
+            Err(e) => {
+                return (
+                    Settings::default(),
+                    vec![format!("couldn't read settings: {e}")],
+                );
+            }
+        };
+        if let Ok(s) = serde_json::from_slice::<Settings>(&bytes) {
+            return (s, Vec::new());
+        }
+        let keep = |why: String| {
+            let _ = std::fs::write(self.path.with_extension("json.unreadable"), &bytes);
+            why
+        };
+        let Ok(serde_json::Value::Object(saved)) = serde_json::from_slice(&bytes) else {
+            let why = keep("the settings file was damaged; defaults are in use and a copy of it is kept as settings.json.unreadable".into());
+            return (Settings::default(), vec![why]);
+        };
+        // Start from the defaults and take each saved setting that reads.
+        let mut merged = match serde_json::to_value(Settings::default()) {
+            Ok(serde_json::Value::Object(m)) => m,
+            _ => return (Settings::default(), Vec::new()),
+        };
+        let mut lost = Vec::new();
+        for (key, value) in saved {
+            let mut trial = merged.clone();
+            trial.insert(key.clone(), value);
+            if serde_json::from_value::<Settings>(serde_json::Value::Object(trial.clone())).is_ok()
+            {
+                merged = trial;
+            } else {
+                lost.push(key);
+            }
+        }
+        let settings =
+            serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default();
+        let why = keep(format!(
+            "some settings couldn't be read and are back to their defaults ({}); a copy of the old file is kept as settings.json.unreadable",
+            lost.join(", ")
+        ));
+        (settings, vec![why])
     }
 
     pub(crate) fn save(&self, settings: &Settings) -> Result<()> {
@@ -105,5 +151,71 @@ impl Store {
         let tmp = self.path.with_extension("json.tmp");
         std::fs::write(&tmp, json).map_err(io)?;
         std::fs::rename(&tmp, &self.path).map_err(io)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn store() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::new(dir.path());
+        (dir, store)
+    }
+
+    #[test]
+    fn settings_survive_a_save_and_load() {
+        let (_dir, store) = store();
+        let mut s = Settings::default();
+        s.appearance.look = serde_json::json!({ "darkTheme": "forest", "accent": "#f0731f" });
+        s.crossfade_s = 2.5;
+        store.save(&s).expect("save");
+        let (back, problems) = store.load();
+        assert_eq!(back, s);
+        assert!(problems.is_empty());
+    }
+
+    #[test]
+    fn one_unreadable_setting_does_not_reset_the_look() {
+        let (dir, store) = store();
+        let mut s = Settings::default();
+        s.appearance.look = serde_json::json!({ "darkTheme": "forest" });
+        store.save(&s).expect("save");
+        // A value this build can't read (an older or newer format, or a damaged one).
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).expect("read"))
+                .expect("json");
+        v["crossfadeS"] = serde_json::json!("not a number");
+        std::fs::write(dir.path().join("settings.json"), v.to_string()).expect("write");
+
+        let (back, problems) = store.load();
+        assert_eq!(
+            back.appearance.look["darkTheme"], "forest",
+            "the look survives"
+        );
+        assert_eq!(
+            back.crossfade_s, 0.0,
+            "only the bad value is back to its default"
+        );
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("crossfadeS"), "{problems:?}");
+        assert!(dir.path().join("settings.json.unreadable").exists());
+    }
+
+    #[test]
+    fn a_damaged_file_is_kept_not_overwritten() {
+        let (dir, store) = store();
+        std::fs::write(dir.path().join("settings.json"), b"{ not json").expect("write");
+        let (back, problems) = store.load();
+        assert_eq!(back, Settings::default());
+        assert_eq!(problems.len(), 1);
+        assert_eq!(
+            std::fs::read(dir.path().join("settings.json.unreadable")).expect("kept"),
+            b"{ not json"
+        );
+        // A missing file is simply a first run.
+        std::fs::remove_file(dir.path().join("settings.json")).expect("rm");
+        assert!(store.load().1.is_empty());
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import { attempt, useStore } from '../store';
 import { api, isAndroid, onAppearance, onThemesChanged } from '../api';
 import {
   type Look,
@@ -12,7 +13,6 @@ import {
 } from '../theme/look';
 import { ensureLiquidFilter, refracts } from '../theme/liquid';
 import type { Layout } from '../theme/layout';
-import { attempt } from '../store';
 import type { Appearance, SavedTheme } from '../types';
 
 const motionQuery = '(prefers-reduced-motion: reduce)';
@@ -163,7 +163,11 @@ export async function reloadThemes() {
 /// and follows the artwork of `artHash` when the look uses artwork colours.
 export function useAppearance(artHash: string | null = null) {
   useEffect(() => {
-    void api.settings().then((s) => applyAppearance(s.appearance));
+    void api.settings().then(
+      (s) => applyAppearance(s.appearance),
+      (e: unknown) =>
+        useStore.getState().showToast(`Couldn’t load your look; showing the default: ${String(e)}`),
+    );
     void reloadThemes();
     const unlisten = [onAppearance(applyAppearance), onThemesChanged(() => void reloadThemes())];
     const media = [matchMedia(motionQuery), matchMedia(transparencyQuery), matchMedia(darkQuery)];

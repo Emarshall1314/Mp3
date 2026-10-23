@@ -347,13 +347,15 @@ glass.
 2. **Online lookup** (MusicBrainz, Cover Art Archive, Discogs, AcoustID) once the development
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
-3. **M6 owner test**: `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud).
-4. **The rest of M6**:
-   - Partial mirrors: pin albums, a storage cap, and streaming from the sync place. Mostly for
-     the phone, so with M7.
+3. **M7: Mobile** (in progress): see the M7 section of `docs/ROADMAP.md`. The first job is the
+   Android settings reset (Known issues).
+4. **Revisit later: sync on real devices.** The owner can't test sync yet. When possible, run
+   `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud), and fix whatever it
+   finds before more sync features are built.
+5. **The rest of M6, after that test**:
    - LAN transfer and remote control.
-5. **M7: the phone layout**, including reordering its tabs and the mini-player style (they will
-   use the same layout settings as the sidebar).
+   - Syncing edits made in other tagging programs.
+   - Partial mirrors (pin albums, a storage cap, streaming from the sync place) come with M7.
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
@@ -436,6 +438,10 @@ These are shown or absent in the UI, never faked:
     2. Android re-runs the Rust start-up when the app is reopened while its playback service
        keeps the process alive.
     3. The data folder Tauri gives is not kept between runs on that phone.
+  - **Done (M7):** a settings file that partly fails to load keeps every value that reads.
+    Unreadable values go back to their defaults, the old file is kept as
+    `settings.json.unreadable`, and the app says so when it starts. If suspect 1 is the cause,
+    the next APK fixes it; if not, it says what went wrong.
   - **First step:** read `settings.json` from the phone (`adb shell run-as app.cadenza.player`)
     after changing the theme, and again after closing and reopening. Whichever suspect is right,
     make a settings file that won't load get kept aside, not overwritten, and add a test that
