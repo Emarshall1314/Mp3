@@ -421,6 +421,9 @@ These are shown or absent in the UI, never faked:
 ## Known issues / blockers
 - **Android: the theme and look edits reset to defaults after closing the app** (owner report,
   October 2026). To be fixed with the M7 Android work.
+  - **Only the look resets:** the owner checked that tag edits survive on the phone. Those are
+    written into the music files, while the look lives only in `settings.json`, so the suspects
+    are about that file.
   - **Linux works:** after changing the theme to Forest and the accent to orange, then killing
     the app (`kill -9`, as Android does), it reopened with both. `settings.json` held them.
   - **Ruled out:**
