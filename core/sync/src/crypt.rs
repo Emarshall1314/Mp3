@@ -295,17 +295,16 @@ fn read_full(src: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(n)
 }
 
-fn decrypt_file(key: &Key, path: &str, from: &Path, to: &Path) -> Result<()> {
-    let mut src = fs::File::open(from)?;
+/// Decrypts a streamed object from `src` into `out`.
+fn decrypt_stream(key: &Key, path: &str, mut src: impl Read, mut out: impl Write) -> Result<()> {
     let mut magic = [0u8; 4];
     let mut prefix = [0u8; STREAM_NONCE];
-    src.read_exact(&mut magic)?;
-    src.read_exact(&mut prefix)?;
+    src.read_exact(&mut magic).map_err(|_| crypto_err(path))?;
+    src.read_exact(&mut prefix).map_err(|_| crypto_err(path))?;
     if &magic != STREAMED {
         return Err(crypto_err(path));
     }
     let mut dec = DecryptorBE32::from_aead(key.cipher(), (&prefix).into());
-    let mut out = fs::File::create(to)?;
     let mut buf = vec![0u8; CHUNK + TAG];
     // The encryptor always ends with a short chunk (empty when the song is a whole number of
     // chunks), so a full-size chunk is never the last.
@@ -321,11 +320,21 @@ fn decrypt_file(key: &Key, path: &str, from: &Path, to: &Path) -> Result<()> {
         } else {
             let plain = dec.decrypt_last(payload).map_err(|_| crypto_err(path))?;
             out.write_all(&plain)?;
-            break;
+            return Ok(());
         }
     }
+}
+
+fn decrypt_file(key: &Key, path: &str, from: &Path, to: &Path) -> Result<()> {
+    let out = fs::File::create(to)?;
+    decrypt_stream(key, path, fs::File::open(from)?, &out)?;
     out.sync_all()?;
     Ok(())
+}
+
+/// Songs and artwork are uploaded as files (streamed); everything else is sealed whole.
+fn streamed(path: &str) -> bool {
+    path.starts_with("blobs/") || path.starts_with("art/")
 }
 
 /// A store whose objects are encrypted with the library key before they reach `inner`.
@@ -367,6 +376,11 @@ impl<S: Store> Store for EncryptedStore<S> {
     fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
         match self.inner.get(&self.map(path))? {
             None => Ok(None),
+            Some(b) if b.starts_with(STREAMED) => {
+                let mut out = Vec::new();
+                decrypt_stream(&self.key, path, b.as_slice(), &mut out)?;
+                Ok(Some(out))
+            }
             Some(b) => self.key.open(&b, path).map(Some),
         }
     }
@@ -377,7 +391,12 @@ impl<S: Store> Store for EncryptedStore<S> {
     }
 
     fn size(&self, path: &str) -> Result<Option<u64>> {
-        Ok(self.inner.size(&self.map(path))?.and_then(plain_size))
+        let stored = self.inner.size(&self.map(path))?;
+        Ok(if streamed(path) {
+            stored.and_then(plain_size)
+        } else {
+            stored.and_then(|n| n.checked_sub((SEALED.len() + 24 + TAG) as u64))
+        })
     }
 
     fn put_file(&self, path: &str, local: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
@@ -490,6 +509,21 @@ mod tests {
             assert!(store.get_file(&path, &dest, &mut |_| true).expect("get"));
             assert_eq!(fs::read(&dest).expect("read"), song, "{len}");
         }
+        // An image uploaded as a file reads back whole.
+        let img = dir.path().join("cover.jpg");
+        fs::write(&img, b"jpeg bytes").expect("write");
+        assert!(
+            store
+                .put_file("art/ab/abcd", &img, &mut |_| true)
+                .expect("put")
+        );
+        assert_eq!(
+            store.get("art/ab/abcd").expect("get").as_deref(),
+            Some(&b"jpeg bytes"[..])
+        );
+        assert_eq!(store.size("art/ab/abcd").expect("size"), Some(10));
+        store.put("log/x/0.seg", b"12345").expect("put");
+        assert_eq!(store.size("log/x/0.seg").expect("size"), Some(5));
         // Names in the folder say nothing about the songs.
         let names: Vec<String> = fs::read_dir(dir.path().join("store/blobs"))
             .expect("dir")

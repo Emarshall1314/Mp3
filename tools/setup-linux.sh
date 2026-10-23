@@ -5,9 +5,14 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 # A stalled mirror connection is retried rather than left to hang the CI job.
-APT=(-o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
-apt-get "${APT[@]}" update -qq
-apt-get "${APT[@]}" install -y -qq --no-install-recommends \
+# Waiting for another apt (unattended upgrades on a fresh machine) is bounded too, and each step
+# has a time limit, so a hang ends as an error that says where it was.
+APT=(-o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20
+  -o DPkg::Lock::Timeout=300)
+echo "apt: update"
+timeout 600 apt-get "${APT[@]}" update -q
+echo "apt: install"
+timeout 1200 apt-get "${APT[@]}" install -y -q --no-install-recommends \
   build-essential pkg-config cmake git python3 python3-venv \
   libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev \
   libasound2-dev \

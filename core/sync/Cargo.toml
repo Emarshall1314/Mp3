@@ -12,11 +12,13 @@ argon2 = "0.5"
 chacha20poly1305 = { version = "0.10", features = ["stream"] }
 ciborium = "0.2"
 hmac = "0.12"
+opendal = { version = "0.59", default-features = false, features = ["blocking", "services-webdav", "services-s3", "http-transport-reqwest", "executors-tokio", "layers-retry", "layers-timeout"] }
 ruzstd = "0.9"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 uuid = { version = "1.28", features = ["v7"] }
 
 [dev-dependencies]

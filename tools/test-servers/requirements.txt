@@ -1,0 +1,5 @@
+# Local servers for the remote-store tests (WebDAV and S3); test tools only, never shipped.
+wsgidav==4.3.5
+cheroot==11.1.2
+moto[server]==5.2.4
+boto3==1.43.118

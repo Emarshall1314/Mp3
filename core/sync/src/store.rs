@@ -54,6 +54,27 @@ pub trait Store: Send + Sync {
     }
 }
 
+impl<S: Store + ?Sized> Store for Box<S> {
+    fn list(&self, dir: &str) -> Result<Vec<String>> {
+        (**self).list(dir)
+    }
+    fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        (**self).get(path)
+    }
+    fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        (**self).put(path, bytes)
+    }
+    fn size(&self, path: &str) -> Result<Option<u64>> {
+        (**self).size(path)
+    }
+    fn put_file(&self, path: &str, local: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+        (**self).put_file(path, local, go)
+    }
+    fn get_file(&self, path: &str, dest: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
+        (**self).get_file(path, dest, go)
+    }
+}
+
 /// The hidden file a download goes to first.
 pub fn part_path(dest: &Path) -> Result<PathBuf> {
     let name = dest

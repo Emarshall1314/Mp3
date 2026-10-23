@@ -7,6 +7,7 @@
 //! - [`op`]: the changes that sync, keyed by audio hash so they find the same song everywhere.
 //! - [`segment`]: the log file format (CBOR, zstd-compressed).
 //! - [`store`]: where logs live: a folder, or memory in tests.
+//! - [`remote`]: stores on a server: WebDAV and S3.
 //! - [`state`]: the merged state; last writer wins per field, and concurrent edits are kept as
 //!   conflicts for the owner to review.
 //! - [`replica`]: one device: records local changes, pushes and pulls.
@@ -15,6 +16,7 @@
 pub mod crypt;
 pub mod hlc;
 pub mod op;
+pub mod remote;
 pub mod replica;
 pub mod segment;
 pub mod state;
@@ -23,6 +25,7 @@ pub mod store;
 pub use crypt::{EncryptedStore, Encryption, Key, LibraryInfo};
 pub use hlc::{Clock, DeviceId, Hlc};
 pub use op::{Change, Op, TrackKey};
+pub use remote::{Remote, RemoteStore};
 pub use replica::{Replica, SyncReport};
 pub use state::{Conflict, Effect, State};
 pub use store::{FolderStore, MemStore, Store};
