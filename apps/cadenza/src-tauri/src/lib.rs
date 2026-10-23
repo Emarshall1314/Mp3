@@ -34,6 +34,13 @@ fn e<E: std::fmt::Display>(err: E) -> String {
     err.to_string()
 }
 
+/// Whether the core is open. On Android the page starts before `setup` has finished opening the
+/// library, so the UI waits for this before calling anything else.
+#[tauri::command]
+fn ready(app: AppHandle) -> bool {
+    app.try_state::<Arc<Cadenza>>().is_some()
+}
+
 #[tauri::command]
 fn build_info() -> BuildInfo {
     cadenza_api::build_info()
@@ -706,6 +713,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ready,
             build_info,
             roots,
             add_root,

@@ -385,7 +385,7 @@ glass.
    environment may reach musicbrainz.org, coverartarchive.org (and archive.org), api.discogs.com
    and api.acoustid.org.
 3. **M7: Mobile** (in progress): see the M7 section of `docs/ROADMAP.md`. The first job is the
-   Android settings reset (Known issues).
+   Android settings reset (Known issues; fix waiting for the phone).
 4. **Revisit later: sync on real devices.** The owner can't test sync yet. When possible, run
    `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud), and fix whatever it
    finds before more sync features are built.
@@ -459,30 +459,18 @@ These are shown or absent in the UI, never faked:
 
 ## Known issues / blockers
 - **Android: the theme and look edits reset to defaults after closing the app** (owner report,
-  October 2026). To be fixed with the M7 Android work.
-  - **Only the look resets:** the owner checked that tag edits survive on the phone. Those are
-    written into the music files, while the look lives only in `settings.json`, so the suspects
-    are about that file.
-  - **Linux works:** after changing the theme to Forest and the accent to orange, then killing
-    the app (`kill -9`, as Android does), it reopened with both. `settings.json` held them.
-  - **Ruled out:**
-    - Cadenza opens on Android exactly as on Linux: same data folder, same synchronous start.
-    - No screen saves the look on startup.
-    - The Android-only code never writes settings.
-  - **Suspects to check on the phone:**
-    1. `settings.json` fails to load there. The core then falls back to defaults silently, and
-       the next save overwrites the file, so the look would reset.
-    2. Android re-runs the Rust start-up when the app is reopened while its playback service
-       keeps the process alive.
-    3. The data folder Tauri gives is not kept between runs on that phone.
-  - **Done (M7):** a settings file that partly fails to load keeps every value that reads.
-    Unreadable values go back to their defaults, the old file is kept as
-    `settings.json.unreadable`, and the app says so when it starts. If suspect 1 is the cause,
-    the next APK fixes it; if not, it says what went wrong.
-  - **First step:** read `settings.json` from the phone (`adb shell run-as app.cadenza.player`)
-    after changing the theme, and again after closing and reopening. Whichever suspect is right,
-    make a settings file that won't load get kept aside, not overwritten, and add a test that
-    closes and reopens the app.
+  October 2026). **Cause found; fix waiting to be confirmed on the phone.**
+  - The startup message the M7 build added showed it: "state not managed for field `app` on
+    command `settings`". On Android the page starts while the app is still opening the library,
+    so the first calls (the saved look, Home's shelves) failed and the default look was shown.
+    The saved look was never lost: nothing saves the look until it is changed. Linux opens the
+    window only after the library is open, so it never happened there. Tag edits are read later,
+    which is why they survived. My earlier note that Android starts exactly as Linux was wrong.
+  - **Fix:** a `ready` command, and every call from the page waits until the core is open
+    (`whenOpen` in `ui/src/api.ts`; gives up after 30 s). Tested with a core that opens after the
+    page starts. Not reproducible on Linux, so the phone has the final word.
+  - Also done earlier in M7: a settings file that partly fails to load keeps every value that
+    reads, and the unreadable file is kept as `settings.json.unreadable`.
 - **Android SDK/NDK cannot be downloaded in this environment.** The network policy denies
   `dl.google.com`, so Android builds happen in CI only.
   - CI signs the APK with the `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` repository

@@ -38,6 +38,12 @@ button:disabled {
   opacity: 0.4;
 }
 
+/* No grey-blue box from the web view where a finger taps: presses have their own feedback,
+ * shaped like what is pressed. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -2027,6 +2033,16 @@ kbd {
   display: flex;
   gap: var(--space-4);
   align-items: center;
+}
+
+/* On a phone a message may take a few lines: a rounded card the width of the screen, above the
+ * dock, rather than a pill (which a few lines would turn into a circle). */
+.app[data-phone] .toast {
+  bottom: calc(var(--dock-height, 120px) + var(--space-2));
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-4));
+  border-radius: var(--radius-l);
+  padding: var(--space-3) var(--space-4);
 }
 
 .toast-action {

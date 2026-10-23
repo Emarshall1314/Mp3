@@ -1,5 +1,5 @@
 // Typed wrappers over the shell's commands. Every call into the core goes through this module.
-import { invoke } from '@tauri-apps/api/core';
+import { invoke as call } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   AlbumDetail,
@@ -43,6 +43,31 @@ import type {
   TrackRow,
   TrackTags,
 } from './types';
+
+let opened: Promise<void> | null = null;
+
+/// Resolves once the core is open. On Android the page starts while the shell is still opening
+/// the library; a call before then fails ("state not managed"), which used to show the default
+/// look at every start. Gives up waiting after 30 s, so a core that never opens still reports
+/// errors rather than hanging.
+export function whenOpen(): Promise<void> {
+  opened ??= (async () => {
+    for (let i = 0; i < 600; i++) {
+      try {
+        if (await call<boolean>('ready')) return;
+      } catch {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  })();
+  return opened;
+}
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  await whenOpen();
+  return call<T>(command, args);
+}
 
 export const api = {
   buildInfo: () => invoke<BuildInfo>('build_info'),
