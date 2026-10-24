@@ -25,8 +25,12 @@ export function PhonePlayer({ liquid }: { liquid: boolean }) {
   const settle = () => {
     const el = self.current;
     if (!el) return;
-    el.style.transition = '';
+    // Springs back from the pull (its own transition: the dock's lean moves it without one).
+    el.style.transition = 'transform 420ms var(--ease-spring)';
     el.style.transform = '';
+    setTimeout(() => {
+      el.style.transition = '';
+    }, 450);
   };
   const progress = player.durationMs ? Math.min(1, position / player.durationMs) : 0;
   return (

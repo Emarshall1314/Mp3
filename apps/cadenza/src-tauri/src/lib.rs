@@ -10,10 +10,10 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Playlist, PlaylistDetail,
-    Rediscover, Remote, RenamePlan, Repeat, ReplayGainSettings, Root, SavedSearch, SavedTheme,
-    ScanStatus, SearchResults, Settings, SongSort, StoredArt, SyncConflict, SyncFolderInfo,
-    SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags, TrashItem,
+    LetterStart, LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Playlist,
+    PlaylistDetail, Rediscover, Remote, RenamePlan, Repeat, ReplayGainSettings, Root, SavedSearch,
+    SavedTheme, ScanStatus, SearchResults, Settings, SongSort, StoredArt, SyncConflict,
+    SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags, TrashItem,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -478,6 +478,16 @@ fn home(app: App<'_>) -> Res<Home> {
 }
 
 #[tauri::command(async)]
+fn album_letters(app: App<'_>, sort: AlbumSort) -> Res<Vec<LetterStart>> {
+    app.album_letters(sort).map_err(e)
+}
+
+#[tauri::command(async)]
+fn song_letters(app: App<'_>, sort: SongSort, desc: bool) -> Res<Vec<LetterStart>> {
+    app.song_letters(sort, desc).map_err(e)
+}
+
+#[tauri::command(async)]
 fn playlists(app: App<'_>) -> Res<Vec<Playlist>> {
     app.playlists().map_err(e)
 }
@@ -816,6 +826,8 @@ pub fn run() {
             browse,
             home,
             rediscover,
+            album_letters,
+            song_letters,
             playlists,
             playlist,
             create_playlist,

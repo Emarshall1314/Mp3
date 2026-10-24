@@ -7,6 +7,8 @@ import { Artwork } from '../components/Artwork';
 import { CompactTracks } from '../components/CompactTracks';
 import { AlbumCard } from './AlbumGrid';
 import { usePhone } from '../hooks/usePhone';
+import { useLiquid } from '../hooks/useGlass';
+import { useLook } from '../hooks/useAppearance';
 
 const HELP =
   'Try artist:"Name", year:>2000, format:flac, quality:hires, plays:>10, added:<30, -exclude';
@@ -23,6 +25,9 @@ export function SearchView({ query }: { query: string }) {
   const [savedQuery, setSavedQuery] = useState<string | null>(null);
   const saved = savedQuery === query;
   const phone = usePhone();
+  // With liquid glass the dock's Search bubble is the search field.
+  const liquid = useLiquid();
+  const dockSearch = useLook((s) => liquid && s.look.layout.phoneTabs.includes('search'));
 
   useEffect(() => {
     if (!query.trim()) return;
@@ -40,19 +45,21 @@ export function SearchView({ query }: { query: string }) {
     };
   }, [query, libraryVersion]);
 
-  const save = async () => {
-    const name = window.prompt('Name this search', query);
-    if (!name) return;
-    const created = await attempt(api.saveSearch(name, query));
-    if (created) {
-      setSavedQuery(query);
-      useStore.getState().libraryChanged();
-    }
-  };
+  // The app's own dialog: the web view's prompt doesn't show on Android, and looks out of
+  // place elsewhere.
+  const save = () =>
+    useStore.getState().askText('Save Search', query, 'Save', (name) => {
+      if (!name.trim()) return;
+      void attempt(api.saveSearch(name, query)).then((created) => {
+        if (!created) return;
+        setSavedQuery(query);
+        useStore.getState().libraryChanged();
+      });
+    });
 
   return (
     <section className="view scroll search-view">
-      {phone && (
+      {phone && !dockSearch && (
         <div className="phone-search">
           <input
             type="search"

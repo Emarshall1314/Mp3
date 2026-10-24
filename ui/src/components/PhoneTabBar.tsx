@@ -1,4 +1,5 @@
 import {
+  X,
   Clock,
   Disc3,
   FolderSync,
@@ -45,6 +46,8 @@ const ROUTES: Record<TabId, Route> = {
 /// Whether a page is the top page of its tab (Home, Library, a tab's own list): there, a
 /// swipe right brings back Now Playing rather than going back.
 export function isTabTop(route: Route, tabs: TabId[]): boolean {
+  // A page of Settings is below Settings itself.
+  if (route.name === 'settings' && route.section) return false;
   return route.name === ROUTES[tabOf(route, tabs)].name;
 }
 
@@ -98,10 +101,13 @@ export function PhoneTabBar({
   const route = useStore((s) => s.route);
   const current = tabOf(route, all);
   const separateSearch = liquid && all.includes('search');
+  // On the Search page the bubble opens into the search field (and the bar shrinks beside it).
+  const searching = separateSearch && route.name === 'search';
+  const query = route.name === 'search' ? route.query : '';
   const tabs = separateSearch ? all.filter((t) => t !== 'search') : all;
   const bar = useRef<HTMLElement>(null);
   const row = useRef<HTMLDivElement>(null);
-  const search = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLDivElement>(null);
   useLens(bar, liquid);
   useLens(search, separateSearch);
 
@@ -226,7 +232,11 @@ export function PhoneTabBar({
                 tabIndex={hidden ? -1 : undefined}
                 aria-label={collapsed && !hidden ? `${TAB_LABELS[t]}: show all tabs` : undefined}
                 data-faded={hidden || undefined}
-                onClick={() => (collapsed ? onExpand() : go(t, current, route))}
+                onClick={() =>
+                  // Searching, the circle leaves search for its tab; shrunk by scrolling, it
+                  // opens the bar.
+                  searching ? go(t, current, route) : collapsed ? onExpand() : go(t, current, route)
+                }
               >
                 <Icon size={22} aria-hidden />
                 <span>{TAB_LABELS[t]}</span>
@@ -236,15 +246,43 @@ export function PhoneTabBar({
         </div>
       </nav>
       {separateSearch && (
-        <button
+        // One element throughout, so it can grow from a circle into the field and back.
+        <div
           ref={search}
-          className={`phone-search-button glass-lit${current === 'search' ? ' on' : ''}`}
-          aria-label="Search"
-          aria-current={current === 'search' ? 'page' : undefined}
-          onClick={() => go('search', current, route)}
+          className={`phone-search-button glass-lit${searching ? ' on' : ''}`}
+          data-open={searching || undefined}
+          role={searching ? 'search' : 'button'}
+          tabIndex={searching ? undefined : 0}
+          aria-label={searching ? undefined : 'Search'}
+          onClick={() => !searching && go('search', current, route)}
+          onKeyDown={(e) => !searching && e.key === 'Enter' && go('search', current, route)}
         >
-          <Search size={22} aria-hidden />
-        </button>
+          <Search size={searching ? 18 : 22} aria-hidden />
+          {searching && (
+            <>
+              <input
+                type="search"
+                autoFocus
+                aria-label="Search"
+                placeholder="Songs, albums, artists"
+                value={query}
+                // Typing replaces the search page's query rather than adding to the history.
+                onChange={(e) =>
+                  useStore.setState({ route: { name: 'search', query: e.target.value } })
+                }
+              />
+              {query && (
+                <button
+                  className="icon-button small"
+                  aria-label="Clear"
+                  onClick={() => useStore.setState({ route: { name: 'search', query: '' } })}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
       )}
     </>
   );

@@ -38,6 +38,10 @@ export interface Look {
   background: BackgroundStyle;
   /// Sidebar, player bar, menus: frosted glass, liquid glass, or solid.
   panels: PanelStyle;
+  /// The desktop: the window itself is see-through where the app's background is, so a
+  /// compositor's blur (KWin's Blur or Force Blur, with its refraction) shows the desktop
+  /// behind it. Nothing changes without such an effect, or on Android.
+  windowGlass: boolean;
   /// Blur behind glass panels, in px.
   blur: number;
   /// How see-through glass panels are, 0–90 %.
@@ -68,6 +72,7 @@ export const DEFAULT_LOOK: Look = {
   accent: '#e8344e',
   background: 'solid',
   panels: 'glass',
+  windowGlass: false,
   blur: 30,
   transparency: 28,
   radius: 100,
@@ -287,6 +292,7 @@ export function normaliseLook(value: unknown): Look {
     accent: parseColor(str(v.accent, '')) ? str(v.accent, d.accent) : d.accent,
     background: pick(v.background, ['solid', 'gradient', 'artwork'], d.background),
     panels: pick(v.panels, ['glass', 'liquid', 'solid'], d.panels),
+    windowGlass: typeof v.windowGlass === 'boolean' ? v.windowGlass : d.windowGlass,
     blur: num(v.blur, 0, 60, d.blur),
     transparency: num(v.transparency, 0, 90, d.transparency),
     radius: num(v.radius, 0, 200, d.radius),
@@ -562,6 +568,7 @@ export function buildLook(
       'data-scheme': theme.scheme,
       'data-background': backgroundStyle,
       'data-panels': panels,
+      'data-window-glass': look.windowGlass && panels !== 'solid' ? 'on' : 'off',
       'data-density': look.density,
       'data-sidebar': layout.sidebarCollapsed ? 'collapsed' : 'open',
       'data-player': `${layout.playerPosition} ${layout.playerSize}`,

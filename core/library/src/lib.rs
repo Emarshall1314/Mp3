@@ -18,7 +18,7 @@ mod text;
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{OptionalExtension, Row, params, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::Serialize;
 
 pub use art::{StoredArt, THUMB_SIZES};
@@ -204,6 +204,41 @@ impl SongSort {
             SongSort::Plays => format!("COALESCE(u.play_count, 0){d}, t.sort_artist, t.id"),
         }
     }
+}
+
+/// A letter of the A–Z index and the row it starts at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LetterStart {
+    /// A to Z, or # for anything not starting with a letter.
+    pub letter: String,
+    pub index: i64,
+}
+
+/// The index letter of a sort key: its first letter, or # (sort keys are already lower case,
+/// without accents or a leading article).
+pub(crate) fn index_letter(key: &str) -> String {
+    match key.chars().next() {
+        Some(c) if c.is_ascii_alphabetic() => c.to_ascii_uppercase().to_string(),
+        _ => "#".to_owned(),
+    }
+}
+
+/// The first row of each letter, from a query of sort keys in list order.
+fn letter_starts(c: &Connection, sql: &str) -> Result<Vec<LetterStart>> {
+    let mut s = c.prepare(sql)?;
+    let mut rows = s.query([])?;
+    let mut out: Vec<LetterStart> = Vec::new();
+    let mut i = 0i64;
+    while let Some(r) = rows.next()? {
+        let key: Option<String> = r.get(0)?;
+        let letter = index_letter(key.as_deref().unwrap_or(""));
+        if !out.iter().any(|l| l.letter == letter) {
+            out.push(LetterStart { letter, index: i });
+        }
+        i += 1;
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -469,6 +504,34 @@ impl Library {
             let rows = s.query_map(params![limit, offset], album_row)?;
             Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
+    }
+
+    /// Where each letter starts in the album list in this order (by sort key, so "The Beatles"
+    /// is under B, as it sorts): for the A–Z index. Empty for orders that aren't by name.
+    pub fn album_letters(&self, sort: AlbumSort) -> Result<Vec<LetterStart>> {
+        let (key, order) = match sort {
+            AlbumSort::Artist => ("a.sort_artist", "a.sort_artist, a.year, a.sort_title"),
+            AlbumSort::Title => ("a.sort_title", "a.sort_title, a.sort_artist"),
+            AlbumSort::Year | AlbumSort::Added => return Ok(Vec::new()),
+        };
+        let sql = format!("SELECT {key} FROM albums a ORDER BY {order}");
+        self.db.read(|c| letter_starts(c, &sql))
+    }
+
+    /// Where each letter starts in the song list in this order; empty unless by name.
+    pub fn song_letters(&self, sort: SongSort, desc: bool) -> Result<Vec<LetterStart>> {
+        let key = match sort {
+            SongSort::Title => "t.sort_title",
+            SongSort::Artist => "t.sort_artist",
+            SongSort::Album => "t.sort_album",
+            SongSort::Genre => "LOWER(t.genre)",
+            _ => return Ok(Vec::new()),
+        };
+        let sql = format!(
+            "SELECT {key} FROM {TRACK_FROM} WHERE t.missing_since IS NULL ORDER BY {}",
+            sort.order_by(desc)
+        );
+        self.db.read(|c| letter_starts(c, &sql))
     }
 
     pub fn album(&self, id: i64) -> Result<AlbumDetail> {

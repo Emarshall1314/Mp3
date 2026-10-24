@@ -28,9 +28,9 @@ pub use cadenza_engine::{
 pub use cadenza_library::TrashItem;
 pub use cadenza_library::{
     AlbumDetail, AlbumRow, AlbumSort, ArtistPage, ArtistRow, Browse, BrowseItem, EditBatch,
-    EditChange, Home, LibraryStats, LyricLine, Lyrics, Mix, Playlist, PlaylistDetail, PlaylistItem,
-    Rediscover, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress, ScanReport,
-    SearchResults, SongSort, StoredArt, TrackRow,
+    EditChange, Home, LetterStart, LibraryStats, LyricLine, Lyrics, Mix, Playlist, PlaylistDetail,
+    PlaylistItem, Rediscover, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
+    ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
 pub use cadenza_sync::Remote;
 pub use edit::{
@@ -560,6 +560,14 @@ impl Cadenza {
     /// Home shelves: recently played, recently added, most played.
     pub fn home(&self) -> Result<Home> {
         Ok(self.library.home()?)
+    }
+
+    pub fn album_letters(&self, sort: AlbumSort) -> Result<Vec<LetterStart>> {
+        Ok(self.library.album_letters(sort)?)
+    }
+
+    pub fn song_letters(&self, sort: SongSort, desc: bool) -> Result<Vec<LetterStart>> {
+        Ok(self.library.song_letters(sort, desc)?)
     }
 
     // ---- playlists ---------------------------------------------------------------------------

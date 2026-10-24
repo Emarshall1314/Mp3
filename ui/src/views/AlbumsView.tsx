@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
-import type { AlbumSort } from '../types';
+import type { AlbumSort, LetterStart } from '../types';
+import { AlphabetIndex } from '../components/AlphabetIndex';
 import { AlbumGrid, DESKTOP_SIZES, PHONE_COLUMNS } from './AlbumGrid';
 import { EmptyLibrary } from './EmptyLibrary';
 import { GridZoom } from '../components/GridZoom';
@@ -50,6 +51,17 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
     void api.stats().then((s) => setCount(s.albums));
   }, [libraryVersion]);
 
+  // The A–Z index, for orders by name.
+  const [letters, setLetters] = useState<LetterStart[]>([]);
+  const jump = useRef<((index: number) => void) | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api.albumLetters(recent ? 'added' : sort).then((l) => live && setLetters(l));
+    return () => {
+      live = false;
+    };
+  }, [sort, recent, libraryVersion]);
+
   const load = useCallback(
     (offset: number, limit: number) => api.albums(recent ? 'added' : sort, offset, limit),
     [sort, recent],
@@ -57,7 +69,7 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
 
   if (count === 0) return <EmptyLibrary />;
   return (
-    <section className="view">
+    <section className="view has-index">
       <header className="view-header">
         <h1>{recent ? 'Recently Added' : 'Albums'}</h1>
         <div className="view-controls">
@@ -90,6 +102,18 @@ export function AlbumsView({ recent = false }: { recent?: boolean }) {
           zoom={zoom}
           onZoom={(step) => setZoom(zoom + step)}
           resetKey={`${sort}-${recent}-${libraryVersion}`}
+          jump={jump}
+        />
+      )}
+      {letters.length > 1 && (count ?? 0) > 24 && (
+        <AlphabetIndex
+          live
+          available={new Set(letters.map((l) => l.letter))}
+          value={null}
+          onChange={(letter) => {
+            const at = letters.find((l) => l.letter === letter);
+            if (at) jump.current?.(at.index);
+          }}
         />
       )}
     </section>

@@ -476,6 +476,45 @@ glass.
     rename, empty name, delete; the sidebar migration.
   - Checked in the real app at phone size: made one from an album's menu, added another album,
     reordered by dragging.
+- **Owner's fourth round** (from a screen recording of the phone):
+  - **Dock:** it flipped back and forth during a scroll. Now it needs a clear 48 px run one way
+    and won't flip again until its animation is done (tested); the plain-blur swap during the
+    move is gone (the glass stays liquid throughout); labels wait for the bar to widen.
+  - **Scroll physics:** the tabs, player and Search bubble are damped springs the page drags
+    with its speed (each with its own stiffness): they lean a few pixels with a brisk scroll and
+    spring back with a slight overshoot (tested).
+  - **The Search bubble moves:** it squashes and settles as the bar changes, and on the Search
+    page it grows into the search field across the dock while the bar shrinks to a circle and
+    the player steps aside (as in iOS 26); the page's own field hides.
+  - **Letter island:** scrubbing an A–Z index shows the letter big in a round liquid glass lens at
+    the top of the screen (growing out of a capsule like the Dynamic Island), where a finger
+    can't cover it.
+  - **A–Z in every Library list:** Albums (by artist or title) and Songs (by title, artist,
+    album, or grouped by album, artist or genre) jump live as the finger slides, using where
+    each letter starts in the core's own order (sort keys, so "The Beatles" is under B; tested);
+    Artists keeps narrowing. Shown for lists long enough to need it.
+  - **Settings:** a list of sections in rounded groups with coloured icons (Appearance, Layout,
+    Keyboard, Custom CSS, Sound, Music Folders, Sync, Trash, About), each its own page; settings
+    in rounded cards; switches instead of checkboxes (the knob stretches while held); bigger
+    slider knobs; labels above controls on a phone. The Phone group shows only where the phone
+    layout is in use, and the desktop-only groups only on the desktop.
+  - **Now Playing** always opens on the artwork (lyrics and the queue are a tap away; the
+    lyrics shortcut still opens on the lyrics).
+  - **Landscape:** Android keeps the phone layout (and its liquid glass) in any orientation; Now
+    Playing puts the cover beside the controls; the dock is centred and at most 520 px wide.
+  - **Save Search** asks for a name in the app's own (glass) dialog: the web view's prompt
+    doesn't show on Android.
+  - **Linux liquid glass, again:** WebKitGTK 2.52 still drops a backdrop filter that includes an
+    SVG displacement map (re-tested: the blur disappears), so in-page refraction stays
+    Android-only. Instead: the desktop's rims light from the mouse pointer, the panels have a
+    bevel and a faint colour fringe, and a new **See-through window** option makes the window
+    translucent so a compositor's blur (KWin's Blur or Force Blur, with its refraction) shows the
+    desktop behind the app. The window is now created transparent (opaque unless the option is
+    on). Untested with a real compositor here (the virtual display has none).
+  - A spacing token used in several places (`--space-5`) didn't exist, so those margins were
+    silently zero; it does now.
+  - Checked in the real app at phone size, sideways (with a temporary always-phone build) and on
+    the desktop. Touch and the phone's smoothness need the phone.
 - Demo script: `docs/demos/M7.md`.
 
 ### Next

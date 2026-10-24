@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useLens, useLiquid } from '../hooks/useGlass';
 
 export const LETTERS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
 
@@ -27,10 +29,14 @@ export function AlphabetIndex({
   available,
   value,
   onChange,
+  live = false,
 }: {
   available: Set<string>;
   value: string | null;
   onChange: (letter: string | null) => void;
+  /// Jump as the finger passes each letter (long sorted lists) rather than when it lifts
+  /// (narrowing a grid).
+  live?: boolean;
 }) {
   const strip = useRef<HTMLDivElement>(null);
   // Where the pointer is along the strip, in letters (fractional), while it's there.
@@ -50,9 +56,21 @@ export function AlphabetIndex({
     const l = p === null ? null : letterAt(p);
     if (l && l !== last.current && available.has(l)) {
       last.current = l;
+      setShown(l);
+      if (live) onChange(l);
       // A tick under the finger as it passes each letter, where the device can.
       navigator.vibrate?.(4);
     }
+  };
+  // The letter in the island at the top of the screen, and whether it's on its way out.
+  const [shown, setShown] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const leave = () => {
+    setLeaving(true);
+    setTimeout(() => {
+      setShown(null);
+      setLeaving(false);
+    }, 240);
   };
   const open = at !== null;
   return (
@@ -66,7 +84,10 @@ export function AlphabetIndex({
         if (e.pointerType === 'mouse') track(e.clientY);
       }}
       onPointerLeave={(e) => {
-        if (e.pointerType === 'mouse' && !held) setAt(null);
+        if (e.pointerType === 'mouse' && !held) {
+          setAt(null);
+          leave();
+        }
       }}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -81,13 +102,17 @@ export function AlphabetIndex({
       onPointerUp={(e) => {
         const p = position(e.clientY);
         setHeld(false);
-        if (e.pointerType !== 'mouse') setAt(null);
+        if (e.pointerType !== 'mouse') {
+          setAt(null);
+          leave();
+        }
         const l = p === null ? null : letterAt(p);
-        if (l && available.has(l)) onChange(l === value ? null : l);
+        if (l && available.has(l) && !live) onChange(l === value ? null : l);
       }}
       onPointerCancel={() => {
         setHeld(false);
         setAt(null);
+        leave();
       }}
       onKeyDown={(e) => {
         const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
@@ -98,6 +123,11 @@ export function AlphabetIndex({
         buttons[Math.min(buttons.length - 1, Math.max(0, i + step))]?.focus();
       }}
     >
+      {shown &&
+        createPortal(
+          <LetterIsland letter={shown} leaving={leaving} />,
+          document.querySelector('.app') ?? document.body,
+        )}
       <div ref={strip} className="alphabet-strip">
         {LETTERS.map((l, i) => {
           const s = at === null ? 1 : swell(Math.abs(i - at));
@@ -119,6 +149,25 @@ export function AlphabetIndex({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/// The letter being scrubbed to, large, in a round liquid glass lens at the top of the screen,
+/// out from under the finger: it grows out of a small capsule like the iPhone's Dynamic Island,
+/// pops as the letter changes, and shrinks away when the finger lifts.
+function LetterIsland({ letter, leaving }: { letter: string; leaving: boolean }) {
+  const liquid = useLiquid();
+  const lens = useRef<HTMLDivElement>(null);
+  useLens(lens, liquid);
+  return (
+    <div
+      ref={lens}
+      className={`letter-island${liquid ? ' glass-lit' : ''}`}
+      data-leaving={leaving || undefined}
+      aria-live="polite"
+    >
+      <span key={letter}>{letter}</span>
     </div>
   );
 }

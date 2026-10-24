@@ -22,6 +22,7 @@ import {
   move,
 } from '../theme/layout';
 import { useStore } from '../store';
+import { usePhone } from '../hooks/usePhone';
 import { SegmentLens } from './SegmentLens';
 
 function Segmented<T extends string>({
@@ -158,6 +159,9 @@ export function LayoutSettings() {
   const layout = look.layout;
   const showToast = useStore((s) => s.showToast);
   const [presetName, setPresetName] = useState('');
+  // The phone's settings show where the phone layout is in use; the sidebar, player bar,
+  // side panel, columns and presets only where they exist (the desktop layout).
+  const phone = usePhone();
 
   const savePreset = () => {
     const name = presetName.trim();
@@ -170,67 +174,71 @@ export function LayoutSettings() {
 
   return (
     <>
-      <div className="settings-group">
-        <h2>Layout Presets</h2>
-        <div className="action-row">
-          {[...BUILT_IN_PRESETS, ...look.presets].map((p, i) => (
-            <span key={`${i}-${p.name}`} className="preset">
-              <button className="pill" onClick={() => applyPreset(p.layout)}>
-                {p.name}
-              </button>
-              {i >= BUILT_IN_PRESETS.length && (
-                <button
-                  className="icon-button small"
-                  aria-label={`Delete layout ${p.name}`}
-                  onClick={() => updateLook({ presets: look.presets.filter((o) => o !== p) })}
-                >
-                  <Trash2 size={12} />
+      {!phone && (
+        <div className="settings-group">
+          <h2>Layout Presets</h2>
+          <div className="action-row">
+            {[...BUILT_IN_PRESETS, ...look.presets].map((p, i) => (
+              <span key={`${i}-${p.name}`} className="preset">
+                <button className="pill" onClick={() => applyPreset(p.layout)}>
+                  {p.name}
                 </button>
-              )}
-            </span>
-          ))}
+                {i >= BUILT_IN_PRESETS.length && (
+                  <button
+                    className="icon-button small"
+                    aria-label={`Delete layout ${p.name}`}
+                    onClick={() => updateLook({ presets: look.presets.filter((o) => o !== p) })}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          <div className="action-row">
+            <input
+              type="text"
+              aria-label="Name for this layout"
+              placeholder="Name for this layout"
+              maxLength={40}
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && savePreset()}
+            />
+            <button className="pill" disabled={!presetName.trim()} onClick={savePreset}>
+              Save Current Layout
+            </button>
+          </div>
+          <p className="muted small">
+            Switch layouts from the layout button above every page, or with Ctrl+Shift+L.
+          </p>
         </div>
-        <div className="action-row">
-          <input
-            type="text"
-            aria-label="Name for this layout"
-            placeholder="Name for this layout"
-            maxLength={40}
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && savePreset()}
-          />
-          <button className="pill" disabled={!presetName.trim()} onClick={savePreset}>
-            Save Current Layout
-          </button>
-        </div>
-        <p className="muted small">
-          Switch layouts from the layout button above every page, or with Ctrl+Shift+L.
-        </p>
-      </div>
+      )}
 
-      <div className="settings-group">
-        <h2>Sidebar</h2>
-        <OrderList
-          label="Sidebar items"
-          all={ALL_NAV}
-          shown={layout.nav}
-          names={NAV_LABELS}
-          onChange={(nav) => updateLayout({ nav })}
-        />
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={layout.sidebarCollapsed}
-            onChange={(e) => updateLayout({ sidebarCollapsed: e.target.checked })}
+      {!phone && (
+        <div className="settings-group">
+          <h2>Sidebar</h2>
+          <OrderList
+            label="Sidebar items"
+            all={ALL_NAV}
+            shown={layout.nav}
+            names={NAV_LABELS}
+            onChange={(nav) => updateLayout({ nav })}
           />
-          Icons only
-        </label>
-        <p className="muted small">
-          Drag the sidebar’s edge to resize it; double-click the edge to switch to icons only.
-          Sound, Music Folders and Settings always stay at the bottom.
-        </p>
-      </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={layout.sidebarCollapsed}
+              onChange={(e) => updateLayout({ sidebarCollapsed: e.target.checked })}
+            />
+            Icons only
+          </label>
+          <p className="muted small">
+            Drag the sidebar’s edge to resize it; double-click the edge to switch to icons only.
+            Sound, Music Folders and Settings always stay at the bottom.
+          </p>
+        </div>
+      )}
 
       <div className="settings-group">
         <h2>Home</h2>
@@ -243,149 +251,160 @@ export function LayoutSettings() {
         />
       </div>
 
-      <div className="settings-group">
-        <h2>Phone</h2>
-        <p className="muted small">
-          On a phone (or a narrow window): the tabs along the bottom, in order, and the player above
-          them. Library is always a tab; {MAX_TABS} fit.
-        </p>
-        <OrderList
-          label="Phone tabs"
-          all={ALL_TABS}
-          shown={layout.phoneTabs}
-          names={TAB_LABELS}
-          locked={['library']}
-          max={MAX_TABS}
-          onChange={(phoneTabs) => updateLayout({ phoneTabs })}
-        />
-        <div className="form-grid">
-          <span>Mini player</span>
-          <Segmented
-            label="Mini player style"
-            value={layout.miniPlayer}
-            options={MINI_PLAYERS}
-            onChange={(miniPlayer) => updateLayout({ miniPlayer })}
+      {phone && (
+        <div className="settings-group">
+          <h2>Phone</h2>
+          <p className="muted small">
+            On a phone (or a narrow window): the tabs along the bottom, in order, and the player
+            above them. Library is always a tab; {MAX_TABS} fit.
+          </p>
+          <OrderList
+            label="Phone tabs"
+            all={ALL_TABS}
+            shown={layout.phoneTabs}
+            names={TAB_LABELS}
+            locked={['library']}
+            max={MAX_TABS}
+            onChange={(phoneTabs) => updateLayout({ phoneTabs })}
           />
-        </div>
-      </div>
-
-      <div className="settings-group">
-        <h2>Player Bar</h2>
-        <div className="form-grid">
-          <span>Position</span>
-          <Segmented
-            label="Player bar position"
-            value={layout.playerPosition}
-            options={[
-              ['bottom', 'Bottom'],
-              ['top', 'Top'],
-            ]}
-            onChange={(playerPosition) => updateLayout({ playerPosition })}
-          />
-          <span>Size</span>
-          <Segmented
-            label="Player bar size"
-            value={layout.playerSize}
-            options={[
-              ['compact', 'Compact'],
-              ['standard', 'Standard'],
-              ['large', 'Large'],
-            ]}
-            onChange={(playerSize) => updateLayout({ playerSize })}
-          />
-        </div>
-        {(['shuffle', 'repeat'] as PlayerControl[]).map((c) => (
-          <label key={c} className="check-row">
-            <input
-              type="checkbox"
-              checked={layout.playerControls.includes(c)}
-              onChange={(e) =>
-                updateLayout({
-                  playerControls: e.target.checked
-                    ? [...layout.playerControls, c]
-                    : layout.playerControls.filter((o) => o !== c),
-                })
-              }
+          <div className="form-grid">
+            <span>Mini player</span>
+            <Segmented
+              label="Mini player style"
+              value={layout.miniPlayer}
+              options={MINI_PLAYERS}
+              onChange={(miniPlayer) => updateLayout({ miniPlayer })}
             />
-            {CONTROL_LABELS[c]}
-          </label>
-        ))}
-        <OrderList
-          label="Controls on the right"
-          all={RIGHT_CONTROLS}
-          shown={layout.playerControls.filter((c) => RIGHT_CONTROLS.includes(c))}
-          names={CONTROL_LABELS}
-          onChange={(right) =>
-            updateLayout({
-              playerControls: [
-                ...layout.playerControls.filter((c) => c === 'shuffle' || c === 'repeat'),
-                ...right,
-              ],
-            })
-          }
-        />
-        <p className="muted small">
-          Play, previous, next and the position bar are always there. The controls on the right
-          appear in this order.
-        </p>
-      </div>
-
-      <div className="settings-group">
-        <h2>Side Panel</h2>
-        <div className="form-grid">
-          <span>Side panel</span>
-          <Segmented
-            label="Side panel position"
-            value={layout.dock.position}
-            options={[
-              ['right', 'Right'],
-              ['left', 'Left'],
-              ['bottom', 'Bottom'],
-              ['floating', 'Floating'],
-            ]}
-            onChange={(position) => updateLayout({ dock: { ...layout.dock, position } })}
-          />
-          <span>Now Playing</span>
-          <Segmented
-            label="Now Playing style"
-            value={layout.nowPlaying}
-            options={[
-              ['artwork', 'Artwork'],
-              ['lyrics', 'Lyrics First'],
-              ['minimal', 'Minimal'],
-              ['visualizer', 'Visualizer'],
-            ]}
-            onChange={(nowPlaying) => updateLayout({ nowPlaying })}
-          />
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="settings-group">
-        <h2>Song List Columns</h2>
-        <OrderList
-          label="Song list columns"
-          all={ALL_COLUMNS}
-          shown={layout.columns.map((c) => c.id)}
-          names={COLUMN_NAMES}
-          locked={['title']}
-          onChange={(ids) =>
-            updateLayout({
-              columns: ids.map(
-                (id) =>
-                  layout.columns.find((c) => c.id === id) ?? { id, width: COLUMN_SPECS[id].width },
-              ),
-            })
-          }
-        />
-        <p className="muted small">
-          In the song list, drag a column heading to move it and drag its edge to resize it.
-        </p>
-        <div className="action-row">
-          <button className="pill" onClick={() => updateLayout(DEFAULT_LAYOUT)}>
-            Reset Layout
-          </button>
+      {!phone && (
+        <div className="settings-group">
+          <h2>Player Bar</h2>
+          <div className="form-grid">
+            <span>Position</span>
+            <Segmented
+              label="Player bar position"
+              value={layout.playerPosition}
+              options={[
+                ['bottom', 'Bottom'],
+                ['top', 'Top'],
+              ]}
+              onChange={(playerPosition) => updateLayout({ playerPosition })}
+            />
+            <span>Size</span>
+            <Segmented
+              label="Player bar size"
+              value={layout.playerSize}
+              options={[
+                ['compact', 'Compact'],
+                ['standard', 'Standard'],
+                ['large', 'Large'],
+              ]}
+              onChange={(playerSize) => updateLayout({ playerSize })}
+            />
+          </div>
+          {(['shuffle', 'repeat'] as PlayerControl[]).map((c) => (
+            <label key={c} className="check-row">
+              <input
+                type="checkbox"
+                checked={layout.playerControls.includes(c)}
+                onChange={(e) =>
+                  updateLayout({
+                    playerControls: e.target.checked
+                      ? [...layout.playerControls, c]
+                      : layout.playerControls.filter((o) => o !== c),
+                  })
+                }
+              />
+              {CONTROL_LABELS[c]}
+            </label>
+          ))}
+          <OrderList
+            label="Controls on the right"
+            all={RIGHT_CONTROLS}
+            shown={layout.playerControls.filter((c) => RIGHT_CONTROLS.includes(c))}
+            names={CONTROL_LABELS}
+            onChange={(right) =>
+              updateLayout({
+                playerControls: [
+                  ...layout.playerControls.filter((c) => c === 'shuffle' || c === 'repeat'),
+                  ...right,
+                ],
+              })
+            }
+          />
+          <p className="muted small">
+            Play, previous, next and the position bar are always there. The controls on the right
+            appear in this order.
+          </p>
         </div>
-      </div>
+      )}
+
+      {!phone && (
+        <div className="settings-group">
+          <h2>Side Panel</h2>
+          <div className="form-grid">
+            <span>Side panel</span>
+            <Segmented
+              label="Side panel position"
+              value={layout.dock.position}
+              options={[
+                ['right', 'Right'],
+                ['left', 'Left'],
+                ['bottom', 'Bottom'],
+                ['floating', 'Floating'],
+              ]}
+              onChange={(position) => updateLayout({ dock: { ...layout.dock, position } })}
+            />
+            <span>Now Playing</span>
+            <Segmented
+              label="Now Playing style"
+              value={layout.nowPlaying}
+              options={[
+                ['artwork', 'Artwork'],
+                ['lyrics', 'Lyrics First'],
+                ['minimal', 'Minimal'],
+                ['visualizer', 'Visualizer'],
+              ]}
+              onChange={(nowPlaying) => updateLayout({ nowPlaying })}
+            />
+          </div>
+        </div>
+      )}
+
+      {!phone && (
+        <div className="settings-group">
+          <h2>Song List Columns</h2>
+          <OrderList
+            label="Song list columns"
+            all={ALL_COLUMNS}
+            shown={layout.columns.map((c) => c.id)}
+            names={COLUMN_NAMES}
+            locked={['title']}
+            onChange={(ids) =>
+              updateLayout({
+                columns: ids.map(
+                  (id) =>
+                    layout.columns.find((c) => c.id === id) ?? {
+                      id,
+                      width: COLUMN_SPECS[id].width,
+                    },
+                ),
+              })
+            }
+          />
+          <p className="muted small">
+            In the song list, drag a column heading to move it and drag its edge to resize it.
+          </p>
+          <div className="action-row">
+            <button className="pill" onClick={() => updateLayout(DEFAULT_LAYOUT)}>
+              Reset Layout
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

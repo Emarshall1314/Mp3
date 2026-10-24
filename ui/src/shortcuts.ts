@@ -30,8 +30,9 @@ function nowPlayingPanel(panel: 'lyrics' | 'queue') {
   const s = useStore.getState();
   if (s.nowPlaying && s.nowPlayingPanel === panel) s.setNowPlaying(false);
   else {
-    s.setNowPlayingPanel(panel);
+    // Opening shows the artwork; then the asked-for panel.
     s.setNowPlaying(true);
+    s.setNowPlayingPanel(panel);
   }
 }
 

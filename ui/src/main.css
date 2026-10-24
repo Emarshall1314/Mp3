@@ -3732,7 +3732,10 @@ kbd {
   --base: calc(env(safe-area-inset-bottom, 0px) + 10px);
   --search-room: 0px;
   /* In vw, not %: the row inside the capsule keeps this width while the capsule narrows. */
-  --tabs-full: calc(100vw - 2 * var(--edge) - var(--search-room));
+  /* The dock is at most 520 px across, centred (a phone held sideways, a tablet). */
+  --dock-width: min(calc(100vw - 2 * var(--edge)), 520px);
+  --side: calc((100vw - var(--dock-width)) / 2);
+  --tabs-full: calc(var(--dock-width) - var(--search-room));
   --glide: 460ms var(--ease-spring);
 
   height: calc(var(--base) + var(--bar));
@@ -3748,7 +3751,7 @@ kbd {
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs {
   position: absolute;
-  left: var(--edge);
+  left: var(--side);
   bottom: var(--base);
   width: var(--tabs-full);
   height: var(--bar);
@@ -3767,14 +3770,6 @@ kbd {
   transition:
     width 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
     scale 320ms var(--ease-spring);
-}
-
-/* While the dock rearranges, its glass is plain blur (no lens, a lighter blur): redrawing the
- * refraction on every frame of the move is what made it stutter. */
-:root[data-panels='liquid']
-  .phone-dock[data-gliding]
-  :is(.phone-tabs, .phone-player, .phone-search-button) {
-  backdrop-filter: blur(10px) saturate(170%) !important;
 }
 
 /* The row keeps its full width while the capsule narrows; it slides so the current tab sits in
@@ -3809,7 +3804,8 @@ kbd {
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs button span {
-  transition: opacity 180ms;
+  /* Opening, the labels wait for the bar to widen; closing, they go at once. */
+  transition: opacity 200ms 260ms;
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs button svg {
@@ -3818,6 +3814,8 @@ kbd {
 
 :root[data-panels='liquid'] .phone-dock .phone-tabs[data-collapsed] button span {
   opacity: 0;
+  transition-delay: 0ms;
+  transition-duration: 120ms;
 }
 
 /* Collapsed, the icon drops to the middle of the circle where the label was. */
@@ -3871,8 +3869,8 @@ kbd {
 
 :root[data-panels='liquid'] .phone-dock .phone-player {
   position: absolute;
-  left: var(--edge);
-  right: var(--edge);
+  left: var(--side);
+  right: var(--side);
   /* Always on the lower row, lifted to the upper one by a transform (moved by the compositor,
    * not laid out again each frame). */
   bottom: var(--base);
@@ -3889,7 +3887,6 @@ kbd {
     translate 340ms var(--ease-spring),
     left 380ms var(--ease-spring) 120ms,
     right 380ms var(--ease-spring) 120ms,
-    transform 420ms var(--ease-spring),
     scale 420ms var(--ease-spring);
 }
 
@@ -3898,26 +3895,25 @@ kbd {
 }
 
 :root[data-panels='liquid'] .phone-dock .phone-player[data-style='minimal'] {
-  left: calc(100% - var(--edge) - 116px);
+  left: calc(100% - var(--side) - 116px);
 }
 
 /* Collapsed: the player drops into the gap between the circle and Search. */
 :root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-player {
-  left: calc(var(--edge) + var(--bar) + 10px);
-  right: calc(var(--edge) + var(--search-room));
+  left: calc(var(--side) + var(--bar) + 10px);
+  right: calc(var(--side) + var(--search-room));
   translate: 0 0;
   /* Collapsing: narrow first (clear of Search), then drop once the tabs have shrunk. */
   transition:
     left 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
     right 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
     translate 380ms var(--ease-spring) 180ms,
-    transform 420ms var(--ease-spring),
     scale 420ms var(--ease-spring);
 }
 
 .phone-search-button {
   position: absolute;
-  right: var(--edge, 14px);
+  right: var(--side, 14px);
   bottom: var(--base, 10px);
   display: grid;
   place-items: center;
@@ -4967,5 +4963,481 @@ kbd {
 @keyframes fade-in {
   from {
     opacity: 0;
+  }
+}
+
+/* ---- Settings (views/SettingsView.tsx), after iOS Settings ----
+ * The list of sections in rounded groups with coloured icon tiles; each section's settings in
+ * rounded cards; switches instead of checkboxes; a bigger knob on sliders. Glass with liquid
+ * glass on. Applies to Sound, Music Folders and Sync too, which open from here. */
+.settings-list {
+  list-style: none;
+  margin: 0 var(--space-6) var(--space-5);
+  padding: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--color-surface);
+}
+
+:root[data-panels='liquid']
+  :is(.settings-list, .settings-page .settings-group, .sound-view .settings-group) {
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 6px 20px rgb(0 0 0 / 10%);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-4);
+  text-align: left;
+}
+
+.settings-list li + li .settings-row {
+  border-top: 1px solid var(--color-separator);
+}
+
+.settings-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-row-text .title {
+  font-size: 16px;
+}
+
+.settings-row-text .subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-row .chevron {
+  color: var(--color-text-secondary);
+}
+
+:is(.settings-page, .sound-view) .settings-group {
+  margin: 0 var(--space-6) var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 22px;
+}
+
+:is(.settings-page, .sound-view) .settings-group > h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.about-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.about-list dt {
+  color: var(--color-text-secondary);
+}
+
+.about-list dd {
+  margin: 0;
+}
+
+/* Switches: a capsule whose knob slides across, stretching while held, as on iOS. */
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox'] {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 28px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-badge);
+  box-shadow: inset 0 0 0 1px var(--color-separator);
+  cursor: pointer;
+  transition: background-color 220ms;
+}
+
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  box-shadow:
+    0 2px 6px rgb(0 0 0 / 25%),
+    inset 0 1px 0 rgb(255 255 255 / 80%);
+  transition:
+    translate 320ms var(--ease-spring),
+    width 220ms var(--ease-spring);
+}
+
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox']:checked {
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox']:checked::before {
+  translate: 20px 0;
+}
+
+/* Held, the knob widens toward where it's going. */
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox']:active::before {
+  width: 30px;
+}
+
+:is(.settings-page, .sound-view, .sync-view, .folders-view)
+  input[type='checkbox']:checked:active::before {
+  translate: 14px 0;
+}
+
+:is(.settings-page, .sound-view, .sync-view, .folders-view) input[type='checkbox']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A rows of setting and switch: the switch at the right. */
+:is(.settings-page, .sound-view, .sync-view) .check-row {
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  gap: var(--space-3);
+  min-height: 44px;
+}
+
+/* Sliders in settings: a round, raised knob big enough for a finger. */
+:is(.settings-page, .sound-view) input[type='range'] {
+  height: 6px;
+}
+
+:is(.settings-page, .sound-view) input[type='range']::-webkit-slider-thumb {
+  width: 24px;
+  height: 24px;
+  background: #fff;
+  box-shadow:
+    0 2px 8px rgb(0 0 0 / 30%),
+    inset 0 1px 0 rgb(255 255 255 / 90%);
+  transition: scale 260ms var(--ease-spring);
+}
+
+:is(.settings-page, .sound-view) input[type='range']:active::-webkit-slider-thumb {
+  scale: 1.25 1.1;
+}
+
+/* On a phone, settings rows stack their label above wide controls. */
+.app[data-phone] :is(.settings-page, .sound-view) .form-grid {
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+}
+
+.app[data-phone] :is(.settings-page, .sound-view) .slider-row {
+  grid-template-columns: 1fr auto;
+}
+
+.app[data-phone] :is(.settings-page, .sound-view) .slider-row input[type='range'] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.app[data-phone] .settings-list {
+  margin: 0 var(--space-4) var(--space-5);
+}
+
+.app[data-phone] :is(.settings-page, .sound-view) .settings-group {
+  margin: 0 var(--space-4) var(--space-4);
+  padding: var(--space-4);
+}
+
+/* Leaning with the page as it scrolls (hooks/useDockPhysics.ts sets --wy and --ws). */
+:root[data-panels='liquid'] .phone-dock :is(.phone-tabs, .phone-player, .phone-search-button) {
+  transform: translateY(var(--wy, 0px)) scaleY(var(--ws, 1));
+}
+
+/* ---- The Search bubble's own movement ----
+ * It squashes and settles as the bar beside it changes shape, and on the Search page it opens
+ * into the search field, growing left from where it sits while the bar shrinks to a circle and
+ * the player steps aside, as in iOS 26. */
+:root[data-panels='liquid'] .phone-dock .phone-search-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  transition:
+    width 460ms var(--ease-spring),
+    padding 300ms,
+    scale 320ms var(--ease-spring);
+}
+
+:root[data-panels='liquid'] .phone-dock[data-collapsed] .phone-search-button:not([data-open]) {
+  animation: bubble-settle-a 560ms var(--ease-spring);
+}
+
+:root[data-panels='liquid'] .phone-dock:not([data-collapsed]) .phone-search-button {
+  animation: bubble-settle-b 560ms var(--ease-spring);
+}
+
+@keyframes bubble-settle-a {
+  30% {
+    scale: 1.1 0.9;
+  }
+
+  65% {
+    scale: 0.96 1.04;
+  }
+}
+
+@keyframes bubble-settle-b {
+  30% {
+    scale: 1.1 0.9;
+  }
+
+  65% {
+    scale: 0.96 1.04;
+  }
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-search-button[data-open] {
+  width: calc(var(--dock-width) - var(--bar) - 10px);
+  justify-content: flex-start;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  cursor: text;
+}
+
+.phone-search-button input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 17px;
+  animation: fade-in 260ms 120ms both;
+}
+
+.phone-search-button input::-webkit-search-cancel-button {
+  display: none;
+}
+
+:root[data-panels='liquid'] .phone-dock .phone-player {
+  transition-property: translate, left, right, scale, opacity;
+}
+
+:root[data-panels='liquid'] .phone-dock[data-searching] .phone-player {
+  opacity: 0;
+  translate: 0 calc(var(--bar) + 20px);
+  pointer-events: none;
+}
+
+:root[data-reduce-motion] .phone-search-button {
+  animation: none !important;
+}
+
+/* Pages with an A–Z index place it against their right edge. */
+.has-index {
+  position: relative;
+}
+
+/* ---- The letter island (components/AlphabetIndex.tsx) ----
+ * Out of a small capsule at the top of the screen into a round glass lens holding the letter. */
+.letter-island {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border-radius: 46px;
+  translate: -50% 0;
+  pointer-events: none;
+  color: var(--color-text);
+  font-size: 46px;
+  font-weight: 800;
+  background: color-mix(in srgb, var(--color-surface-glass) 60%, transparent);
+  backdrop-filter: blur(6px) saturate(200%) brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim, rgb(255 255 255 / 40%)),
+    inset 0 -2px 6px rgb(255 255 255 / 10%),
+    inset 0 0 18px rgb(255 255 255 / 8%),
+    0 12px 36px rgb(0 0 0 / 30%);
+  animation: island-in 460ms var(--ease-spring);
+}
+
+:root[data-refraction] .letter-island {
+  backdrop-filter: blur(2px) var(--lens, url(#cadenza-liquid)) saturate(200%) brightness(1.08);
+}
+
+.letter-island[data-leaving] {
+  animation: island-out 240ms ease-in forwards;
+}
+
+.letter-island span {
+  animation: letter-pop 260ms var(--ease-spring);
+  text-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+}
+
+@keyframes island-in {
+  from {
+    width: 120px;
+    height: 34px;
+    opacity: 0.4;
+  }
+}
+
+@keyframes island-out {
+  to {
+    width: 120px;
+    height: 34px;
+    opacity: 0;
+  }
+}
+
+@keyframes letter-pop {
+  from {
+    scale: 1.35;
+    opacity: 0.4;
+  }
+}
+
+:root[data-reduce-motion] :is(.letter-island, .letter-island span) {
+  animation: none;
+}
+
+/* ---- Liquid glass on the desktop (Linux) ----
+ * WebKitGTK can't refract inside the page (D51), so the glass is built from light: a bright rim
+ * that turns toward the mouse (hooks/useGlass.ts sets --glass-light), a bevel (a lit top edge,
+ * a shaded bottom edge) and a faint colour fringe at the sides, as thick glass has. */
+:root[data-panels='liquid'] .app:not([data-phone]) :is(.player-bar, .queue-panel) {
+  position: relative;
+}
+
+:root[data-panels='liquid']
+  .app:not([data-phone])
+  :is(.sidebar, .player-bar, .popover, .context-menu, .queue-panel, .prompt)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: 1.2px;
+  pointer-events: none;
+  background: linear-gradient(
+    var(--glass-light, 135deg),
+    rgb(255 255 255 / var(--rim-hi)),
+    rgb(255 255 255 / 6%) 26%,
+    transparent 44%,
+    transparent 56%,
+    rgb(255 255 255 / 6%) 74%,
+    rgb(255 255 255 / var(--rim-lo))
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+:root[data-panels='liquid']
+  .app:not([data-phone])
+  :is(.sidebar, .player-bar, .popover, .context-menu, .queue-panel) {
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    inset 0 2px 8px rgb(255 255 255 / 7%),
+    inset 0 -2px 8px rgb(0 0 0 / 12%),
+    inset 1px 0 0 rgb(255 120 140 / 10%),
+    inset -1px 0 0 rgb(120 170 255 / 12%);
+}
+
+:root[data-panels='liquid'] .app:not([data-phone]) :is(.popover, .context-menu) {
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    inset 0 2px 8px rgb(255 255 255 / 7%),
+    inset 0 -2px 8px rgb(0 0 0 / 12%),
+    inset 1px 0 0 rgb(255 120 140 / 10%),
+    inset -1px 0 0 rgb(120 170 255 / 12%),
+    var(--shadow-menu);
+}
+
+/* The see-through window: the app's background lets the desktop through (blurred by the
+ * compositor, where it blurs), and the glass panels are clearer still. */
+:root[data-window-glass='on'],
+:root[data-window-glass='on'] body {
+  background: transparent !important;
+}
+
+:root[data-window-glass='on'] .app {
+  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+}
+
+:root[data-window-glass='on'] .app:not([data-phone]) :is(.sidebar, .player-bar) {
+  background-color: color-mix(in srgb, var(--color-surface-glass) 45%, transparent);
+}
+
+/* ---- A phone held sideways: the same phone layout, arranged across ----
+ * Now Playing puts the cover beside the controls (or lyrics and the queue beside them). */
+@media (orientation: landscape) and (max-height: 600px) {
+  .app[data-phone] .np-grab {
+    display: none;
+  }
+
+  .app[data-phone] .np-body:not(.with-panel) .np-main {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    column-gap: var(--space-6);
+    row-gap: var(--space-2);
+  }
+
+  .app[data-phone] .np-body:not(.with-panel) .np-main > .np-art {
+    grid-row: 1 / span 6;
+    width: min(44vw, calc(100dvh - 90px));
+  }
+
+  .app[data-phone] .np-body:not(.with-panel) .np-main > :not(.np-art) {
+    grid-column: 2;
+    width: 100%;
+    margin: 0;
+  }
+
+  .app[data-phone] .np-body.with-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  .app[data-phone] .np-body.with-panel .np-panel {
+    order: 1;
+  }
+
+  .app[data-phone] .now-playing-view :is(.np-info, .scrubber, .np-transport) {
+    width: 100%;
   }
 }

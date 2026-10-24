@@ -690,3 +690,45 @@ fn playlists_keep_order_through_adds_moves_and_removals() {
     assert!(s.lib.playlist(q.id).is_err());
     assert!(s.lib.add_to_playlist(q.id, &songs).is_err());
 }
+
+#[test]
+fn letter_starts_follow_the_list_order() {
+    use cadenza_library::{AlbumSort, SongSort};
+
+    let s = setup(&["library"]);
+    scan(&s.lib);
+    for sort in [AlbumSort::Artist, AlbumSort::Title] {
+        let albums = s.lib.albums(sort, 0, 1000).unwrap();
+        let letters = s.lib.album_letters(sort).unwrap();
+        assert!(!letters.is_empty());
+        // Each letter's first album is at its index, and starts are in list order.
+        for w in letters.windows(2) {
+            assert!(w[0].index < w[1].index);
+        }
+        for l in &letters {
+            let a = &albums[l.index as usize];
+            let name = if sort == AlbumSort::Artist {
+                &a.albumartist
+            } else {
+                &a.title
+            };
+            let first = name
+                .trim_start_matches("The ")
+                .chars()
+                .next()
+                .unwrap_or('#');
+            if first.is_ascii_alphabetic() {
+                assert_eq!(l.letter, first.to_ascii_uppercase().to_string(), "{name}");
+            }
+        }
+    }
+    assert!(s.lib.album_letters(AlbumSort::Added).unwrap().is_empty());
+    let songs = s.lib.song_letters(SongSort::Title, false).unwrap();
+    assert_eq!(songs[0].index, 0);
+    assert!(
+        s.lib
+            .song_letters(SongSort::Duration, false)
+            .unwrap()
+            .is_empty()
+    );
+}

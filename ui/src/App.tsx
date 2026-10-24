@@ -35,6 +35,8 @@ import { useLongPress } from './hooks/useLongPress';
 import type { TabId } from './theme/layout';
 import { useGlassLight, useGlassTouch, useLiquid } from './hooks/useGlass';
 import { useSwipeBack } from './hooks/useSwipeBack';
+import { dockAfterScroll, START } from './hooks/dockScroll';
+import { useDockPhysics } from './hooks/useDockPhysics';
 import { useAndroidBack } from './hooks/useAndroidBack';
 
 function useCoreEvents() {
@@ -135,7 +137,7 @@ function Page({ route }: { route: Route }) {
     case 'sound':
       return <SoundView />;
     case 'settings':
-      return <SettingsView />;
+      return <SettingsView section={route.section} />;
     case 'sync':
       return <SyncView />;
     case 'trash':
@@ -179,30 +181,19 @@ function PhoneApp() {
   const tabs = useLook((s) => s.look.layout.phoneTabs);
   const liquid = useLiquid();
   const playing = useStore((s) => s.player?.trackId != null);
+  const searching = liquid && tabs.includes('search') && route.name === 'search';
   useGlassLight(liquid);
   useGlassTouch(liquid);
   const collapsed = useCollapseOnScroll(liquid, route);
   const app = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
-  // While the dock rearranges, mark it so its glass drops the costly lens (main.css).
-  const firstGlide = useRef(true);
-  useEffect(() => {
-    if (firstGlide.current) {
-      firstGlide.current = false;
-      return;
-    }
-    const el = dock.current;
-    if (!el) return;
-    el.setAttribute('data-gliding', '');
-    const t = setTimeout(() => el.removeAttribute('data-gliding'), 720);
-    return () => clearTimeout(t);
-  }, [collapsed.value]);
   const atTabTop = useCallback(
     () => isTabTop(useStore.getState().route, useLook.getState().look.layout.phoneTabs),
     [],
   );
   useSwipeBack(main, true, atTabTop);
+  useDockPhysics(dock, liquid);
   useAndroidBack();
   // Remember where music is started from, for Now Playing's swipe back to it.
   useEffect(() => setPlayListener((album) => useStore.getState().notePlaySource(album)), []);
@@ -226,12 +217,17 @@ function PhoneApp() {
       <div
         className="phone-dock"
         ref={dock}
-        data-collapsed={collapsed.value || undefined}
+        data-collapsed={collapsed.value || searching || undefined}
+        data-searching={searching || undefined}
         data-search={(liquid && tabs.includes('search')) || undefined}
         data-player={playing || undefined}
       >
         <PhonePlayer liquid={liquid} />
-        <PhoneTabBar liquid={liquid} collapsed={collapsed.value} onExpand={collapsed.expand} />
+        <PhoneTabBar
+          liquid={liquid}
+          collapsed={collapsed.value || searching}
+          onExpand={collapsed.expand}
+        />
       </div>
       <NowPlaying />
       <ContextMenu />
@@ -303,6 +299,7 @@ function useCollapseOnScroll(on: boolean, route: unknown) {
   useEffect(() => {
     if (!on) return;
     const last = new WeakMap<EventTarget, number>();
+    let travel = START;
     const onScroll = (e: Event) => {
       const el = e.target;
       if (!(el instanceof HTMLElement) || !el.closest('.phone-main')) return;
@@ -312,9 +309,9 @@ function useCollapseOnScroll(on: boolean, route: unknown) {
       // Only up-and-down scrolling counts: a shelf scrolled sideways keeps scrollTop 0, which
       // would read as "back at the top".
       if (before === undefined || before === top) return;
-      if (top < 24) change(false);
-      else if (top - before > 6) change(true);
-      else if (before - top > 6) change(false);
+      const next = dockAfterScroll(current.current, travel, before, top, e.timeStamp);
+      travel = next.travel;
+      change(next.collapsed);
     };
     document.addEventListener('scroll', onScroll, true);
     return () => document.removeEventListener('scroll', onScroll, true);
@@ -330,6 +327,9 @@ export function App() {
   useGlobalShortcuts();
   useLongPress();
   const phone = usePhone();
+  // Desktop glass: rims lit from the pointer (the phone shell does its own, from the tilt).
+  const liquid = useLiquid();
+  useGlassLight(liquid && !phone);
   const back = useStore((s) => s.back.length > 0);
   const forward = useStore((s) => s.forward.length > 0);
   const dockPosition = useLook((s) => s.look.layout.dock.position);

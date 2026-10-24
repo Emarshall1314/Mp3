@@ -73,6 +73,12 @@ export interface Mix {
   art: string[];
 }
 
+/// Where a letter of the A–Z index starts in a sorted list.
+export interface LetterStart {
+  letter: string;
+  index: number;
+}
+
 export interface Playlist {
   id: number;
   name: string;

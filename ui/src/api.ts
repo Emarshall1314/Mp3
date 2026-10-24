@@ -17,6 +17,7 @@ import type {
   DspSettings,
   EqBand,
   Home,
+  LetterStart,
   Playlist,
   PlaylistDetail,
   Rediscover,
@@ -104,6 +105,9 @@ export const api = {
     invoke<Browse>('browse', { genre, artist }),
   artistPage: (name: string) => invoke<ArtistPage>('artist_page', { name }),
   home: () => invoke<Home>('home'),
+  albumLetters: (sort: AlbumSort) => invoke<LetterStart[]>('album_letters', { sort }),
+  songLetters: (sort: SongSort, desc: boolean) =>
+    invoke<LetterStart[]>('song_letters', { sort, desc }),
   playlists: () => invoke<Playlist[]>('playlists'),
   playlist: (id: number) => invoke<PlaylistDetail>('playlist', { id }),
   createPlaylist: (name: string, trackIds: number[] = []) =>

@@ -352,6 +352,24 @@ export function AppearanceSettings() {
           The gradient comes from the theme (edit it in the theme editor). Artwork Tint colours the
           background with the playing album’s cover.
         </p>
+        {!isAndroid && (
+          <>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={look.windowGlass}
+                disabled={look.panels === 'solid'}
+                onChange={(e) => setLook({ windowGlass: e.target.checked })}
+              />
+              See-through window
+            </label>
+            <p className="muted small">
+              Lets the desktop show through the app, blurred by your desktop’s compositor: on KDE,
+              KWin’s Blur or the Force Blur effect (whose refraction setting bends the edges).
+              Without such an effect the desktop shows through unblurred.
+            </p>
+          </>
+        )}
         <label className="check-row">
           <input
             type="checkbox"

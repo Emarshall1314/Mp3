@@ -72,9 +72,26 @@ export function useGlassLight(on: boolean) {
           root.style.setProperty('--glass-light', `${angle.toFixed(1)}deg`);
         });
     };
+    // With a mouse (the desktop), the light comes from the pointer: the rims' bright side
+    // turns toward it.
+    const onMouse = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return;
+      const dx = innerWidth / 2 - e.clientX;
+      const dy = innerHeight / 2 - e.clientY;
+      // A CSS gradient angle pointing from the pointer toward the middle: its start (the
+      // bright end) is on the pointer's side.
+      angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          root.style.setProperty('--glass-light', `${angle.toFixed(1)}deg`);
+        });
+    };
     window.addEventListener('deviceorientation', onTilt);
+    window.addEventListener('pointermove', onMouse, { passive: true });
     return () => {
       window.removeEventListener('deviceorientation', onTilt);
+      window.removeEventListener('pointermove', onMouse);
       cancelAnimationFrame(frame);
       root.style.removeProperty('--glass-light');
     };

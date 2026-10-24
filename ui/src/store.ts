@@ -21,13 +21,16 @@ export type Route =
   | { name: 'search'; query: string }
   | { name: 'folders' }
   | { name: 'sound' }
-  | { name: 'settings' }
+  | { name: 'settings'; section?: SettingsSection }
   | { name: 'sync' }
   | { name: 'trash' }
   | { name: 'library' }
   | { name: 'mix'; id: string }
   | { name: 'playlists' }
   | { name: 'playlist'; id: number };
+
+/// A page of Settings; none is the list of them.
+export type SettingsSection = 'appearance' | 'layout' | 'shortcuts' | 'css' | 'about';
 
 export type DockTab = 'queue' | 'lyrics' | 'info' | 'signal' | 'tags';
 
@@ -177,10 +180,15 @@ export const useStore = create<Store>((set, get) => ({
   toggleQueue: () => get().toggleDock('queue'),
 
   nowPlaying: false,
+  // Now Playing always opens on the artwork; lyrics and the queue are a tap away.
   setNowPlaying: (open, fromLeft = false) =>
-    set({ nowPlaying: open, nowPlayingFromLeft: open && fromLeft }),
+    set(
+      open
+        ? { nowPlaying: true, nowPlayingFromLeft: fromLeft, nowPlayingPanel: null }
+        : { nowPlaying: false, nowPlayingFromLeft: false },
+    ),
   nowPlayingFromLeft: false,
-  nowPlayingPanel: 'lyrics',
+  nowPlayingPanel: null,
   setNowPlayingPanel: (p) => set({ nowPlayingPanel: p }),
 
   loudness: null,

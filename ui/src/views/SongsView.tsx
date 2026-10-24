@@ -5,7 +5,8 @@ import { api } from '../api';
 import { menuHandler, trackMenu } from '../actions';
 import { duration, trackSpec } from '../format';
 import { attempt, useStore } from '../store';
-import type { SongSort, TrackRow } from '../types';
+import type { LetterStart, SongSort, TrackRow } from '../types';
+import { AlphabetIndex } from '../components/AlphabetIndex';
 import { EmptyLibrary } from './EmptyLibrary';
 import { updateLayout, useLook } from '../hooks/useAppearance';
 import {
@@ -202,6 +203,15 @@ export function SongsView() {
     estimateSize: (i) => ROW + (headed(i) ? HEADING : 0),
     overscan: 20,
   });
+  // The A–Z index, for orders by name.
+  const [letters, setLetters] = useState<LetterStart[]>([]);
+  useEffect(() => {
+    let live = true;
+    void api.songLetters(sortBy, descending).then((l) => live && setLetters(l));
+    return () => {
+      live = false;
+    };
+  }, [sortBy, descending, libraryVersion]);
   // Headings depend on loaded rows: re-measure as pages arrive.
   useEffect(() => {
     if (phone && grouping !== 'none') v.measure();
@@ -261,7 +271,7 @@ export function SongsView() {
   const play = (i: number) => void attempt(api.playSongs(sortBy, descending, i));
 
   return (
-    <section className="view">
+    <section className="view has-index">
       <header className="view-header">
         <h1>Songs</h1>
         <div className="view-controls">
@@ -384,6 +394,17 @@ export function SongsView() {
           </div>
         </div>
       </div>
+      {letters.length > 1 && (count ?? 0) > 40 && (
+        <AlphabetIndex
+          live
+          available={new Set(letters.map((l) => l.letter))}
+          value={null}
+          onChange={(letter) => {
+            const at = letters.find((l) => l.letter === letter);
+            if (at) v.scrollToIndex(at.index, { align: 'start' });
+          }}
+        />
+      )}
     </section>
   );
 }

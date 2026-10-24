@@ -21,6 +21,7 @@ export function AlbumGrid({
   load,
   zoom,
   onZoom,
+  jump,
   resetKey,
 }: {
   count: number;
@@ -29,6 +30,8 @@ export function AlbumGrid({
   zoom: number;
   /// A pinch on the grid: +1 for bigger cards, −1 for smaller.
   onZoom: (step: 1 | -1) => void;
+  /// Set to a function that scrolls the grid to an album's position (the A–Z index).
+  jump?: { current: ((index: number) => void) | null };
   resetKey: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -77,6 +80,13 @@ export function AlbumGrid({
     overscan: 3,
   });
   useEffect(() => v.measure(), [rowHeight, cols, v]);
+  useEffect(() => {
+    if (!jump) return;
+    jump.current = (index) => v.scrollToIndex(Math.floor(index / cols), { align: 'start' });
+    return () => {
+      jump.current = null;
+    };
+  }, [jump, v, cols]);
 
   const items = v.getVirtualItems();
   const first = (items[0]?.index ?? 0) * cols;
