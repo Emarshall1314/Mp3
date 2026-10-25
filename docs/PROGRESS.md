@@ -507,10 +507,13 @@ glass.
   - **Linux liquid glass, again:** WebKitGTK 2.52 still drops a backdrop filter that includes an
     SVG displacement map (re-tested: the blur disappears), so in-page refraction stays
     Android-only. Instead: the desktop's rims light from the mouse pointer, the panels have a
-    bevel and a faint colour fringe, and a new **See-through window** option makes the window
-    translucent so a compositor's blur (KWin's Blur or Force Blur, with its refraction) shows the
-    desktop behind the app. The window is now created transparent (opaque unless the option is
-    on). Untested with a real compositor here (the virtual display has none).
+    bevel and a faint colour fringe.
+  - **The player bar is glass over the page** (desktop, glass panels, player at the bottom):
+    pages run on under it, so album covers and artist pictures scroll by behind it, blurred,
+    and each page's end scrolls clear of it. A see-through window option (the desktop showing
+    through the app) came and went the same day; the owner wanted the artwork behind the bar
+    instead. The virtual display here doesn't render backdrop blur, so the blur itself is
+    untested here.
   - A spacing token used in several places (`--space-5`) didn't exist, so those margins were
     silently zero; it does now.
   - Checked in the real app at phone size, sideways (with a temporary always-phone build) and on

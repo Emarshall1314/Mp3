@@ -5386,19 +5386,32 @@ kbd {
     var(--shadow-menu);
 }
 
-/* The see-through window: the app's background lets the desktop through (blurred by the
- * compositor, where it blurs), and the glass panels are clearer still. */
-:root[data-window-glass='on'],
-:root[data-window-glass='on'] body {
-  background: transparent !important;
+/* ---- The desktop player bar floats over the page ----
+ * With glass panels, pages run on under the player bar at the bottom, so album covers and
+ * artist pictures scroll by behind it, blurred; each page's end scrolls clear of the bar. A
+ * panel docked along the bottom sits above the bar instead. */
+:root:not([data-panels='solid'], [data-player^='top']) .app:not([data-phone]) .workspace {
+  grid-row: 1 / -1;
 }
 
-:root[data-window-glass='on'] .app {
-  background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+:root:not([data-panels='solid'], [data-player^='top']) .app:not([data-phone]) .player-bar {
+  position: relative;
+  z-index: 2;
+  background-color: color-mix(in srgb, var(--color-surface-glass) 66%, transparent);
+  border-top-color: color-mix(in srgb, var(--color-separator) 60%, transparent);
 }
 
-:root[data-window-glass='on'] .app:not([data-phone]) :is(.sidebar, .player-bar) {
-  background-color: color-mix(in srgb, var(--color-surface-glass) 45%, transparent);
+:root:not([data-panels='solid'], [data-player^='top'])
+  .app:not([data-phone])
+  .workspace:not([data-dock='bottom']:has(> .dock))
+  .main
+  .scroll {
+  padding-bottom: calc(var(--player-height) + var(--space-6));
+  scroll-padding-bottom: var(--player-height);
+}
+
+:root:not([data-panels='solid'], [data-player^='top']) .app:not([data-phone]) .workspace > .dock {
+  margin-bottom: var(--player-height);
 }
 
 /* ---- A phone held sideways: the same phone layout, arranged across ----
