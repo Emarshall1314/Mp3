@@ -32,7 +32,6 @@ pub use cadenza_library::{
     PlaylistItem, Rediscover, ReleaseSection, Root, SavedSearch, ScanPhase, ScanProgress,
     ScanReport, SearchResults, SongSort, StoredArt, TrackRow,
 };
-pub use cadenza_sync::Remote;
 pub use edit::{
     EditFailure, EditReport, EditStatus, LegacyFix, PictureEdit, PictureInfo, PictureRef,
     RenamePlan, TrackEdit, TrackTags,
@@ -40,7 +39,7 @@ pub use edit::{
 pub use loudness::LoudnessStatus;
 pub use settings::{Appearance, Settings, Theme};
 pub use sync::{
-    Handoff, SyncConflict, SyncDevice, SyncFolderInfo, SyncSettings, SyncStatus, Transfer,
+    Handoff, NearbyDevice, SyncConflict, SyncDevice, SyncSettings, SyncStatus, Transfer,
 };
 pub use themes::SavedTheme;
 
@@ -939,26 +938,31 @@ impl Cadenza {
         self.syncer.status()
     }
 
-    /// Changes sync's settings. `passphrase` encrypts a new sync folder, or unlocks an encrypted
-    /// one.
-    /// `password`: a server's password or secret key, kept apart from the settings.
-    pub fn set_sync_settings(
-        &self,
-        settings: SyncSettings,
-        passphrase: Option<&str>,
-        password: Option<&str>,
-    ) -> Result<SyncStatus> {
-        self.syncer.set_settings(settings, passphrase, password)
+    /// Changes this device's sync settings (name, sharing, typed addresses).
+    pub fn set_sync_settings(&self, settings: SyncSettings) -> Result<SyncStatus> {
+        self.syncer.set_settings(settings)
     }
 
-    /// What a server holds before it's chosen for sync; fails if it can't be reached.
-    pub fn sync_remote_info(&self, remote: &Remote, password: &str) -> Result<SyncFolderInfo> {
-        self.syncer.remote_info(remote, password)
+    /// Starts syncing: a new library with this device in it, whose pairing code other devices
+    /// on the same Wi-Fi use to join.
+    pub fn sync_start(&self) -> Result<SyncStatus> {
+        self.syncer.start_library()
     }
 
-    /// What a folder holds before it's chosen for sync.
-    pub fn sync_folder_info(&self, folder: &str) -> Result<SyncFolderInfo> {
-        self.syncer.folder_info(folder)
+    /// Joins the library of another device, given its id (from [`sync_nearby`](Self::sync_nearby))
+    /// or address, and the pairing code it shows.
+    pub fn sync_join(&self, device: &str, code: &str) -> Result<SyncStatus> {
+        self.syncer.join_library(device, code)
+    }
+
+    /// Stops syncing and leaves the library; music and edits here stay as they are.
+    pub fn sync_leave(&self) -> Result<SyncStatus> {
+        self.syncer.leave_library()
+    }
+
+    /// Other Cadenza devices on this network.
+    pub fn sync_nearby(&self) -> Vec<NearbyDevice> {
+        self.syncer.nearby()
     }
 
     /// Syncs soon, in the background.

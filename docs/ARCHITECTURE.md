@@ -30,7 +30,7 @@ Priorities, in order, decide every trade-off below:
 │ decode     Symphonia + DSD reader + libopus + libwavpack (+ FFmpeg fallback)     │
 │ engine     queue/player state machine, gapless scheduler, DSP graph, signal path │
 │ output     ALSA · AAudio (Android) · capture/null                               │
-│ sync       change log, HLC, blob store, cloud providers, LAN peer, crypto        │
+│ sync       change log, HLC, local store, Wi-Fi peers (mDNS, encrypted), crypto   │
 │ online     MusicBrainz, Cover Art Archive, Discogs, AcoustID, LRCLIB, scrobblers │
 │ fixtures   test-library generator (tools/), no copyrighted audio                 │
 └──────────────────────────────────────────────────────────────────────────────────┘
@@ -81,11 +81,10 @@ docs/                 ARCHITECTURE, ROADMAP, PROGRESS, demo scripts, user docs
 | Hashing | blake3 | 1.8 | CC0/Apache | audio-stream hash, blob ids |
 | Async | tokio | 1.54 | MIT | not on the audio thread |
 | HTTP | reqwest (rustls) | 0.13 | MIT/Apache | |
-| Cloud storage | opendal | 0.59 | Apache-2.0 | S3/B2, Dropbox, GDrive, OneDrive, WebDAV behind one trait |
 | Sync segments | ciborium, ruzstd | 0.2, 0.9 | Apache-2.0, MIT | CBOR ops, pure-Rust zstd (D55) |
 | Property tests | proptest | 1.12 | MIT/Apache | sync convergence (dev only) |
-| Sync encryption | chacha20poly1305, argon2, hmac, sha2 | 0.10, 0.5, 0.12, 0.10 | MIT/Apache | optional encryption of the sync store (D57) |
-| Test servers | wsgidav, moto (Python, test only) | 4.3, 5.2 | MIT, Apache-2.0 | local WebDAV and S3 for the remote-store tests; never shipped |
+| Sync encryption | chacha20poly1305, argon2, hmac, sha2 | 0.10, 0.5, 0.12, 0.10 | MIT/Apache | pairing key and encrypted traffic between devices (D64) |
+| Device discovery | mdns-sd | 0.21 | Apache-2.0/MIT | finding paired devices on the Wi-Fi (D64) |
 | mDNS | mdns-sd | 0.21 | MIT/Apache | LAN fast path |
 | Crypto | chacha20poly1305, argon2 (RustCrypto) | — | MIT/Apache | optional client-side encryption |
 | Images | image, fast_image_resize | 0.25, 6.1 | MIT/Apache | thumbnails, bulk resize |
@@ -219,49 +218,47 @@ title + album artist appear under "Other versions".
 - **IPC to UI.** Lists are paged by `(sort_key, id)` windows; the UI never holds 200k rows of objects,
   only a virtual window plus id arrays.
 
-## 8. Sync design (cloud as hub, no server)
+## 8. Sync design (devices on the same Wi-Fi, no server; D64)
 
-Cloud layout (inside an app-scoped folder):
+Each device keeps its own store (`<data>/sync/store/`), laid out as a shared folder would be:
 ```
-/Cadenza/library.json                     library id, format version, encryption params (salt, KDF)
-/Cadenza/devices/<device-id>.json         name, platform, last seen, root alias
-/Cadenza/log/<device-id>/<seq>.seg        immutable, append-by-new-file segments (zstd CBOR ops)
-/Cadenza/snapshots/<device-id>-<hlc>.db   periodic compacted catalogue snapshot for fast catch-up
-/Cadenza/blobs/<aa>/<audio_hash>.<ext>    audio, uploaded once, deduped by audio hash
-/Cadenza/art/<aa>/<art_hash>              artwork
+devices/<device-id>.json         name, platform, last change
+log/<device-id>/<seq>.seg        immutable segments (zstd CBOR ops), one per push
+handoff/<device-id>.json         what that device was last playing
+art/<aa>/<art_hash>              artwork that edits refer to
 ```
+Songs aren't in it: a device that wants a song asks one that has it, which streams it from its
+own music folder (`blobs/<aa>/<audio_hash>.<ext>` names it on the wire).
+
 - **Ops**, each with a hybrid logical clock (HLC) and device ID:
-  - `TrackAdded{audio_hash, rel_path, blob_ref, tags}`, `TrackMoved{track, rel_path}`, `TrackTrashed` / `Restored` / `Purged`
   - `SetField{track, field, values}`: last writer wins per *field*, ordered by HLC
-  - `SetArtwork`, `SetFavourite`, `SetLyrics`
-  - `PlayEvent{track, at}`: grow-only, so counts always add up
-  - `Playlist*`: tree and sequence operations with fractional position keys and tombstones, so edits merge
-  - `Settings*`: themes and layouts, with per-device overrides
+  - `SetFavourite`, `Trash`, `Shared{track, rel_path, size}` (a device offers a song)
+  - `Play{track, at}`: grow-only, so counts always add up
+  - Later: playlists (sequence ops on fractional position keys, D61)
 - **Apply.** Every device rewrites its *own* copy's tags from ops using the safe write protocol. A tag
-  edit therefore costs bytes, not the file. A device that receives `TrackAdded` downloads the blob,
-  then applies all later ops.
-- **Change detection.** Uses provider change feeds where they exist (Dropbox `list_folder/continue`,
-  Google Drive `changes`, OneDrive `delta`) and polls otherwise (S3/B2, WebDAV).
+  edit therefore costs bytes, not the file. Applying follows the merged state (D56).
+- **Pairing.** The first device makes a 12-character pairing code (60 random bits); the library
+  key is Argon2id over it, with a salt that is public. A device joining reads the salt and a
+  check value from the other's `/hello`, takes the code from the owner and derives the same key.
+  Every device shows the code, so a new one can join from any of them.
+- **Finding each other.** mDNS (`_cadenza._tcp`) advertises each device's id, name, platform and
+  library id (the start of the salt). Where multicast is blocked, an address can be typed in;
+  a device that is contacted also learns the caller's address.
+- **A round** (a minute after the last, a few seconds after a local change, or when another device
+  pokes): copy from each paired device in reach what its store has and this one's lacks (others'
+  segments and artwork once; that device's own device and handoff files when they change), push
+  and pull through the local store, apply, then poke the others if there was news. Then copy
+  songs this device lacks from whichever device has them, if the owner asked.
+- **Wire.** A small HTTP/1.1 server per device (port 47100 when free). Requests are signed with
+  the key (HMAC-SHA256 over method, path, device, port and time; five minutes' skew allowed);
+  answers are sealed with XChaCha20-Poly1305 bound to the path, songs in 1 MiB STREAM chunks.
+  Only `/hello` is plain. A device on the same Wi-Fi without the key gets nothing.
 - **Conflicts.** Concurrent edits within the same HLC causality window that touch the same field with
-  different values are resolved by LWW *and* logged to Sync Conflicts for review. Move-vs-trash,
-  same-path-different-audio and edit-on-trashed also go there. Nothing is silently discarded: the
-  losing value is kept in the conflict record.
-- **Deletes.** A deleted file goes to an in-app trash folder on every device and the cloud blob is
-  marked trashed. Both are purged after 30 days.
-- **Transfers.** Chunked, resumable uploads/downloads (provider sessions/multipart), rate-limit aware
-  with exponential backoff, with bandwidth caps, Wi-Fi-only and charging-only options. A partial
-  download is a `.part` file and is never visible as a track.
-- **Partial mirrors.** Devices with a storage limit pin albums and playlists. Others stream from the
-  blob store on demand, cached in an LRU. Pinned items can optionally be stored as AAC/Opus
-  transcodes, which still get tag ops because the transcode is keyed to the source `audio_hash`.
-- **LAN fast path.** Peers advertise over mDNS and authenticate with a key derived from the library
-  secret, then fetch blobs over HTTPS (rustls) from each other first.
-- **Encryption (optional).** XChaCha20-Poly1305 per blob and log segment, with a key from Argon2id
-  over a passphrase, and blob names HMAC-ed. The cloud then sees only opaque data.
-- **OAuth scopes are minimal:** Google Drive `drive.file` (avoids Google's restricted-scope audit),
-  a Dropbox App Folder, OneDrive `Files.ReadWrite.AppFolder`. Tokens live in the OS keychain (`keyring`).
-- **Handoff/remote.** Queue and position are published as an ephemeral op. LAN remote control uses
-  the same authenticated peer channel.
+  different values are resolved by LWW *and* logged to Sync Conflicts for review. Nothing is
+  silently discarded: the losing value is kept in the conflict record.
+- **Deletes.** A deleted file goes to an in-app trash folder on every device. Purged after 30 days.
+- **Transfers.** Through a hidden `.part` file, renamed into place only when complete and
+  genuine, so a partial download is never visible as a track.
 
 ## 9. UI architecture and design system
 
@@ -358,7 +355,7 @@ generated Android project stays generated.
 | D4 | rusty-chromaprint over libchromaprint | MIT vs LGPL; no C build |
 | D5 | Track identity = BLAKE3 of the audio stream | survives tag edits, moves, sync |
 | D6 | lofty concrete tag types only | lossless round-trip |
-| D7 | OpenDAL for cloud providers | one maintained crate covers all five providers |
+| D7 | OpenDAL for cloud providers (superseded by D64: sync is device to device) | one maintained crate covers all five providers |
 | D8 | Minimal OAuth scopes (app folder / `drive.file`) | avoids Google restricted-scope audit; least privilege |
 | D9 | One Tauri project covers desktop + mobile | shared UI; native fallback kept cheap via UniFFI-ready API |
 | D10 | ~~No native ASIO~~ | Moot: Windows out of scope (D11) |
@@ -406,12 +403,13 @@ generated Android project stays generated.
 | D52 | Themes are JSON files in `<data>/themes` (validated by the core: known shapes only, no `url()` or anything that could leave a declaration); built-in themes live in the UI. The look (theme per scheme, accent, background, panels, density, type, artwork size) is one JSON object in the appearance settings, normalised by the UI, and applied as inline custom properties on `<html>` | Themes are shareable files; a theme can never load anything from the network or break out of its property. One appearance event keeps the main window and mini player in step |
 | D53 | The layout (sidebar, player bar, default views, song columns, Home shelves, Now Playing style, dock) and named presets live in the look, as JSON normalised by the UI; drags update it live and save it 300 ms after they stop | One place for every visual choice, so presets are just copies of it and the main window and mini player stay in step. The theme goes in a `:root` style sheet rather than inline styles, so custom CSS after it can override any token |
 | D54 | The visualizer reads a tap on the output thread: while it is on screen, the thread stores a mono mix of each buffer it sends (after DSP and volume) into an 8192-sample ring of atomics; the UI asks for a 48-band spectrum 30 times a second, computed on the calling thread with `realfft` | The output thread never blocks, allocates or waits for the UI, and does nothing extra while the visualizer is closed. Showing what the device gets keeps the bars in step with what is heard. DSD sent as DSD has no samples to show |
-| D55 | The sync core (`cadenza-sync`) is independent of the library and of any provider. Ops are keyed by audio hash (plus cue index), never paths or database ids. Each op carries the HLC of the value its device had (`seen`); a version no later op names as `seen` was lost to a concurrent edit and, if its value differs from the winner, is a conflict, so conflicts depend only on which ops have been read. Segments are CBOR (ciborium) compressed with ruzstd, a pure-Rust zstd, so the Android build needs no C zstd. The first store is a plain folder (kept in step by Syncthing, Nextcloud or a USB drive); cloud providers come behind the same three-call `Store` trait | Lets sync be built and tested end to end without cloud accounts, which the development environment can't reach; a folder is also a useful sync method in itself. Randomised 3-device tests with skewed clocks check that every device converges, including on conflicts |
+| D55 | The sync core (`cadenza-sync`) is independent of the library and of any provider (since D64 the store is each device's own folder, kept in step device to device). Ops are keyed by audio hash (plus cue index), never paths or database ids. Each op carries the HLC of the value its device had (`seen`); a version no later op names as `seen` was lost to a concurrent edit and, if its value differs from the winner, is a conflict, so conflicts depend only on which ops have been read. Segments are CBOR (ciborium) compressed with ruzstd, a pure-Rust zstd, so the Android build needs no C zstd. The first store is a plain folder (kept in step by Syncthing, Nextcloud or a USB drive); cloud providers come behind the same three-call `Store` trait | Lets sync be built and tested end to end without cloud accounts, which the development environment can't reach; a folder is also a useful sync method in itself. Randomised 3-device tests with skewed clocks check that every device converges, including on conflicts |
 | D56 | Sync in the app is driven by the merged state, not by ops as they arrive: each round applies every value whose winning version this device hasn't applied yet (tracked per song and field). So a change for a song this device doesn't have applies when the song turns up (downloaded, restored, rescanned), and a change that couldn't be applied (the tag writer busy) waits for the next round. Changes from other devices go through the normal tag writer (safe write, undo history) but are not sent back out. Listens carry an id that is the same on every device, so each is counted once. Moving files (the organiser) never syncs: where files live is each device's business. Songs whose audio is bit-identical are one song to sync | Robust to ordering, restarts and missing songs without special cases; reuses the tested write path |
-| D57 | Encryption of the sync store is optional and chosen when a store is first used (a store already holding unencrypted data can't be converted in place). XChaCha20-Poly1305 with a key from Argon2id (64 MiB, 3 passes) over a passphrase; small objects sealed whole, songs in 1 MiB STREAM chunks; every object bound to its path; blob and artwork names replaced by keyed hashes. `library.json` (unencrypted) holds the salt, cost and a check value. The derived key is kept in the data folder, readable only by the owner (not the OS keychain: Linux desktops without a Secret Service and Android would need two other mechanisms for a personal app) | Pure Rust (RustCrypto), so the Android build needs nothing extra; the folder or server never sees titles, devices or song files |
+| D57 | (Superseded by D64: traffic between devices is always encrypted; nothing is stored encrypted.) Encryption of the sync store is optional and chosen when a store is first used (a store already holding unencrypted data can't be converted in place). XChaCha20-Poly1305 with a key from Argon2id (64 MiB, 3 passes) over a passphrase; small objects sealed whole, songs in 1 MiB STREAM chunks; every object bound to its path; blob and artwork names replaced by keyed hashes. `library.json` (unencrypted) holds the salt, cost and a check value. The derived key is kept in the data folder, readable only by the owner (not the OS keychain: Linux desktops without a Secret Service and Android would need two other mechanisms for a personal app) | Pure Rust (RustCrypto), so the Android build needs nothing extra; the folder or server never sees titles, devices or song files |
 | D58 | Liquid glass on the phone follows iOS 26: the tabs float in a glass capsule with a glass lens behind the current tab (it slides and stretches between tabs, and can be dragged along the bar), Search is a round button beside it, the player is a capsule above, and scrolling down shrinks the bar to the current tab with the player alongside. Pages run under the dock. Rims carry a light that turns with the phone's tilt (`deviceorientation`); pressing glass lights it from the finger and swells it. On Chromium each glass shape gets its own SVG lens filter fitted to its size and corner radius (a rounded-rectangle distance field; the rim squeezes what's behind it towards the edge, three times at the very edge; one displacement pass; a colour fringe from three passes was dropped as too costly while scrolling), referenced from `backdrop-filter` through `--lens` | A backdrop filter only sees what is behind the element, so the rim can't show what lies beyond the edge as real glass does; gathering from inside the bezel, without folding, gives the same bending lines. One filter per size (not one in object units) keeps the rim the same width on a capsule and a circle. The dock animates by moving its real elements (CSS transitions on position and width), not with view transitions: those animate snapshots (jagged, the glass frozen) and WebKitGTK 2.52 crashes the whole app (segfault in libwebkit2gtk) when one runs over this layout. Everything is off with Reduce Transparency; motion (lens stretch, tilt, swelling) is off with Reduce Motion |
 | D59 | Rediscover (Home) is computed on the device from the owner's library and listening only (`user_data`, `play_events`, `added_at`); nothing is sent anywhere. Picks are weighted random draws (Efraimidis–Spirakis) with a seed from the owner's local day (or week, Monday-based), so they hold all day and change at the owner's midnight; the time zone comes from the UI. Mixes: Forgotten Favourites (loved or 3+ plays, none for 45 days), Deep Cuts (unplayed songs from played albums), On This Day (plays within three days of today's date in earlier years), and the current part of the day (plays in the last 120 days in the same morning/afternoon/evening/night). Albums: Album of the Day (unplayed for 90 days or never, never-played favoured), and a weekly Still Unplayed set (never played, added over 14 days ago). Mixes under six songs aren't shown. A layout remembers the shelves it has been offered (`knownShelves`), so a new shelf appears once in an old layout and hiding it sticks | Useful from the owner's own data with no account or network, and private by construction. Seeded draws make the shelves stable while browsing yet fresh daily, without storing picks; picking is a pure function of gathered rows, so it's tested without a database |
 | D60 | The phone keeps the previous page mounted under the current one (a two-layer page stack keyed by history position, so React keeps each page's instance and scroll as it moves between current and underneath). Swipes move these real layers; on a tab's top page a swipe right opens Now Playing from the left. Sliders (seek, volume) are the app's own pointer-captured control, not `<input type=range>` | Back swipes reveal a page that is already rendered (no reload or artwork pop-in), at the cost of one hidden page's DOM. The range input lost its release on Android touch and couldn't hold a seek target |
 | D61 | Playlists (migration 6): `playlists(id, uid, name, created_at, updated_at)` and `playlist_items(id, playlist_id, track_uid, pos, added_at)`. Items name songs by track uid (surviving moves and rescans; a song gone from the library or in the Trash is skipped when read and returns with it) and are ordered by base-36 fractional keys without trailing zeros: inserting or moving computes a key between two neighbours and touches no other row; appends step the first digit, so keys grow a digit per ~35 songs. The same song may appear twice (items, not songs, are removed and moved). Sync of playlists is not built yet; the design follows D55 (sequence ops on these keys) | Orders survive concurrent edits on two devices without renumbering, which is what playlist sync will need; until then they're local |
 | D62 | On Linux, liquid glass comes from light rather than refraction: WebKitGTK (still 2.52) drops any `backdrop-filter` containing an SVG filter, so the desktop panels get pointer-lit rims, a bevel and a colour fringe. The desktop player bar floats over the page with glass panels (pages run on underneath it and scroll clear of it), so artwork passes behind it, blurred. A see-through window option (the compositor's blur over the desktop) was tried and removed at the owner's request | Glass reads as glass only with something behind it; the page's own artwork is that, where the desktop wallpaper wasn't wanted. The window is opaque again |
 | D63 | Windows joins Linux and Android (owner decision, 2026-11-02). Output is WASAPI through the `wasapi` crate: shared mode at the Windows mixer's rate and channels (the player resamples, not Windows), and exclusive mode per endpoint (`wasapi:<id>`) asking for the source's rate and an integer format that carries its bits, so untouched sources are bit-perfect; both polled, to fit the blocking `Output::write`. No DSD (Windows has none without ASIO). Media keys and the system media overlay through souvlaki's SMTC backend, attached to the main window; system-wide shortcuts through the same Tauri plugin as on Linux. Liquid glass refracts on Windows, as WebView2 is Chromium. Built and packaged (NSIS installer) by a Windows CI job | The core was already portable except for two Unix-only calls (WavPack paths, which go as UTF-8 with `OPEN_FILE_UTF8`, and the scanner's inode, which is 0 on Windows so size and time decide); one more output backend is the main cost |
+| D64 | Sync goes directly between the owner's devices on the same Wi-Fi (owner decision, 2026-11-02), replacing the shared folder and the WebDAV/S3 servers (D55's stores, D57's at-rest encryption). Each device keeps its own store with the same layout; a round copies what reachable paired devices have and this one lacks, then runs the unchanged replica sync against the local store. Pairing by a 12-character code (Argon2id → the library key); discovery by mDNS, with typed addresses as the fallback; requests signed and answers sealed with the key; songs streamed from the owner's music folder rather than copied into the store. Android holds a Wi-Fi multicast lock for mDNS | Keeps the tested op/merge core (D55, D56) and only replaces the transport. Copying immutable segments by name makes peers simple and order-free; the same store layout means a device that relays others' segments spreads changes even between devices that never meet. No account, no server, nothing over the internet. The cost: devices must be on the same network at the same time, and networks that isolate clients can't sync |

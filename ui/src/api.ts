@@ -27,7 +27,6 @@ import type {
   Lyrics,
   Outputs,
   PlayerState,
-  Remote,
   Repeat,
   ReplayGainSettings,
   Root,
@@ -39,7 +38,7 @@ import type {
   SongSort,
   StoredArt,
   SyncConflict,
-  SyncFolderInfo,
+  NearbyDevice,
   SyncSettings,
   SyncStatus,
   TrackEdit,
@@ -181,14 +180,14 @@ export const api = {
   purge: (id: number) => invoke<null>('purge', { id }),
   emptyTrash: () => invoke<null>('empty_trash'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
-  setSyncSettings: (
-    settings: SyncSettings,
-    passphrase: string | null = null,
-    password: string | null = null,
-  ) => invoke<SyncStatus>('set_sync_settings', { settings, passphrase, password }),
-  syncRemoteInfo: (remote: Remote, password: string) =>
-    invoke<SyncFolderInfo>('sync_remote_info', { remote, password }),
-  syncFolderInfo: (folder: string) => invoke<SyncFolderInfo>('sync_folder_info', { folder }),
+  setSyncSettings: (settings: SyncSettings) =>
+    invoke<SyncStatus>('set_sync_settings', { settings }),
+  /// Starts a library with this device in it; others join with its pairing code.
+  syncStart: () => invoke<SyncStatus>('sync_start'),
+  /// Joins the library of a device (its id from `syncNearby`, or an address) with its code.
+  syncJoin: (device: string, code: string) => invoke<SyncStatus>('sync_join', { device, code }),
+  syncLeave: () => invoke<SyncStatus>('sync_leave'),
+  syncNearby: () => invoke<NearbyDevice[]>('sync_nearby'),
   syncNow: () => invoke<null>('sync_now'),
   continueFrom: (deviceId: string) => invoke<null>('continue_from', { deviceId }),
   syncConflicts: () => invoke<SyncConflict[]>('sync_conflicts'),

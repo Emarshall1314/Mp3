@@ -10,10 +10,10 @@ use std::sync::Arc;
 use cadenza_api::{
     AlbumDetail, AlbumRow, AlbumSort, ApiEvent, Appearance, ArtistPage, ArtistRow, Browse,
     BuildInfo, Cadenza, DspSettings, EditBatch, EditChange, EditStatus, EqBand, Home, ImportedEq,
-    LetterStart, LibraryStats, LoudnessStatus, Lyrics, Outputs, PlayerState, Playlist,
-    PlaylistDetail, Rediscover, Remote, RenamePlan, Repeat, ReplayGainSettings, Root, SavedSearch,
-    SavedTheme, ScanStatus, SearchResults, Settings, SongSort, StoredArt, SyncConflict,
-    SyncFolderInfo, SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags, TrashItem,
+    LetterStart, LibraryStats, LoudnessStatus, Lyrics, NearbyDevice, Outputs, PlayerState,
+    Playlist, PlaylistDetail, Rediscover, RenamePlan, Repeat, ReplayGainSettings, Root,
+    SavedSearch, SavedTheme, ScanStatus, SearchResults, Settings, SongSort, StoredArt,
+    SyncConflict, SyncSettings, SyncStatus, TrackEdit, TrackRow, TrackTags, TrashItem,
 };
 use tauri::http::{Response, StatusCode, header};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -364,29 +364,33 @@ fn sync_status(app: App<'_>) -> SyncStatus {
 }
 
 #[tauri::command(async)]
-fn set_sync_settings(
-    app: App<'_>,
-    settings: SyncSettings,
-    passphrase: Option<String>,
-    password: Option<String>,
-) -> Res<SyncStatus> {
-    app.set_sync_settings(settings, passphrase.as_deref(), password.as_deref())
-        .map_err(e)
+fn set_sync_settings(app: App<'_>, settings: SyncSettings) -> Res<SyncStatus> {
+    app.set_sync_settings(settings).map_err(e)
 }
 
 #[tauri::command(async)]
-fn sync_remote_info(app: App<'_>, remote: Remote, password: String) -> Res<SyncFolderInfo> {
-    app.sync_remote_info(&remote, &password).map_err(e)
+fn sync_start(app: App<'_>) -> Res<SyncStatus> {
+    app.sync_start().map_err(e)
+}
+
+#[tauri::command(async)]
+fn sync_join(app: App<'_>, device: String, code: String) -> Res<SyncStatus> {
+    app.sync_join(&device, &code).map_err(e)
+}
+
+#[tauri::command(async)]
+fn sync_leave(app: App<'_>) -> Res<SyncStatus> {
+    app.sync_leave().map_err(e)
+}
+
+#[tauri::command]
+fn sync_nearby(app: App<'_>) -> Vec<NearbyDevice> {
+    app.sync_nearby()
 }
 
 #[tauri::command(async)]
 fn continue_from(app: App<'_>, device_id: String) -> Res<()> {
     app.continue_from(&device_id).map_err(e)
-}
-
-#[tauri::command(async)]
-fn sync_folder_info(app: App<'_>, folder: String) -> Res<SyncFolderInfo> {
-    app.sync_folder_info(&folder).map_err(e)
 }
 
 #[tauri::command]
@@ -884,9 +888,11 @@ pub fn run() {
             empty_trash,
             sync_status,
             set_sync_settings,
-            sync_folder_info,
+            sync_start,
+            sync_join,
+            sync_leave,
+            sync_nearby,
             continue_from,
-            sync_remote_info,
             sync_now,
             sync_conflicts,
             resolve_conflict,

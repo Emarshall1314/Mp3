@@ -72,7 +72,12 @@ fn fallback_rates(rate: u32) -> Vec<u32> {
     ];
     rates.retain(|&r| r != rate);
     // Same family (44.1 or 48 kHz multiples) first, then by distance.
-    rates.sort_by_key(|&r| (r % 44_100 != rate % 44_100, r.abs_diff(rate)));
+    rates.sort_by_key(|&r| {
+        (
+            r.is_multiple_of(44_100) != rate.is_multiple_of(44_100),
+            r.abs_diff(rate),
+        )
+    });
     rates
 }
 

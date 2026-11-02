@@ -1,22 +1,26 @@
-//! A second "device" for trying sync on one machine: its own library and data folder, syncing
-//! through the same folder as the app.
+//! A second "device" for trying sync on one machine: its own library and data folder, paired
+//! with the app over the network.
 //!
 //! ```text
-//! cargo run -p cadenza-api --example sync_device -- <data dir> <music dir> <sync folder> <name> [title=<old>=<new>] [artist=<title>=<new>]
+//! cargo run -p cadenza-api --example sync_device -- <data dir> <music dir> <address> <pairing code> <name> [title=<old>=<new>] [artist=<title>=<new>]
 //! ```
+//!
+//! `<address>` is the app's (its Sync page shows it, e.g. `127.0.0.1:47100` on the same
+//! machine) and `<pairing code>` the code shown there; the first run joins, later runs reuse the
+//! pairing.
 //!
 //! `play=<title>` starts the library's songs from that one and pauses at once, so other devices
 //! are offered to continue it.
 //!
 //! It scans the music folder, applies the edits given (by song title), syncs, waits for any tag
-//! changes from other devices to be written, and syncs again. With `CADENZA_PASSPHRASE` set, it
-//! encrypts a new sync folder or unlocks an encrypted one.
+//! changes from other devices to be written, and syncs again; then it keeps answering for 30
+//! seconds so the app can copy its changes.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use cadenza_api::{Cadenza, SongSort, SyncSettings, TrackEdit};
+use cadenza_api::{Cadenza, SongSort, TrackEdit};
 
 fn wait(app: &Cadenza, what: &str) {
     let start = Instant::now();
@@ -32,9 +36,9 @@ fn wait(app: &Cadenza, what: &str) {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [data, music, folder, name, edits @ ..] = args.as_slice() else {
+    let [data, music, address, code, name, edits @ ..] = args.as_slice() else {
         eprintln!(
-            "usage: sync_device <data dir> <music dir> <sync folder> <name> [field=<title>=<value>...]"
+            "usage: sync_device <data dir> <music dir> <address> <pairing code> <name> [field=<title>=<value>...]"
         );
         std::process::exit(2);
     };
@@ -48,15 +52,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     app.rescan();
     wait(&app, "the scan");
-    app.set_sync_settings(
-        SyncSettings {
-            folder: Some(folder.clone()),
-            device_name: name.clone(),
-            ..Default::default()
-        },
-        std::env::var("CADENZA_PASSPHRASE").ok().as_deref(),
-        None,
-    )?;
+    let mut settings = app.sync_status().settings;
+    settings.device_name = name.clone();
+    app.set_sync_settings(settings)?;
+    if !app.sync_status().paired {
+        app.sync_join(address, code)?;
+    }
     for edit in edits {
         if let Some(title) = edit.strip_prefix("play=") {
             let songs = app.songs(SongSort::Title, false, 0, 10_000)?;
@@ -104,5 +105,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|e| format!(", error: {e}"))
             .unwrap_or_default()
     );
+    std::thread::sleep(Duration::from_secs(30));
     Ok(())
 }

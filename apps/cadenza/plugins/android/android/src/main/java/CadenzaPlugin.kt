@@ -2,9 +2,11 @@ package app.cadenza.android
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
@@ -37,7 +39,16 @@ class CadenzaPlugin(private val activity: Activity) : Plugin(activity) {
             activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7301)
         }
         PlaybackService.watch(activity.applicationContext)
+        // Android drops multicast packets unless an app holds this lock, and mDNS (finding the
+        // other devices to sync with) is multicast. Held while the app runs.
+        val wifi = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        multicast = wifi?.createMulticastLock("cadenza-sync")?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
     }
+
+    private var multicast: WifiManager.MulticastLock? = null
 
     private fun hasAccess(): Boolean =
         if (Build.VERSION.SDK_INT >= 30) {

@@ -1,5 +1,6 @@
-//! Sync end to end: separate Cadenza libraries on "devices" sharing one folder. Edits, favourites,
-//! listens, conflicts, the trash and shared audio reach the other devices' files and catalogues.
+//! Sync end to end: separate Cadenza libraries on "devices" paired over the network (here, this
+//! machine's loopback). Edits, favourites, listens, conflicts, the trash, artwork and songs reach
+//! the other devices' files and catalogues.
 
 #![allow(clippy::unwrap_used)]
 
@@ -8,9 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cadenza_api::{
-    ApiEvent, Cadenza, PictureEdit, PlayerEvent, Remote, SongSort, SyncSettings, TrackEdit,
-};
+use cadenza_api::{ApiEvent, Cadenza, PictureEdit, PlayerEvent, SongSort, SyncSettings, TrackEdit};
 use cadenza_engine::Capture;
 use cadenza_testkit::fixtures_dir;
 
@@ -25,6 +24,14 @@ fn copy_dir(from: &Path, to: &Path) {
             std::fs::copy(e.path(), &dst).unwrap();
         }
     }
+}
+
+/// Devices find each other by address here, not by mDNS, so tests don't depend on the network
+/// (or on each other's devices).
+fn no_discovery() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: set once, before any test opens a library; nothing else sets the environment.
+    ONCE.call_once(|| unsafe { std::env::set_var("CADENZA_NO_DISCOVERY", "1") });
 }
 
 fn wait(what: &str, cond: impl Fn() -> bool) {
@@ -45,17 +52,8 @@ struct Device {
 }
 
 impl Device {
-    fn open(base: &Path, name: &str, with_music: bool, folder: &Path) -> Self {
-        Self::open_with(base, name, with_music, folder, None)
-    }
-
-    fn open_with(
-        base: &Path,
-        name: &str,
-        with_music: bool,
-        folder: &Path,
-        passphrase: Option<&str>,
-    ) -> Self {
+    fn open(base: &Path, name: &str, with_music: bool) -> Self {
+        no_discovery();
         let music = base.join(name).join("music");
         std::fs::create_dir_all(&music).unwrap();
         if with_music {
@@ -75,18 +73,28 @@ impl Device {
         let d = Self { app, events, music };
         d.app.add_root(&d.music).unwrap();
         d.wait_scans(1);
-        d.app
-            .set_sync_settings(
-                SyncSettings {
-                    folder: Some(folder.display().to_string()),
-                    device_name: name.into(),
-                    ..Default::default()
-                },
-                passphrase,
-                None,
-            )
-            .unwrap();
+        d.settings(|s| s.device_name = name.into());
         d
+    }
+
+    fn settings(&self, f: impl FnOnce(&mut SyncSettings)) {
+        let mut s = self.app.sync_status().settings;
+        f(&mut s);
+        self.app.set_sync_settings(s).unwrap();
+    }
+
+    fn address(&self) -> String {
+        format!("127.0.0.1:{}", self.app.sync_status().port)
+    }
+
+    /// Joins `other`'s library (starting one there if it has none).
+    fn join(&self, other: &Device) {
+        let status = other.app.sync_status();
+        let code = match status.pairing_code {
+            Some(c) => c,
+            None => other.app.sync_start().unwrap().pairing_code.unwrap(),
+        };
+        self.app.sync_join(&other.address(), &code).unwrap();
     }
 
     fn count(&self, f: impl Fn(&ApiEvent) -> bool) -> usize {
@@ -166,10 +174,9 @@ impl Device {
 #[test]
 fn two_devices_share_edits_favourites_listens_conflicts_and_the_trash() {
     let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    std::fs::create_dir_all(&folder).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &folder);
-    let b = Device::open(tmp.path(), "desktop", true, &folder);
+    let a = Device::open(tmp.path(), "laptop", true);
+    let b = Device::open(tmp.path(), "desktop", true);
+    b.join(&a);
     let titles = a.songs();
     let (first, second, third) = (&titles[0], &titles[1], &titles[2]);
 
@@ -272,42 +279,18 @@ fn two_devices_share_edits_favourites_listens_conflicts_and_the_trash() {
 #[test]
 fn a_new_device_gets_shared_songs_with_their_history() {
     let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    std::fs::create_dir_all(&folder).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &folder);
+    let a = Device::open(tmp.path(), "laptop", true);
     let titles = a.songs();
     let x = a.song(&titles[0]);
     a.app.set_favourite(&[x], true).unwrap();
-    a.app
-        .set_sync_settings(
-            SyncSettings {
-                folder: Some(folder.display().to_string()),
-                device_name: "laptop".into(),
-                share_audio: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        )
-        .unwrap();
+    a.settings(|s| s.share_audio = true);
+    a.app.sync_start().unwrap();
     a.sync();
-    assert!(folder.join("blobs").is_dir());
 
-    let phone = Device::open(tmp.path(), "phone", false, &folder);
+    let phone = Device::open(tmp.path(), "phone", false);
     assert!(phone.songs().is_empty());
-    phone
-        .app
-        .set_sync_settings(
-            SyncSettings {
-                folder: Some(folder.display().to_string()),
-                device_name: "phone".into(),
-                download_audio: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        )
-        .unwrap();
+    phone.settings(|s| s.download_audio = true);
+    phone.join(&a);
     let scans = phone.scans();
     phone.sync();
     wait("the scan of downloaded songs", || {
@@ -338,46 +321,53 @@ fn a_new_device_gets_shared_songs_with_their_history() {
 }
 
 #[test]
-fn the_sync_folder_must_be_outside_the_music_folders() {
+fn only_devices_with_the_pairing_code_join() {
     let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    std::fs::create_dir_all(&folder).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &folder);
-    let inside = a.music.join("sync");
-    std::fs::create_dir_all(&inside).unwrap();
-    assert!(
-        a.app
-            .set_sync_settings(
-                SyncSettings {
-                    folder: Some(inside.display().to_string()),
-                    ..Default::default()
-                },
-                None,
-                None
-            )
-            .is_err()
+    let a = Device::open(tmp.path(), "laptop", true);
+    let b = Device::open(tmp.path(), "desktop", true);
+    // Nothing to join until A starts syncing.
+    assert!(b.app.sync_join(&a.address(), "ABCD-EFGH-JK23").is_err());
+    let code = a.app.sync_start().unwrap().pairing_code.unwrap();
+    assert!(a.app.sync_start().is_err(), "already syncing");
+    assert!(b.app.sync_join(&a.address(), "ABCD-EFGH-JK23").is_err());
+    assert!(b.app.sync_join(&a.address(), "not a code").is_err());
+    assert!(!b.app.sync_status().paired);
+    // Typed any old way, the right code works; both show it.
+    let typed = code.to_lowercase().replace('-', " ");
+    let status = b.app.sync_join(&a.address(), &typed).unwrap();
+    assert!(status.paired);
+    assert_eq!(status.pairing_code.as_deref(), Some(code.as_str()));
+    assert_eq!(
+        status.settings.addresses,
+        [a.address()],
+        "a typed address is kept for later rounds"
     );
-    assert!(
-        a.app
-            .set_sync_settings(
-                SyncSettings {
-                    folder: Some(tmp.path().join("nowhere").display().to_string()),
-                    ..Default::default()
-                },
-                None,
-                None
-            )
-            .is_err()
-    );
+    b.sync();
+    a.sync();
+    let devices = a.app.sync_status().devices;
+    assert_eq!(devices.len(), 2, "{devices:?}");
+    assert!(devices.iter().any(|d| d.name == "desktop" && d.online));
+
+    // A device in another library gets nothing from A, and A nothing from it.
+    let c = Device::open(tmp.path(), "stranger", true);
+    c.app.sync_start().unwrap();
+    c.settings(|s| s.addresses = vec![a.address()]);
+    c.sync();
+    assert_eq!(c.app.sync_status().devices.len(), 1);
+
+    // Leaving: B stops syncing and forgets the library; its music stays.
+    let songs = b.songs();
+    let status = b.app.sync_leave().unwrap();
+    assert!(!status.paired && status.pairing_code.is_none());
+    assert_eq!(b.songs(), songs);
 }
 
 #[test]
-fn new_artwork_travels_through_the_folder() {
+fn new_artwork_travels_to_the_other_device() {
     let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    std::fs::create_dir_all(&folder).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &folder);
-    let b = Device::open(tmp.path(), "desktop", true, &folder);
+    let a = Device::open(tmp.path(), "laptop", true);
+    let b = Device::open(tmp.path(), "desktop", true);
+    b.join(&a);
     let title = a.songs()[0].clone();
     let x = a.song(&title);
 
@@ -402,10 +392,6 @@ fn new_artwork_travels_through_the_folder() {
     wait("the cover edit", || a.edits() > n);
     wait("the scan after", || !a.app.scan_status().running);
     a.sync();
-    assert!(
-        folder.join("art").is_dir(),
-        "the image went into the folder"
-    );
     b.sync();
     let bx = b.song(&title);
     let front = b.app.track_tags(&[bx]).unwrap()[0]
@@ -417,150 +403,11 @@ fn new_artwork_travels_through_the_folder() {
 }
 
 #[test]
-fn an_encrypted_folder_holds_nothing_readable() {
-    let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    let other = tmp.path().join("other");
-    std::fs::create_dir_all(&folder).unwrap();
-    std::fs::create_dir_all(&other).unwrap();
-    let pass = "correct horse battery staple";
-    let a = Device::open_with(tmp.path(), "laptop", true, &folder, Some(pass));
-    assert!(a.app.sync_status().encrypted);
-    let title = a.songs()[0].clone();
-    let x = a.song(&title);
-    a.edit(x, "title", "A Secret Title");
-    a.app
-        .set_sync_settings(
-            SyncSettings {
-                folder: Some(folder.display().to_string()),
-                device_name: "laptop".into(),
-                share_audio: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        )
-        .unwrap();
-    a.sync();
-
-    let mut files = Vec::new();
-    let mut stack = vec![folder.clone()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(d).unwrap() {
-            let p = e.unwrap().path();
-            if p.is_dir() {
-                stack.push(p);
-            } else {
-                files.push(p);
-            }
-        }
-    }
-    assert!(files.iter().any(|f| f.starts_with(folder.join("blobs"))));
-    for f in &files {
-        let name = f.file_name().unwrap().to_string_lossy();
-        assert!(!name.ends_with(".flac"), "{name}");
-        let bytes = std::fs::read(f).unwrap();
-        for secret in [&b"A Secret Title"[..], b"laptop", b"fLaC"] {
-            assert!(
-                !bytes.windows(secret.len()).any(|w| w == secret),
-                "{} holds {:?}",
-                f.display(),
-                String::from_utf8_lossy(secret)
-            );
-        }
-    }
-    let info = a
-        .app
-        .sync_folder_info(&folder.display().to_string())
-        .unwrap();
-    assert!(info.has_library && info.encrypted);
-
-    // Joining needs the passphrase, and the right one.
-    let b = Device::open(tmp.path(), "desktop", true, &other);
-    let join = |p: Option<&str>| {
-        b.app.set_sync_settings(
-            SyncSettings {
-                folder: Some(folder.display().to_string()),
-                device_name: "desktop".into(),
-                ..Default::default()
-            },
-            p,
-            None,
-        )
-    };
-    assert!(join(None).is_err());
-    assert!(join(Some("wrong horse battery staple")).is_err());
-    join(Some(pass)).unwrap();
-    b.sync();
-    assert!(b.songs().contains(&"A Secret Title".to_owned()));
-}
-
-/// Through a WebDAV server, encrypted (needs `CADENZA_TEST_WEBDAV`; `cargo xtask` starts one).
-#[test]
-fn two_devices_sync_through_a_webdav_server() {
-    let Ok(spec) = std::env::var("CADENZA_TEST_WEBDAV") else {
-        eprintln!("skipped: no WebDAV server given");
-        return;
-    };
-    let mut parts = spec.split('|');
-    let (url, user, pass) = (
-        parts.next().unwrap(),
-        parts.next().unwrap(),
-        parts.next().unwrap(),
-    );
-    let remote = Remote::WebDav {
-        url: format!("{url}/api-{}", std::process::id()),
-        username: user.into(),
-    };
-    let tmp = tempfile::tempdir().unwrap();
-    let local = tmp.path().join("unused");
-    std::fs::create_dir_all(&local).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &local);
-    let b = Device::open(tmp.path(), "desktop", true, &local);
-    let phrase = "correct horse battery staple";
-    let use_server = |d: &Device, name: &str, passphrase: Option<&str>, password: Option<&str>| {
-        d.app.set_sync_settings(
-            SyncSettings {
-                remote: Some(remote.clone()),
-                device_name: name.into(),
-                ..Default::default()
-            },
-            passphrase,
-            password,
-        )
-    };
-    // A wrong password is refused before anything is saved.
-    assert!(use_server(&a, "laptop", Some(phrase), Some("not the password")).is_err());
-    let info = a.app.sync_remote_info(&remote, pass).unwrap();
-    assert!(!info.has_library);
-    use_server(&a, "laptop", Some(phrase), Some(pass)).unwrap();
-    assert!(a.app.sync_status().encrypted);
-    let title = a.songs()[0].clone();
-    let x = a.song(&title);
-    a.edit(x, "title", "Sent Over WebDAV");
-    a.sync();
-
-    let info = b.app.sync_remote_info(&remote, pass).unwrap();
-    assert!(info.has_library && info.encrypted && info.devices == 1);
-    assert!(
-        use_server(&b, "desktop", None, Some(pass)).is_err(),
-        "needs the passphrase"
-    );
-    use_server(&b, "desktop", Some(phrase), Some(pass)).unwrap();
-    b.sync();
-    assert!(b.songs().contains(&"Sent Over WebDAV".to_owned()));
-    // The password isn't in the settings the UI sees.
-    let shown = serde_json::to_string(&b.app.sync_status()).unwrap();
-    assert!(!shown.contains(pass));
-}
-
-#[test]
 fn another_device_carries_on_where_this_one_stopped() {
     let tmp = tempfile::tempdir().unwrap();
-    let folder = tmp.path().join("shared");
-    std::fs::create_dir_all(&folder).unwrap();
-    let a = Device::open(tmp.path(), "laptop", true, &folder);
-    let b = Device::open(tmp.path(), "desktop", true, &folder);
+    let a = Device::open(tmp.path(), "laptop", true);
+    let b = Device::open(tmp.path(), "desktop", true);
+    b.join(&a);
     let titles = a.songs();
     let ids: Vec<i64> = titles.iter().map(|t| a.song(t)).collect();
     // The test output plays faster than real time and the songs are short: pause at once.

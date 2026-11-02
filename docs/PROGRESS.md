@@ -1,25 +1,28 @@
 # Progress
 
-## Status (2026-10-23)
+## Status (2026-11-02)
 
-**M6 (Sync) works end to end on Linux**, through a shared folder or a WebDAV/S3 server:
+**Sync now works over Wi-Fi, device to device** (D64; it replaced the shared folder and the
+WebDAV/S3 servers at the owner's request). Devices on the same network find each other, pair with a
+12-character code, and copy each other's changes directly, encrypted. No server, no account.
 - What syncs: tag edits, artwork, favourites, listens and the Trash.
 - Concurrent edits are kept as conflicts to review.
-- Optional encryption.
-- Songs can be shared between devices.
+- Songs can be copied between devices, straight from one device's music folder to the other's.
 - A device can carry on listening where another stopped.
 
 Not done yet:
-- Downloading only some albums, with a storage cap. The phone needs this most, so it comes with
-  M7.
-- LAN transfer and remote control.
-- Dropbox, Google Drive and OneDrive, which need app registrations of the owner's own (see Known
-  limitations).
+- Downloading only some albums, with a storage cap (the phone needs this most; M7).
+- Remote control of one device from another.
+- Syncing while the app is closed: devices sync while Cadenza is open on both.
 
 Two kinds of test so far:
 - **Real devices:** none yet. Try it with `docs/demos/M6.md`.
-- **Automated:** simulated devices on one machine, through local folders and local WebDAV and S3
-  servers.
+- **Automated:** devices on one machine paired over loopback (edits, conflicts, listens, the
+  Trash, artwork, copying songs, handoff, wrong codes and strangers refused), and the protocol on
+  its own (signing, sealing, streaming songs). Two copies of the real app found each other by
+  mDNS and paired on a virtual display.
+
+**Windows has started** (D63): see the Windows section below.
 
 **M5 (Customisation) is done for Linux**: themes, the theme editor, liquid glass, layouts and
 presets, the dockable panel (with the tag editor), the column browser, grouping, the visualizer,
@@ -331,7 +334,7 @@ glass.
   - **Tests:**
     - Two and three simulated devices, covering every item above.
     - An encrypted folder checked for readable content.
-    - WebDAV and S3 stores tested against local servers (wsgidav, moto) that `cargo xtask`
+    - (Replaced by Wi-Fi sync, D64.) WebDAV and S3 stores tested against local servers (wsgidav, moto) that `cargo xtask`
       starts, including encrypted and interrupted transfers.
     - A regression test for calls from an app's async runtime.
 - Demo script: `docs/demos/M6.md`, with a second-device helper (`cargo run -p cadenza-api
@@ -548,30 +551,25 @@ glass.
    - **Home recommendations:** Rediscover is built (option 3). Possible later: daily genre/era
      mixes, "because you played" from listening together, an opt-in online source for music the
      owner doesn't have yet.
-4. **Revisit later: sync on real devices.** The owner can't test sync yet. When possible, run
-   `docs/demos/M6.md` with two real devices (a Syncthing folder or Nextcloud), and fix whatever it
-   finds before more sync features are built.
+4. **Sync on real devices:** run `docs/demos/M6.md` with the laptop and the phone on the home
+   Wi-Fi, and fix whatever it finds before more sync features are built.
 5. **The rest of M6, after that test**:
-   - LAN transfer and remote control.
+   - Remote control.
    - Syncing edits made in other tagging programs.
-   - Partial mirrors (pin albums, a storage cap, streaming from the sync place) come with M7.
+   - Partial mirrors (pin albums, a storage cap) come with M7.
+6. **Windows:** run `docs/demos/Windows.md` on a Windows PC.
 
 ## Known limitations
 These are shown or absent in the UI, never faked:
 - **Sync**:
+  - Only while devices are on the same network with Cadenza open on both. Networks that keep
+    devices apart (guest Wi-Fi, "client isolation") can't sync, even with an address typed in.
   - Only edits made in Cadenza sync. Changes made by other taggers are picked up by each device's
     scan but not sent to the others.
   - Bit-identical copies of a song are one song to sync.
   - Moving files (the organiser) never syncs: where files live is each device's business.
-  - Changing where a device syncs starts it afresh there. Its earlier listens stay where they
-    were; its favourites are shared again.
-  - WebDAV uploads each song in one request, so a song is read into memory whole. That's fine for
-    normal files but heavy for multi-gigabyte DSD.
-  - **Dropbox, Google Drive and OneDrive:** not offered. Each needs an app registered with that
-    company (a client ID, and for Google a verification review), which only the owner can do, and
-    the development environment can't reach them to test. Nextcloud or any WebDAV server, and
-    S3-compatible storage (Backblaze B2, Wasabi, AWS), work now.
-  - Playlists sync when playlists exist (a later milestone).
+  - A song is copied only from a device on the network now that offers it; it waits otherwise.
+  - Devices' clocks must be within five minutes of each other (requests are time-stamped).
 - **Untested on hardware.** Exclusive output, device reservation, DoP and native DSD have only run
   against ALSA's `null` and `file` devices (see Status).
 - **Untested on a real desktop.** MPRIS was checked over D-Bus (`busctl`), not with media keys. The

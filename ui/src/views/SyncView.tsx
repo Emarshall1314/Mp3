@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FolderSync, Pause, Play, RefreshCw, Server } from 'lucide-react';
+import { Pause, Play, RefreshCw, Wifi } from 'lucide-react';
 import { api } from '../api';
 import { attempt, useStore } from '../store';
-import type { Remote, SyncConflict, SyncFolderInfo, SyncSettings, SyncStatus } from '../types';
-import { pickFolder } from './EmptyLibrary';
+import type { NearbyDevice, SyncConflict, SyncSettings, SyncStatus } from '../types';
 import { duration } from '../format';
-import { Select } from '../components/Select';
 
 const FIELD_NAMES: Record<string, string> = {
   favourite: 'Favourite',
@@ -33,179 +31,60 @@ function size(bytes: number): string {
   return `${Math.round(bytes / 1e3)} KB`;
 }
 
-async function save(
-  status: SyncStatus,
-  patch: Partial<SyncSettings>,
-  passphrase: string | null = null,
-  password: string | null = null,
-): Promise<boolean> {
-  const next = await attempt(
-    api.setSyncSettings({ ...status.settings, ...patch }, passphrase, password),
-  );
+async function save(status: SyncStatus, patch: Partial<SyncSettings>): Promise<boolean> {
+  const next = await attempt(api.setSyncSettings({ ...status.settings, ...patch }));
   if (next) useStore.getState().setSync(next);
   return !!next;
 }
 
-/// How a server shows in the page.
-export function describeRemote(r: Remote): string {
-  if (r.kind === 'webDav') return `${r.username ? `${r.username} at ` : ''}${r.url}`;
-  const where = r.endpoint || 'AWS S3';
-  return `${r.bucket}${r.root ? `/${r.root}` : ''} on ${where}`;
-}
-
-/// A place to sync through, chosen but not yet in use.
-interface Setup {
-  /** "folder" or "server", for the wording. */
-  kind: 'folder' | 'server';
-  label: string;
-  patch: Partial<SyncSettings>;
-  password: string | null;
-  info: SyncFolderInfo;
-}
-
-/// A folder or server about to be used: what it holds decides what's asked. A new one can be
-/// encrypted (passphrase typed twice); an encrypted one needs its passphrase; an unencrypted one
-/// just joins. Also unlocks the current one when this device has lost its key.
-function PlaceSetup({
-  status,
-  setup,
-  onDone,
-  locked = false,
-}: {
-  status: SyncStatus;
-  setup: Setup;
-  onDone: () => void;
-  /** The place in use, whose key this device doesn't have. */
-  locked?: boolean;
-}) {
-  const { kind, label, patch, password, info } = setup;
-  const place = kind === 'folder' ? 'folder' : 'server folder';
-  const [encrypt, setEncrypt] = useState(false);
-  const [pass, setPass] = useState('');
-  const [again, setAgain] = useState('');
-  const [busy, setBusy] = useState(false);
-  const isNew = !info.hasLibrary;
-  const needsPass = info.encrypted || (isNew && encrypt);
-  const mismatch = isNew && encrypt && again !== '' && pass !== again;
-  const ready = !needsPass || (pass.length >= 8 && (!isNew || pass === again));
-  const go = async () => {
-    setBusy(true);
-    const ok = await save(status, { ...patch, paused: false }, needsPass ? pass : null, password);
-    setBusy(false);
-    if (ok) onDone();
-  };
-  return (
-    <form
-      className="folder-setup"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (ready && !busy) void go();
-      }}
-    >
-      {!locked && <p className="path">{label}</p>}
-      <p>
-        {locked
-          ? 'The sync library is encrypted and this device doesn’t have its key. Enter the passphrase to carry on syncing.'
-          : isNew
-            ? `This ${place} has no Cadenza library yet: this device will start one.`
-            : info.encrypted
-              ? `This ${place} holds an encrypted Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}. Enter its passphrase.`
-              : `This ${place} holds a Cadenza library${info.devices ? ` shared by ${info.devices} ${info.devices === 1 ? 'device' : 'devices'}` : ''}.`}
-      </p>
-      {isNew && (
-        <label className="check-row">
-          <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
-          Encrypt it with a passphrase, so whoever holds the {place} can’t read it
-        </label>
-      )}
-      {needsPass && (
-        <>
-          <label className="field-row">
-            <span>Passphrase</span>
-            <input
-              type="password"
-              autoComplete={isNew ? 'new-password' : 'current-password'}
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
-          </label>
-          {isNew && (
-            <label className="field-row">
-              <span>Again</span>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={again}
-                onChange={(e) => setAgain(e.target.value)}
-              />
-            </label>
-          )}
-          <p className="muted small" role={mismatch ? 'alert' : undefined}>
-            {mismatch
-              ? 'The two passphrases differ.'
-              : isNew
-                ? 'At least 8 characters. Every device needs it to join; there’s no way to recover it, so keep it somewhere safe.'
-                : 'The passphrase this library was encrypted with.'}
-          </p>
-        </>
-      )}
-      <div className="row-actions">
-        <button className="pill primary" type="submit" disabled={!ready || busy}>
-          {busy ? 'Working…' : locked ? 'Unlock' : isNew ? 'Start Syncing' : 'Join'}
-        </button>
-        {!locked && (
-          <button className="pill" type="button" onClick={onDone}>
-            Cancel
-          </button>
-        )}
-      </div>
-    </form>
-  );
-}
-
-const EMPTY_WEBDAV: Remote = { kind: 'webDav', url: '', username: '' };
-const EMPTY_S3: Remote = {
-  kind: 's3',
-  endpoint: '',
-  bucket: '',
-  region: '',
-  accessKeyId: '',
-  root: 'Cadenza',
+const PLATFORMS: Record<string, string> = {
+  android: 'Android',
+  linux: 'Linux',
+  windows: 'Windows',
+  macos: 'macOS',
 };
 
-/// A server to sync through: WebDAV (Nextcloud and the like) or S3-compatible storage. Checking
-/// it connects and looks at what's there; then the usual setup (encryption) follows.
-function ServerForm({
-  initial,
-  onChecked,
-  onCancel,
+const platformName = (p: string) => PLATFORMS[p] ?? p;
+
+/// Other Cadenza devices on the network, asked for every couple of seconds while shown.
+function useNearby(): NearbyDevice[] {
+  const [nearby, setNearby] = useState<NearbyDevice[]>([]);
+  useEffect(() => {
+    let live = true;
+    const look = () => void api.syncNearby().then((n) => live && setNearby(n));
+    look();
+    const timer = setInterval(look, 2000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return nearby;
+}
+
+/// Typing a pairing code: letters and digits in groups of four, as it's shown.
+function formatCode(typed: string): string {
+  const letters = typed
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 12);
+  return letters.match(/.{1,4}/g)?.join('-') ?? '';
+}
+
+/// Joining another device's library: its pairing code, and (when it wasn't found on the
+/// network) its address.
+function JoinForm({
+  device,
+  onDone,
 }: {
-  initial: Remote | null;
-  onChecked: (setup: Setup) => void;
-  onCancel: () => void;
+  /** A device found on the network; none to type an address. */
+  device: NearbyDevice | null;
+  onDone: () => void;
 }) {
-  const [remote, setRemote] = useState<Remote>(initial ?? EMPTY_WEBDAV);
-  const [password, setPassword] = useState('');
+  const [address, setAddress] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const set = (patch: Partial<Record<string, string>>) =>
-    setRemote((r) => ({ ...r, ...patch }) as Remote);
-  const ready =
-    password !== '' &&
-    (remote.kind === 'webDav'
-      ? /^https?:\/\/./.test(remote.url)
-      : remote.bucket !== '' && remote.accessKeyId !== '');
-  const field = (label: string, key: string, value: string, hint?: string) => (
-    <label className="field-row" key={key}>
-      <span>{label}</span>
-      <input
-        value={value}
-        placeholder={hint}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(e) => set({ [key]: e.target.value })}
-      />
-    </label>
-  );
+  const ready = code.replace(/-/g, '').length === 12 && (device !== null || address.trim() !== '');
   return (
     <form
       className="folder-setup"
@@ -213,70 +92,49 @@ function ServerForm({
         e.preventDefault();
         if (!ready || busy) return;
         setBusy(true);
-        void attempt(api.syncRemoteInfo(remote, password)).then((info) => {
+        void attempt(api.syncJoin(device?.id ?? address.trim(), code)).then((next) => {
           setBusy(false);
-          if (info)
-            onChecked({
-              kind: 'server',
-              label: describeRemote(remote),
-              patch: { remote, folder: null },
-              password,
-              info,
-            });
+          if (next) {
+            useStore.getState().setSync(next);
+            onDone();
+          }
         });
       }}
     >
-      <label className="field-row">
-        <span>Kind</span>
-        <Select
-          label="Kind"
-          value={remote.kind}
-          options={[
-            { value: 'webDav', label: 'WebDAV (Nextcloud, ownCloud, a NAS…)' },
-            { value: 's3', label: 'S3-compatible (Backblaze B2, AWS, MinIO…)' },
-          ]}
-          onChange={(kind) => setRemote(kind === 's3' ? EMPTY_S3 : EMPTY_WEBDAV)}
-        />
-      </label>
-      {remote.kind === 'webDav' ? (
-        <>
-          {field(
-            'Address',
-            'url',
-            remote.url,
-            'https://cloud.example.com/remote.php/dav/files/me/Cadenza',
-          )}
-          {field('User name', 'username', remote.username)}
-        </>
+      {device ? (
+        <p>
+          Joining <strong>{device.name}</strong>. Type the pairing code shown on its Sync page.
+        </p>
       ) : (
-        <>
-          {field('Endpoint', 'endpoint', remote.endpoint, 'empty for AWS')}
-          {field('Bucket', 'bucket', remote.bucket)}
-          {field('Region', 'region', remote.region, 'us-east-1')}
-          {field('Folder in bucket', 'root', remote.root)}
-          {field('Access key', 'accessKeyId', remote.accessKeyId)}
-        </>
+        <label className="field-row">
+          <span>Its address</span>
+          <input
+            value={address}
+            placeholder="192.168.1.20"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+        </label>
       )}
       <label className="field-row">
-        <span>{remote.kind === 'webDav' ? 'Password' : 'Secret key'}</span>
+        <span>Pairing code</span>
         <input
-          type="password"
+          className="pairing-input"
+          value={code}
+          placeholder="ABCD-EFGH-JK23"
           autoComplete="off"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          autoCapitalize="characters"
+          spellCheck={false}
+          onChange={(e) => setCode(formatCode(e.target.value))}
         />
       </label>
-      <p className="muted small">
-        {remote.kind === 'webDav'
-          ? 'For Nextcloud, use an app password (Settings → Security). The address is your WebDAV address with a folder for Cadenza at the end.'
-          : 'Use a key that can only reach this bucket.'}{' '}
-        The password stays on this device, in Cadenza’s data folder.
-      </p>
       <div className="row-actions">
         <button className="pill primary" type="submit" disabled={!ready || busy}>
-          {busy ? 'Connecting…' : 'Connect'}
+          {busy ? 'Joining…' : 'Join'}
         </button>
-        <button className="pill" type="button" onClick={onCancel}>
+        <button className="pill" type="button" onClick={onDone}>
           Cancel
         </button>
       </div>
@@ -284,28 +142,123 @@ function ServerForm({
   );
 }
 
-/// A cap on song transfers to and from a server; empty for none.
-function Bandwidth({ status }: { status: SyncStatus }) {
-  const saved = status.settings.bandwidthKbps;
-  const [value, setValue] = useState(saved ? String(saved) : '');
-  const commit = () => {
-    const n = Math.round(Number(value));
-    const next = value.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
-    if (next !== saved) void save(status, { bandwidthKbps: next });
-  };
+/// Not syncing yet: start (the first device) or join a device that is.
+function Setup({ status }: { status: SyncStatus }) {
+  const nearby = useNearby();
+  // Joining: a nearby device, or "address" to type one.
+  const [joining, setJoining] = useState<NearbyDevice | 'address' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const syncing = nearby.filter((d) => d.syncing);
   return (
-    <label className="field-row">
-      <span>Limit song transfers to</span>
-      <input
-        inputMode="numeric"
-        value={value}
-        placeholder="no limit"
-        onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ''))}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      />
-      <span>KB/s</span>
-    </label>
+    <>
+      <h2 className="section-title">Join a Device</h2>
+      {syncing.length === 0 ? (
+        <p className="muted">
+          No device that’s syncing is on this network yet. On your first device, choose Start
+          Syncing below; then open this page on the others.
+        </p>
+      ) : (
+        <ul className="history-list">
+          {syncing.map((d) => (
+            <li key={d.id}>
+              <div>
+                <span>{d.name}</span>
+                <span className="muted small">
+                  {platformName(d.platform)} · {d.address}
+                </span>
+              </div>
+              <button className="pill primary" onClick={() => setJoining(d)}>
+                Join…
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {joining && (
+        <JoinForm
+          key={joining === 'address' ? 'address' : joining.id}
+          device={joining === 'address' ? null : joining}
+          onDone={() => setJoining(null)}
+        />
+      )}
+      {joining === null && (
+        <p className="muted small">
+          Not listed? Some networks (guest Wi-Fi, some routers) hide devices from each other.{' '}
+          <button className="link-button" onClick={() => setJoining('address')}>
+            Enter its address
+          </button>{' '}
+          instead (shown on its Sync page).
+        </p>
+      )}
+
+      <h2 className="section-title">Start Syncing</h2>
+      <p className="muted">
+        On the first device: this makes a pairing code that your other devices use to join.
+      </p>
+      <div className="row-actions">
+        <button
+          className="pill primary"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void attempt(api.syncStart()).then((next) => {
+              setBusy(false);
+              if (next) useStore.getState().setSync(next);
+            });
+          }}
+        >
+          <Wifi size={14} aria-hidden /> {busy ? 'Starting…' : 'Start Syncing'}
+        </button>
+      </div>
+      {status.addresses.length > 0 && (
+        <p className="muted small">This device’s address: {status.addresses.join(', ')}</p>
+      )}
+    </>
+  );
+}
+
+/// Addresses typed in for devices that can't be found on this network.
+function Addresses({ status }: { status: SyncStatus }) {
+  const [adding, setAdding] = useState('');
+  const list = status.settings.addresses;
+  return (
+    <details className="sync-problems">
+      <summary>Devices added by address ({list.length})</summary>
+      <ul>
+        {list.map((a) => (
+          <li key={a}>
+            {a}{' '}
+            <button
+              className="link-button"
+              onClick={() => void save(status, { addresses: list.filter((b) => b !== a) })}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="field-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (adding.trim())
+            void save(status, { addresses: [...list, adding.trim()] }).then(
+              (ok) => ok && setAdding(''),
+            );
+        }}
+      >
+        <input
+          value={adding}
+          placeholder="192.168.1.20"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => setAdding(e.target.value)}
+        />
+        <button className="pill" type="submit" disabled={!adding.trim()}>
+          Add
+        </button>
+      </form>
+    </details>
   );
 }
 
@@ -327,14 +280,11 @@ function DeviceName({ status }: { status: SyncStatus }) {
   );
 }
 
-/// Sync: a folder the owner's devices share, this device's name and options, what happened,
-/// the other devices, and edits that clashed.
+/// Sync: pairing with the owner's other devices on the same Wi-Fi, this device's name and
+/// options, what happened, the other devices, and edits that clashed.
 export function SyncView() {
   const status = useStore((s) => s.sync);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
-  // A place being set up (chosen, not yet in use) and what it holds; the server form.
-  const [setup, setSetup] = useState<Setup | null>(null);
-  const [serverForm, setServerForm] = useState(false);
   const deviceName = status?.settings.deviceName ?? '';
   const conflictCount = status?.conflicts ?? 0;
   const lastSync = status?.lastSyncMs ?? null;
@@ -344,11 +294,7 @@ export function SyncView() {
   }, [conflictCount, lastSync]);
 
   if (!status) return null;
-  const on = status.settings.folder !== null || status.settings.remote !== null;
-  const remote = status.settings.remote;
-  const where = remote
-    ? describeRemote(remote)
-    : (status.settings.folder ?? 'Nowhere yet: sync is off');
+  const on = status.paired;
   const t = status.transfer;
 
   return (
@@ -382,111 +328,63 @@ export function SyncView() {
         </div>
       </header>
       <p className="muted">
-        Keeps tag edits, artwork, favourites, play counts and the Trash the same on all your
-        devices, through a place they all reach: a folder they share (kept in step by Syncthing or
-        similar, or on a drive you move between them) or a server of yours (WebDAV such as
-        Nextcloud, or S3-compatible storage). Point Cadenza on each device at the same place.
-        There’s no Cadenza account; nothing leaves your devices except to that place.
+        Keeps tag edits, artwork, favourites, play counts and the Trash the same on your devices
+        whenever they’re on the same Wi-Fi with Cadenza open. Nothing goes over the internet or
+        through an account, and what passes between your devices is encrypted. Changes made while
+        apart catch up the next time they meet.
       </p>
 
-      <h2 className="section-title">Where</h2>
-      <div className="sync-folder">
-        <span className="path">
-          {where}
-          {on && status.encrypted && <span className="quality-badge">Encrypted</span>}
-        </span>
-        <button
-          className="pill"
-          onClick={() =>
-            void pickFolder('Choose the Sync Folder').then(async (folder) => {
-              if (!folder) return;
-              const info = await attempt(api.syncFolderInfo(folder));
-              if (info) {
-                setServerForm(false);
-                setSetup({
-                  kind: 'folder',
-                  label: folder,
-                  patch: { folder, remote: null },
-                  password: null,
-                  info,
-                });
-              }
-            })
-          }
-        >
-          <FolderSync size={14} aria-hidden /> Choose Folder…
-        </button>
-        <button
-          className="pill"
-          onClick={() => {
-            setSetup(null);
-            setServerForm(true);
-          }}
-        >
-          <Server size={14} aria-hidden /> Use a Server…
-        </button>
-        {on && (
-          <button
-            className="pill"
-            onClick={() => void save(status, { folder: null, remote: null })}
-          >
-            Stop Syncing
-          </button>
-        )}
-      </div>
-      {serverForm && !setup && (
-        <ServerForm
-          initial={remote}
-          onChecked={(s) => {
-            setServerForm(false);
-            setSetup(s);
-          }}
-          onCancel={() => setServerForm(false)}
-        />
-      )}
-      {setup && <PlaceSetup status={status} setup={setup} onDone={() => setSetup(null)} />}
-      {on && status.locked && !setup && !serverForm && (
-        <PlaceSetup
-          status={status}
-          setup={{
-            kind: remote ? 'server' : 'folder',
-            label: where,
-            patch: {},
-            password: null,
-            info: { hasLibrary: true, encrypted: true, devices: 0 },
-          }}
-          onDone={() => undefined}
-          locked
-        />
-      )}
-      {on && (
-        <p className="muted small">
-          Stopping leaves the sync library and your music as they are; choose it again to carry on.
-        </p>
-      )}
-
       <DeviceName key={deviceName} status={status} />
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={status.settings.shareAudio}
-          onChange={(e) => void save(status, { shareAudio: e.target.checked })}
-        />
-        Copy this device’s songs to where you sync, for devices that don’t have them (needs as much
-        space there as your music takes)
-      </label>
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={status.settings.downloadAudio}
-          onChange={(e) => void save(status, { downloadAudio: e.target.checked })}
-        />
-        Copy songs other devices put there into my first music folder
-      </label>
-      {remote && <Bandwidth key={status.settings.bandwidthKbps ?? 0} status={status} />}
+
+      {!on && <Setup status={status} />}
 
       {on && (
         <>
+          <div className="pairing-card">
+            <span className="muted small">Pairing code</span>
+            <span className="pairing-code">{status.pairingCode}</span>
+            <span className="muted small">
+              To add a device: on the same Wi-Fi, open Cadenza’s Sync page there, choose this device
+              ({deviceName}) and type this code.
+              {status.addresses.length > 0 &&
+                ` If it isn’t listed there, enter this device’s address: ${status.addresses.join(', ')}.`}
+            </span>
+          </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={status.settings.shareAudio}
+              onChange={(e) => void save(status, { shareAudio: e.target.checked })}
+            />
+            Let my other devices copy songs from this one that they don’t have
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={status.settings.downloadAudio}
+              onChange={(e) => void save(status, { downloadAudio: e.target.checked })}
+            />
+            Copy songs from my other devices that this one doesn’t have, into my first music folder
+          </label>
+          <Addresses status={status} />
+          <div className="row-actions">
+            <button
+              className="pill"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Stop syncing this device? Its music and edits stay as they are; the other devices carry on without it. To sync again, join one of them with its pairing code.',
+                  )
+                )
+                  void attempt(api.syncLeave()).then((next) => {
+                    if (next) useStore.getState().setSync(next);
+                  });
+              }}
+            >
+              Stop Syncing
+            </button>
+          </div>
+
           <h2 className="section-title">Status</h2>
           <p role="status">
             {status.settings.paused
@@ -503,8 +401,8 @@ export function SyncView() {
           {t && (
             <div className="sync-transfer">
               <span>
-                {t.direction === 'upload' ? 'Copying to the folder' : 'Copying from the folder'}:{' '}
-                {t.name} ({size(t.done)} of {size(t.total)})
+                {t.direction === 'upload' ? 'Sending' : 'Copying from another device'}: {t.name} (
+                {size(t.done)} of {size(t.total)})
                 {t.remaining > 0 && `, ${t.remaining} more after this`}
               </span>
               <progress value={t.done} max={Math.max(1, t.total)} />
@@ -557,23 +455,26 @@ export function SyncView() {
 
           <h2 className="section-title">Devices</h2>
           {status.devices.length === 0 ? (
-            <p className="muted">Devices appear here after their first sync.</p>
+            <p className="muted">Devices appear here once they’ve synced with this one.</p>
           ) : (
             <ul className="history-list">
               {status.devices.map((d) => (
                 <li key={d.id}>
                   <div>
                     <span>
+                      {!d.thisDevice && (
+                        <span
+                          className="online-dot"
+                          data-on={d.online || undefined}
+                          title={d.online ? 'On this network now' : 'Not reached in the last sync'}
+                          aria-label={d.online ? 'Online' : 'Away'}
+                        />
+                      )}
                       {d.name}
                       {d.thisDevice && ' (this device)'}
                     </span>
                     <span className="muted small">
-                      {d.platform === 'android'
-                        ? 'Android'
-                        : d.platform === 'linux'
-                          ? 'Linux'
-                          : d.platform}{' '}
-                      · last synced {when(d.lastPushMs)}
+                      {platformName(d.platform)} · last change {when(d.lastPushMs)}
                     </span>
                   </div>
                 </li>

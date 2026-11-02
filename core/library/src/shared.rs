@@ -153,6 +153,22 @@ impl Library {
         })
     }
 
+    /// The file of a present song with this audio (not from a cue sheet), for sending it to
+    /// another device.
+    pub fn file_with_hash(&self, hash: &str) -> Result<Option<PathBuf>> {
+        let hash = hash.to_owned();
+        self.db.read(move |c| {
+            Ok(c.query_row(
+                "SELECT r.path, t.rel_path FROM tracks t JOIN roots r ON r.id = t.root_id
+                 WHERE t.audio_hash = ? AND t.missing_since IS NULL AND t.cue_index = 0
+                 ORDER BY t.id LIMIT 1",
+                [hash],
+                |r| Ok(Path::new(&r.get::<_, String>(0)?).join(r.get::<_, String>(1)?)),
+            )
+            .optional()?)
+        })
+    }
+
     /// Whether any song, present or not (trashed songs are hidden as missing), has this audio.
     pub fn knows_hash(&self, hash: &str) -> Result<bool> {
         let hash = hash.to_owned();

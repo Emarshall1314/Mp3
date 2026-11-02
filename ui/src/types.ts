@@ -249,30 +249,15 @@ export type ApiEvent =
   | { kind: 'editFinished'; report: EditReport }
   | { kind: 'sync'; status: SyncStatus };
 
-/** A server to sync through; its password is kept by the core, never sent back. */
-export type Remote =
-  | { kind: 'webDav'; url: string; username: string }
-  | {
-      kind: 's3';
-      endpoint: string;
-      bucket: string;
-      region: string;
-      accessKeyId: string;
-      root: string;
-    };
-
 export interface SyncSettings {
-  /** The shared folder. Sync is off without a folder or a server. */
-  folder: string | null;
-  remote: Remote | null;
-  /** Caps song transfers to and from a server, KB/s. */
-  bandwidthKbps: number | null;
   deviceName: string;
-  /** Copy this device's songs into the folder for devices that don't have them. */
+  /** Let devices that don't have this device's songs copy them from it. */
   shareAudio: boolean;
-  /** Copy songs other devices shared into the first music folder. */
+  /** Copy songs this device doesn't have from devices that share them. */
   downloadAudio: boolean;
   paused: boolean;
+  /** Devices' addresses typed in, for networks where devices can't find each other. */
+  addresses: string[];
 }
 
 export interface SyncDevice {
@@ -281,6 +266,20 @@ export interface SyncDevice {
   platform: string;
   lastPushMs: number;
   thisDevice: boolean;
+  /** Reached in the last round. */
+  online: boolean;
+}
+
+/** Another Cadenza on this network. */
+export interface NearbyDevice {
+  id: string;
+  name: string;
+  platform: string;
+  address: string;
+  /** Syncs with this device already. */
+  paired: boolean;
+  /** Syncing (here or elsewhere), so this device can join it. */
+  syncing: boolean;
 }
 
 export interface SyncTransfer {
@@ -294,19 +293,22 @@ export interface SyncTransfer {
 export interface SyncStatus {
   settings: SyncSettings;
   deviceId: string | null;
+  /** In a library, syncing with the devices paired into it. */
+  paired: boolean;
+  /** The code another device types to join; shown on every device in the library. */
+  pairingCode: string | null;
+  /** Where this device can be reached, for typing into another. */
+  addresses: string[];
+  port: number;
   syncing: boolean;
   lastSyncMs: number | null;
   error: string | null;
-  /** Changes made here and not yet in the folder. */
+  /** Changes made here that no other device has copied yet. */
   pending: number;
   devices: SyncDevice[];
   conflicts: number;
   transfer: SyncTransfer | null;
   problems: string[];
-  /** The folder's contents are encrypted with a passphrase. */
-  encrypted: boolean;
-  /** Encrypted, and this device needs the passphrase. */
-  locked: boolean;
   /** What other devices were last playing, newest first. */
   handoffs: Handoff[];
 }
@@ -321,12 +323,6 @@ export interface Handoff {
   /** Songs in that queue, and how many of them this device has. */
   songs: number;
   here: number;
-}
-
-export interface SyncFolderInfo {
-  hasLibrary: boolean;
-  encrypted: boolean;
-  devices: number;
 }
 
 export interface SyncConflict {

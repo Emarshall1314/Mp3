@@ -3219,17 +3219,49 @@ kbd {
 }
 
 /* Sync and Trash */
-.sync-folder {
+.pairing-card {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-m);
+  background: var(--color-surface);
 }
 
-.sync-folder .path {
-  flex: 1 1 240px;
-  min-width: 0;
-  overflow-wrap: anywhere;
+.pairing-code,
+.pairing-input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.pairing-code {
+  font-size: var(--font-size-700);
+  font-weight: 600;
+  user-select: all;
+}
+
+.online-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  vertical-align: 1px;
+}
+
+.online-dot[data-on] {
+  background: #30d158;
+}
+
+.link-button {
+  padding: 0;
+  color: var(--color-accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .field-row {
@@ -3267,6 +3299,10 @@ kbd {
 .sync-transfer progress {
   width: 100%;
   accent-color: var(--color-accent);
+}
+
+.sync-problems {
+  margin: var(--space-3) 0;
 }
 
 .sync-problems ul {
@@ -3363,10 +3399,6 @@ kbd {
 
 .folder-setup .field-row span {
   min-width: 90px;
-}
-
-.sync-folder .quality-badge {
-  margin-left: var(--space-2);
 }
 
 .folder-setup .field-row input,

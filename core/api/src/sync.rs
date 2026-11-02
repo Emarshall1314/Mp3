@@ -1,29 +1,38 @@
-//! Sync in the app (D55, D56): turns this device's tag edits, favourites, listens and trash into
-//! ops, and applies other devices' ops to this device's own files and catalogue.
+//! Sync in the app (D55, D56, D64): turns this device's tag edits, favourites, listens and trash
+//! into ops, and applies other devices' ops to this device's own files and catalogue.
 //!
-//! Everything lives in `<data>/sync/`: `config.json` (the folder, this device's name, sharing
-//! options) and `replica.cbor` (the merged state, what has been applied here, the outbox).
+//! Devices sync over the Wi-Fi they share. Everything lives in `<data>/sync/`: `config.json`
+//! (this device's name, sharing options, addresses typed in), `library.json` (the library this
+//! device is paired into: the public part of its key derivation), `key` and `code` (the library
+//! key and the pairing code, readable only by this user), `wifi.cbor` (the merged state, what has
+//! been applied here, the outbox) and `store/` (this device's log, the copies of the others',
+//! device and handoff files, artwork).
 //!
 //! A background thread syncs a minute after the last sync, a few seconds after a local change, or
-//! when asked. Each round: push this device's ops, pull the others', then apply whatever hasn't
-//! been applied here yet. Applying is driven by the merged state, not by the ops as they arrive,
-//! so a change for a song this device doesn't have yet applies when the song turns up, and a
-//! change that couldn't be applied (the tag writer was busy) is tried again next round.
+//! when asked (by the owner, or by another device with news). Each round: copy what the paired
+//! devices in reach have that this one lacks, push this device's ops and read the others', then
+//! apply whatever hasn't been applied here yet. Applying is driven by the merged state, not by
+//! the ops as they arrive, so a change for a song this device doesn't have yet applies when the
+//! song turns up, and a change that couldn't be applied (the tag writer was busy) is tried again
+//! next round.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use cadenza_library::Library;
+use cadenza_sync::crypt::{normalize_code, pairing_code};
+use cadenza_sync::discovery::Discovery;
 use cadenza_sync::hlc::wall_ms;
+use cadenza_sync::peer::{self, Hello, Host, Me, Peer, Server};
 use cadenza_sync::replica::DeviceInfo;
 use cadenza_sync::{
-    Change, DeviceId, Effect, EncryptedStore, FolderStore, Hlc, Key, LibraryInfo, Remote,
-    RemoteStore, Replica, Store, TrackKey,
+    Change, DeviceId, Effect, Encryption, FolderStore, Hlc, Key, Replica, Store, TrackKey,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,24 +43,24 @@ use crate::{ApiEvent, Emit, Error, Result, Scanner};
 const INTERVAL: Duration = Duration::from_secs(60);
 /// How long to wait after a local change, so a burst of changes goes in one segment.
 const SETTLE: Duration = Duration::from_secs(3);
+/// How long a device that contacted this one is tried again without being found otherwise.
+const SEEN_FOR: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SyncSettings {
-    /// The shared folder. Sync is off without a folder or a server.
-    pub folder: Option<String>,
-    /// A server instead of a folder (its password is kept apart, never in here).
-    pub remote: Option<Remote>,
-    /// Caps song transfers to and from a server, in KB/s.
-    pub bandwidth_kbps: Option<u32>,
     /// How other devices see this one.
     pub device_name: String,
-    /// Copy this device's songs into the folder, for devices that don't have them.
+    /// Let devices that don't have this device's songs copy them from it.
     pub share_audio: bool,
-    /// Copy songs other devices shared into this device's first music folder.
+    /// Copy songs this device doesn't have from devices that share them, into its first music
+    /// folder.
     pub download_audio: bool,
     /// Stop syncing until turned back on.
     pub paused: bool,
+    /// Devices' addresses typed in ("192.168.1.20" or "192.168.1.20:47100"), for networks where
+    /// devices can't find each other by themselves.
+    pub addresses: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -63,6 +72,22 @@ pub struct SyncDevice {
     /// Milliseconds since the Unix epoch.
     pub last_push_ms: u64,
     pub this_device: bool,
+    /// Reached in the last round.
+    pub online: bool,
+}
+
+/// Another Cadenza on this network.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbyDevice {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub address: String,
+    /// It syncs with this device already.
+    pub paired: bool,
+    /// It's syncing (with this device or others), so this device can join it.
+    pub syncing: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -82,31 +107,26 @@ pub struct Transfer {
 pub struct SyncStatus {
     pub settings: SyncSettings,
     pub device_id: Option<String>,
+    /// In a library: syncing with the devices paired into it.
+    pub paired: bool,
+    /// The code another device types to join, shown on every device in the library.
+    pub pairing_code: Option<String>,
+    /// Where this device can be reached on the network, for typing into another.
+    pub addresses: Vec<String>,
+    /// The port this device listens on for the others (0 if it couldn't open one).
+    pub port: u16,
     pub syncing: bool,
     pub last_sync_ms: Option<u64>,
     pub error: Option<String>,
-    /// Changes made here and not yet in the folder.
+    /// Changes made here that no other device has copied yet.
     pub pending: usize,
     pub devices: Vec<SyncDevice>,
     pub conflicts: usize,
     pub transfer: Option<Transfer>,
     /// Things that couldn't be synced and why (one line each, most recent round).
     pub problems: Vec<String>,
-    /// The folder's contents are encrypted with a passphrase.
-    pub encrypted: bool,
-    /// The library is encrypted and this device doesn't have the key: it needs the passphrase.
-    pub locked: bool,
     /// What other devices were last playing, newest first.
     pub handoffs: Vec<Handoff>,
-}
-
-/// What a folder chosen for sync already holds.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncFolderInfo {
-    pub has_library: bool,
-    pub encrypted: bool,
-    pub devices: usize,
 }
 
 fn other(e: cadenza_sync::Error) -> Error {
@@ -177,7 +197,7 @@ const HANDOFF_SONGS: usize = 1000;
 /// What was last published for handoff: queue version, index, position in 10 s steps, playing.
 type PublishMark = (u64, Option<usize>, u64, bool);
 
-/// What `replica.cbor` holds.
+/// What `wifi.cbor` holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Saved {
     replica: Replica,
@@ -203,6 +223,8 @@ impl Saved {
 struct Inner {
     settings: SyncSettings,
     saved: Option<Saved>,
+    /// The library this device is in, with its key and pairing code.
+    library: Option<(Encryption, Key, String)>,
 }
 
 pub(crate) struct Syncer {
@@ -226,6 +248,12 @@ pub(crate) struct Syncer {
     published: Mutex<Option<PublishMark>>,
     /// Other devices' listening as last read.
     handoffs: Mutex<Vec<HandoffFile>>,
+    /// Answers the other devices; none if no port could be opened.
+    server: Mutex<Option<Server>>,
+    /// Finds the other devices; none where mDNS can't run (or in tests).
+    discovery: Option<Discovery>,
+    /// Paired devices that contacted this one, and where from.
+    seen: Mutex<HashMap<String, (SocketAddr, Instant)>>,
 }
 
 fn platform() -> String {
@@ -243,6 +271,7 @@ fn host_name() -> String {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .or_else(|| std::env::var("HOSTNAME").ok())
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
         .unwrap_or_else(|| "This computer".into())
 }
 
@@ -256,6 +285,13 @@ fn blob_path(hash: &str, ext: &str) -> Option<String> {
         !ext.is_empty() && ext.len() <= 8 && ext.bytes().all(|b| b.is_ascii_alphanumeric());
     (safe_hash(hash) && ext_ok && hash.len() > 2)
         .then(|| format!("blobs/{}/{hash}.{ext}", &hash[..2]))
+}
+
+/// The audio hash in a `blobs/<aa>/<hash>.<ext>` path.
+fn blob_hash(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("blobs/")?.split('/').nth(1)?;
+    let hash = name.rsplit_once('.')?.0;
+    safe_hash(hash).then_some(hash)
 }
 
 fn art_path(hash: &str) -> Option<String> {
@@ -272,6 +308,57 @@ fn safe_relative(rel: &str) -> Option<PathBuf> {
 fn ms_to_s(ms: u64) -> i64 {
     (ms / 1000) as i64
 }
+
+/// The server's view of the syncer.
+struct Serving(Weak<Syncer>);
+
+impl Host for Serving {
+    fn hello(&self) -> Hello {
+        match self.0.upgrade() {
+            Some(s) => s.hello(),
+            None => Hello {
+                device: String::new(),
+                name: String::new(),
+                platform: platform(),
+                library: None,
+            },
+        }
+    }
+
+    fn key(&self) -> Option<Key> {
+        let s = self.0.upgrade()?;
+        let inner = s.inner();
+        inner.saved.as_ref()?;
+        inner.library.as_ref().map(|(_, k, _)| k.clone())
+    }
+
+    fn store_root(&self) -> PathBuf {
+        self.0.upgrade().map(|s| s.store_dir()).unwrap_or_default()
+    }
+
+    fn blob(&self, path: &str) -> Option<PathBuf> {
+        let s = self.0.upgrade()?;
+        if !s.inner().settings.share_audio {
+            return None;
+        }
+        s.library.file_with_hash(blob_hash(path)?).ok().flatten()
+    }
+
+    fn seen(&self, device: &str, at: SocketAddr, poked: bool) {
+        let Some(s) = self.0.upgrade() else { return };
+        if at.port() != 0
+            && let Ok(mut seen) = s.seen.lock()
+        {
+            seen.insert(device.to_owned(), (at, Instant::now()));
+        }
+        if poked {
+            s.wake();
+        }
+    }
+}
+
+/// Where to look for a paired device: its id if known, and addresses to try in turn.
+type Target = (Option<String>, Vec<SocketAddr>);
 
 impl Syncer {
     pub(crate) fn new(
@@ -290,21 +377,37 @@ impl Syncer {
         if settings.device_name.trim().is_empty() {
             settings.device_name = host_name();
         }
-        let mut saved = std::fs::read(dir.join("replica.cbor"))
+        let library_info = (|| {
+            let e: Encryption =
+                serde_json::from_slice(&std::fs::read(dir.join("library.json")).ok()?).ok()?;
+            let key = Key::from_bytes(&std::fs::read(dir.join("key")).ok()?)?;
+            let code = String::from_utf8(std::fs::read(dir.join("code")).ok()?).ok()?;
+            Some((e, key, code))
+        })();
+        let mut saved = std::fs::read(dir.join("wifi.cbor"))
             .ok()
             .and_then(|b| ciborium::from_reader::<Saved, _>(b.as_slice()).ok());
-        // A folder but no state (the state file was lost): start again as a new device, which
-        // reads everything from the folder.
-        if settings.folder.is_some() && saved.is_none() {
+        // In a library but no state (the state file was lost): start again as a new device,
+        // which copies everything from the others.
+        if library_info.is_some() && saved.is_none() {
             saved = Some(Saved::new());
         }
+        let discovery = if std::env::var_os("CADENZA_NO_DISCOVERY").is_some() {
+            None
+        } else {
+            Discovery::start().ok()
+        };
         let me = Arc::new(Self {
             library,
             editor,
             scanner,
             emit,
             dir,
-            inner: Mutex::new(Inner { settings, saved }),
+            inner: Mutex::new(Inner {
+                settings,
+                saved,
+                library: library_info,
+            }),
             status: Mutex::new(SyncStatus::default()),
             wake: Mutex::new(None),
             stop: AtomicBool::new(false),
@@ -313,7 +416,15 @@ impl Syncer {
             player,
             published: Mutex::new(None),
             handoffs: Mutex::new(Vec::new()),
+            server: Mutex::new(None),
+            discovery,
+            seen: Mutex::new(HashMap::new()),
         });
+        let server = Server::start(Arc::new(Serving(Arc::downgrade(&me))));
+        if let Ok(mut slot) = me.server.lock() {
+            *slot = server.ok();
+        }
+        me.advertise();
         me.refresh_status();
         let (tx, rx) = channel();
         if let Ok(mut w) = me.wake.lock() {
@@ -339,6 +450,62 @@ impl Syncer {
         }
     }
 
+    fn store_dir(&self) -> PathBuf {
+        self.dir.join("store")
+    }
+
+    fn store(&self) -> FolderStore {
+        FolderStore::new(self.store_dir())
+    }
+
+    /// The port this device's server listens on (0 if none).
+    pub(crate) fn port(&self) -> u16 {
+        self.server
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().map(Server::port))
+            .unwrap_or(0)
+    }
+
+    fn device_id(&self) -> Option<String> {
+        let inner = self.inner();
+        inner.saved.as_ref().map(|s| s.replica.device().to_string())
+    }
+
+    fn hello(&self) -> Hello {
+        let inner = self.inner();
+        Hello {
+            device: inner
+                .saved
+                .as_ref()
+                .map(|s| s.replica.device().to_string())
+                .unwrap_or_default(),
+            name: inner.settings.device_name.clone(),
+            platform: platform(),
+            library: inner
+                .saved
+                .as_ref()
+                .and(inner.library.as_ref())
+                .map(|(e, _, _)| e.clone()),
+        }
+    }
+
+    /// Tells the network who this device is now.
+    fn advertise(&self) {
+        let port = self.port();
+        if let Some(d) = &self.discovery
+            && port != 0
+        {
+            let mut hello = self.hello();
+            if hello.device.is_empty() {
+                // Not syncing yet: still visible (so it can be chosen to join), under a
+                // throwaway id.
+                hello.device = format!("new-{}", DeviceId::new());
+            }
+            let _ = d.advertise(&hello, port);
+        }
+    }
+
     fn save(&self, inner: &Inner) -> Result<()> {
         let io = |e: std::io::Error| Error::Other(format!("saving sync state: {e}"));
         std::fs::create_dir_all(&self.dir).map_err(io)?;
@@ -348,9 +515,26 @@ impl Syncer {
         if let Some(saved) = &inner.saved {
             let mut bytes = Vec::new();
             ciborium::into_writer(saved, &mut bytes).map_err(|e| Error::Other(e.to_string()))?;
-            write_atomic(&self.dir.join("replica.cbor"), &bytes).map_err(io)?;
+            write_atomic(&self.dir.join("wifi.cbor"), &bytes).map_err(io)?;
         }
         Ok(())
+    }
+
+    /// Writes a file in the sync folder that only this user can read.
+    fn write_private(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        let path = self.dir.join(name);
+        let io = |e: std::io::Error| Error::Other(format!("saving {name}: {e}"));
+        std::fs::create_dir_all(&self.dir).map_err(io)?;
+        let tmp = path.with_extension("tmp");
+        {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+            let mut f = opts.open(&tmp).map_err(io)?;
+            std::io::Write::write_all(&mut f, bytes).map_err(io)?;
+        }
+        std::fs::rename(&tmp, &path).map_err(io)
     }
 
     // ---- settings and status ------------------------------------------------------------
@@ -372,10 +556,9 @@ impl Syncer {
         });
     }
 
-    /// Copies settings, device and counts into the status.
+    /// Copies settings, device, pairing and counts into the status.
     fn refresh_status(&self) {
-        let encrypted = self.load_key().is_some();
-        let (settings, device, pending, conflicts) = {
+        let (settings, device, pending, conflicts, code) = {
             let inner = self.inner();
             let saved = inner.saved.as_ref();
             (
@@ -383,234 +566,207 @@ impl Syncer {
                 saved.map(|s| s.replica.device().to_string()),
                 saved.map_or(0, |s| s.replica.pending()),
                 saved.map_or(0, |s| s.replica.state().conflicts().len()),
+                saved.and(inner.library.as_ref()).map(|(_, _, c)| c.clone()),
             )
+        };
+        let port = self.port();
+        let addresses = if port == 0 {
+            Vec::new()
+        } else {
+            local_addresses()
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, port).to_string())
+                .collect()
         };
         self.set_status(|s| {
             s.settings = settings;
+            s.paired = code.is_some();
             s.device_id = device;
             s.pending = pending;
             s.conflicts = conflicts;
-            s.encrypted = encrypted;
-            if encrypted {
-                s.locked = false;
-            }
+            s.pairing_code = code;
+            s.addresses = addresses;
+            s.port = port;
         });
     }
 
-    pub(crate) fn set_settings(
-        &self,
-        mut settings: SyncSettings,
-        passphrase: Option<&str>,
-        password: Option<&str>,
-    ) -> Result<SyncStatus> {
+    pub(crate) fn set_settings(&self, mut settings: SyncSettings) -> Result<SyncStatus> {
         if settings.device_name.trim().is_empty() {
             settings.device_name = host_name();
         }
         settings.device_name = settings.device_name.trim().chars().take(60).collect();
-        if settings.remote.is_some() {
-            settings.folder = None;
-        }
-        let changed = {
-            let old = &self.inner().settings;
-            settings.folder != old.folder || settings.remote != old.remote
-        };
-        if let Some(folder) = &settings.folder {
-            if !Path::new(folder).is_dir() {
-                return Err(Error::Other(format!("{folder} isn't a folder")));
+        let mut addresses = Vec::new();
+        for a in &settings.addresses {
+            let a = a.trim();
+            if a.is_empty() || addresses.iter().any(|b: &String| b == a) {
+                continue;
             }
-            let roots = self.library.roots()?;
-            if roots.iter().any(|r| {
-                Path::new(folder).starts_with(&r.path) || Path::new(&r.path).starts_with(folder)
-            }) {
-                return Err(Error::Other(
-                    "the sync folder must be outside your music folders, or Cadenza would add the songs in it twice"
-                        .into(),
-                ));
+            if peer::parse_address(a).is_none() {
+                return Err(Error::Other(format!("“{a}” isn't an address")));
             }
+            addresses.push(a.to_owned());
         }
-        // Settle encryption before anything is written there.
-        if let Some(plain) = self.plain_store(&settings, password)? {
-            if let Some(remote) = &settings.remote {
-                let saved = std::fs::read(self.dir.join("secret"))
-                    .ok()
-                    .and_then(|b| String::from_utf8(b).ok());
-                let secret = password.map(str::to_owned).or(saved).unwrap_or_default();
-                RemoteStore::open_for_check(remote, &secret)
-                    .and_then(|s| s.list("log"))
-                    .map_err(|e| Error::Other(format!("couldn't reach the server: {e}")))?;
-            }
-            self.settle_encryption(plain.as_ref(), passphrase, changed)?;
-        }
-        if let Some(p) = password {
-            self.write_private("secret", p.as_bytes())?;
-        }
+        settings.addresses = addresses;
         {
             let mut inner = self.inner();
-            // A different place starts afresh: this device's log there begins at the start.
-            let on = settings.folder.is_some() || settings.remote.is_some();
-            if on && (inner.saved.is_none() || changed) {
-                inner.saved = Some(Saved::new());
-            }
             inner.settings = settings;
             self.save(&inner)?;
         }
         // A transfer under the old settings stops; the next round starts under the new ones.
         self.stop.store(true, Ordering::Release);
+        self.advertise();
         self.refresh_status();
         self.wake();
         Ok(self.status())
     }
 
-    fn settle_encryption(
-        &self,
-        plain: &dyn Store,
-        passphrase: Option<&str>,
-        changed: bool,
-    ) -> Result<()> {
-        let info = LibraryInfo::read(plain).map_err(other)?;
-        match (&info, passphrase) {
-            (Some(LibraryInfo { encryption: Some(e), .. }), Some(p)) => {
-                let key = Key::unlock(p, e).map_err(other)?;
-                self.save_key(Some(&key))
-            }
-            (Some(LibraryInfo { encryption: Some(_), .. }), None) if changed => Err(Error::Other(
-                "this sync library is encrypted: enter its passphrase".into(),
-            )),
-            (Some(LibraryInfo { encryption: None, .. }), Some(_)) => Err(Error::Other(
-                "this place already holds unencrypted sync data; to encrypt, start with an empty one"
-                    .into(),
-            )),
-            (None, Some(p)) => {
-                let (key, encryption) = Key::create(p).map_err(other)?;
-                LibraryInfo {
-                    format: cadenza_sync::crypt::FORMAT,
-                    encryption: Some(encryption),
+    /// Starts a new library with this device in it: the others join with its pairing code.
+    pub(crate) fn start_library(&self) -> Result<SyncStatus> {
+        if self.inner().library.is_some() {
+            return Err(Error::Other("this device is already syncing".into()));
+        }
+        let code = pairing_code();
+        let (key, encryption) = Key::create(&code).map_err(other)?;
+        self.enter(encryption, key, code)
+    }
+
+    /// Joins the library of the device at `address` (or with that device id, found on the
+    /// network), with the pairing code shown on it.
+    pub(crate) fn join_library(&self, address: &str, code: &str) -> Result<SyncStatus> {
+        if self.inner().library.is_some() {
+            return Err(Error::Other(
+                "this device is already syncing: stop first to join another".into(),
+            ));
+        }
+        let code = normalize_code(code).ok_or_else(|| {
+            Error::Other("a pairing code is 12 letters and digits, like ABCD-EFGH-JK23".into())
+        })?;
+        let found = self.discovery.as_ref().and_then(|d| {
+            d.found("")
+                .into_iter()
+                .find(|f| f.device == address)
+                .map(|f| f.addrs)
+        });
+        let typed = found.is_none();
+        let addrs = match found {
+            Some(a) => a,
+            None => vec![peer::parse_address(address).ok_or_else(|| {
+                Error::Other(format!("“{address}” isn't an address (like 192.168.1.20)"))
+            })?],
+        };
+        let mut last = None;
+        let mut reached = None;
+        for addr in addrs {
+            match peer::hello(addr) {
+                Ok(h) => {
+                    reached = Some((addr, h));
+                    break;
                 }
-                .write(plain)
-                .map_err(other)?;
-                self.save_key(Some(&key))
-            }
-            (_, None) if changed => self.save_key(None),
-            _ => Ok(()),
-        }
-    }
-
-    /// What a place chosen for sync already holds.
-    fn info_of(plain: &dyn Store) -> Result<SyncFolderInfo> {
-        let info = LibraryInfo::read(plain).map_err(other)?;
-        Ok(SyncFolderInfo {
-            has_library: info.is_some() || !plain.list("log").map_err(other)?.is_empty(),
-            encrypted: info.is_some_and(|i| i.encryption.is_some()),
-            devices: plain.list("devices").map_err(other)?.len(),
-        })
-    }
-
-    /// What's in a folder chosen for sync: nothing yet, a library, and whether it's encrypted.
-    pub(crate) fn folder_info(&self, folder: &str) -> Result<SyncFolderInfo> {
-        Self::info_of(&FolderStore::new(folder))
-    }
-
-    /// The same for a server, which also checks that it can be reached with `password`.
-    pub(crate) fn remote_info(&self, remote: &Remote, password: &str) -> Result<SyncFolderInfo> {
-        let store = RemoteStore::open_for_check(remote, password).map_err(other)?;
-        store
-            .list("log")
-            .map_err(|e| Error::Other(format!("couldn't reach the server: {e}")))?;
-        Self::info_of(&store)
-    }
-
-    /// The sync place without encryption: the folder, or the server (with `password`, else the
-    /// saved one); none when sync is off.
-    fn plain_store(
-        &self,
-        settings: &SyncSettings,
-        password: Option<&str>,
-    ) -> Result<Option<Box<dyn Store>>> {
-        if let Some(remote) = &settings.remote {
-            let saved = std::fs::read(self.dir.join("secret"))
-                .ok()
-                .and_then(|b| String::from_utf8(b).ok());
-            let secret = password.map(str::to_owned).or(saved).unwrap_or_default();
-            let store =
-                RemoteStore::open(remote, &secret, settings.bandwidth_kbps).map_err(other)?;
-            return Ok(Some(Box::new(store)));
-        }
-        Ok(settings
-            .folder
-            .as_ref()
-            .map(|f| Box::new(FolderStore::new(f)) as Box<dyn Store>))
-    }
-
-    fn key_path(&self) -> PathBuf {
-        self.dir.join("key")
-    }
-
-    /// Keeps the library key (or forgets it), readable only by this user.
-    fn save_key(&self, key: Option<&Key>) -> Result<()> {
-        match key {
-            Some(k) => self.write_private("key", &k.to_bytes()),
-            None => {
-                let _ = std::fs::remove_file(self.key_path());
-                Ok(())
+                Err(e) => last = Some(e),
             }
         }
+        let Some((addr, hello)) = reached else {
+            return Err(Error::Other(format!(
+                "couldn't reach that device ({}): is Cadenza open on it, on the same Wi-Fi?",
+                last.map(|e| e.to_string()).unwrap_or_default()
+            )));
+        };
+        let encryption = hello.library.ok_or_else(|| {
+            Error::Other(format!(
+                "{} isn't syncing yet: choose Start Syncing there first",
+                hello.name
+            ))
+        })?;
+        let key = Key::unlock(&code, &encryption).map_err(|_| {
+            Error::Other(format!(
+                "that isn't the pairing code shown on {}",
+                hello.name
+            ))
+        })?;
+        if typed {
+            let mut inner = self.inner();
+            let a = address.trim().to_owned();
+            if !inner.settings.addresses.contains(&a) {
+                inner.settings.addresses.push(a);
+            }
+        }
+        let status = self.enter(encryption, key, code)?;
+        // Let it know where this device is, so it copies from here too.
+        if let Some(me) = self.me() {
+            let _ = Peer::new(addr, me).poke();
+        }
+        Ok(status)
     }
 
-    /// Writes a file in the sync folder that only this user can read.
-    fn write_private(&self, name: &str, bytes: &[u8]) -> Result<()> {
-        let path = self.dir.join(name);
-        let io = |e: std::io::Error| Error::Other(format!("saving {name}: {e}"));
-        std::fs::create_dir_all(&self.dir).map_err(io)?;
-        let tmp = path.with_extension("tmp");
+    fn enter(&self, encryption: Encryption, key: Key, code: String) -> Result<SyncStatus> {
+        let json =
+            serde_json::to_vec_pretty(&encryption).map_err(|e| Error::Other(e.to_string()))?;
+        self.write_private("key", &key.to_bytes())?;
+        self.write_private("code", code.as_bytes())?;
+        write_atomic(&self.dir.join("library.json"), &json)
+            .map_err(|e| Error::Other(e.to_string()))?;
+        // A store from an earlier library has nothing to do with this one.
+        let _ = std::fs::remove_dir_all(self.store_dir());
         {
-            let mut opts = std::fs::OpenOptions::new();
-            opts.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-            let mut f = opts.open(&tmp).map_err(io)?;
-            std::io::Write::write_all(&mut f, bytes).map_err(io)?;
+            let mut inner = self.inner();
+            inner.library = Some((encryption, key, code));
+            inner.saved = Some(Saved::new());
+            self.save(&inner)?;
         }
-        std::fs::rename(&tmp, &path).map_err(io)
+        self.advertise();
+        self.refresh_status();
+        self.wake();
+        Ok(self.status())
     }
 
-    fn load_key(&self) -> Option<Key> {
-        std::fs::read(self.key_path())
-            .ok()
-            .and_then(|b| Key::from_bytes(&b))
+    /// Stops syncing and leaves the library. This device's music and edits stay as they are;
+    /// the other devices carry on without it.
+    pub(crate) fn leave_library(&self) -> Result<SyncStatus> {
+        self.stop.store(true, Ordering::Release);
+        let _one = self.round_lock.lock().unwrap_or_else(|e| e.into_inner());
+        for name in ["key", "code", "library.json", "wifi.cbor"] {
+            let _ = std::fs::remove_file(self.dir.join(name));
+        }
+        let _ = std::fs::remove_dir_all(self.store_dir());
+        {
+            let mut inner = self.inner();
+            inner.library = None;
+            inner.saved = None;
+            self.save(&inner)?;
+        }
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.clear();
+        }
+        self.advertise();
+        self.refresh_status();
+        self.set_status(|s| {
+            s.devices.clear();
+            s.handoffs.clear();
+            s.problems.clear();
+            s.error = None;
+            s.last_sync_ms = None;
+        });
+        Ok(self.status())
     }
 
-    /// The sync place as a store: encrypted when the library is.
-    fn open_store(&self, settings: &SyncSettings) -> Result<Box<dyn Store>> {
-        let plain = self
-            .plain_store(settings, None)?
-            .ok_or_else(|| Error::Other("sync is off".into()))?;
-        let info = LibraryInfo::read(plain.as_ref()).map_err(other)?;
-        let key = self.load_key();
-        match (info, key) {
-            (None, None) => {
-                LibraryInfo {
-                    format: cadenza_sync::crypt::FORMAT,
-                    encryption: None,
-                }
-                .write(plain.as_ref())
-                .map_err(other)?;
-                Ok(plain)
-            }
-            (Some(LibraryInfo { encryption: None, .. }), None) => Ok(plain),
-            (Some(LibraryInfo { encryption: Some(_), .. }), Some(key)) => Ok(Box::new(
-                EncryptedStore::new(plain, key, self.dir.join("tmp")),
-            )),
-            (Some(LibraryInfo { encryption: Some(_), .. }), None) => {
-                self.set_status(|s| s.locked = true);
-                Err(Error::Other(
-                    "the sync library is encrypted: enter its passphrase on the Sync page".into(),
-                ))
-            }
-            (_, Some(_)) => Err(Error::Other(
-                "the sync library isn't encrypted the way this device expects (was it replaced?); choose it again"
-                    .into(),
-            )),
-        }
+    /// Other Cadenza devices on this network.
+    pub(crate) fn nearby(&self) -> Vec<NearbyDevice> {
+        let Some(d) = &self.discovery else {
+            return Vec::new();
+        };
+        let me = self.device_id().unwrap_or_default();
+        let mine = self.hello().library_id();
+        d.found(&me)
+            .into_iter()
+            .map(|f| NearbyDevice {
+                paired: mine.is_some() && f.library == mine,
+                syncing: f.library.is_some(),
+                address: f.addrs.first().map(ToString::to_string).unwrap_or_default(),
+                id: f.device,
+                name: f.name.chars().take(60).collect(),
+                platform: f.platform.chars().take(20).collect(),
+            })
+            .collect()
     }
 
     pub(crate) fn sync_now(&self) {
@@ -618,8 +774,19 @@ impl Syncer {
     }
 
     fn enabled(inner: &Inner) -> bool {
-        (inner.settings.folder.is_some() || inner.settings.remote.is_some())
-            && inner.saved.is_some()
+        inner.library.is_some() && inner.saved.is_some()
+    }
+
+    /// This device, as it signs requests to the others.
+    fn me(&self) -> Option<Me> {
+        let inner = self.inner();
+        let device = inner.saved.as_ref()?.replica.device().to_string();
+        let key = inner.library.as_ref()?.1.clone();
+        Some(Me {
+            device,
+            port: self.port(),
+            key,
+        })
     }
 
     // ---- local changes ------------------------------------------------------------------
@@ -851,22 +1018,16 @@ impl Syncer {
     }
 
     fn round_in(&self, settings: &SyncSettings, problems: &mut Vec<String>) -> Result<()> {
-        if let Some(folder) = &settings.folder
-            && !Path::new(folder).is_dir()
-        {
-            return Err(Error::Other(format!(
-                "the sync folder {folder} isn't there (is its drive connected?)"
-            )));
-        }
-        let boxed = self.open_store(settings)?;
-        self.set_status(|s| s.locked = false);
-        let store: &dyn Store = boxed.as_ref();
+        let Some(me) = self.me() else { return Ok(()) };
+        let store = self.store();
         let sync_err = |e: cadenza_sync::Error| Error::Other(e.to_string());
         self.export_history()?;
-        self.upload_art(store, problems);
+        self.upload_art(&store, problems);
 
-        // Push and pull. Listens and shared songs are handled from the effects; everything else
-        // from the merged state below.
+        // Copy what the paired devices in reach have, then push and pull through this device's
+        // own store as if they all shared it. Listens are handled from the effects; everything
+        // else from the merged state below.
+        let peers = self.pull_peers(&store, &me, problems);
         let mut effects = Vec::new();
         let report = {
             let mut inner = self.inner();
@@ -876,7 +1037,7 @@ impl Syncer {
             let info = (settings.device_name.as_str(), platform());
             let report = saved
                 .replica
-                .sync(store, Some((info.0, &info.1)), wall_ms(), |e| {
+                .sync(&store, Some((info.0, &info.1)), wall_ms(), |e| {
                     effects.push(e)
                 })
                 .map_err(sync_err)?;
@@ -884,8 +1045,9 @@ impl Syncer {
             report
         };
         problems.extend(report.unreadable);
-        self.read_devices(store);
-        if let Err(e) = self.handoff(store, settings) {
+        let online: BTreeSet<String> = peers.iter().map(|(id, _)| id.clone()).collect();
+        self.read_devices(&store, &online);
+        if let Err(e) = self.handoff(&store, settings) {
             problems.push(format!("Sharing what's playing: {e}"));
         }
 
@@ -906,19 +1068,102 @@ impl Syncer {
             }
         }
         changed |= self.catch_up_scanned()?;
-        changed |= self.apply_pending(store, problems)?;
+        changed |= self.apply_pending(&store, problems)?;
         changed |= self.library.purge_expired()? > 0;
         if changed {
             (self.emit)(ApiEvent::LibraryChanged);
         }
 
+        let mut news = report.pushed_ops > 0;
         if settings.share_audio {
-            self.share_audio(store, problems)?;
+            news |= self.share_audio(&store)?;
+        }
+        // The others copy this device's news now rather than within the minute.
+        if news {
+            for (_, p) in &peers {
+                let _ = p.poke();
+            }
         }
         if settings.download_audio {
-            self.download_audio(store, problems)?;
+            self.download_audio(&peers, problems)?;
         }
         Ok(())
+    }
+
+    /// Where paired devices might be: found on the network in this library, recently in touch,
+    /// or typed in.
+    fn targets(&self, me: &str) -> Vec<Target> {
+        let mut out: Vec<Target> = Vec::new();
+        let library = self.hello().library_id();
+        if let Some(d) = &self.discovery {
+            for f in d.found(me) {
+                if library.is_some() && f.library == library {
+                    out.push((Some(f.device), f.addrs));
+                }
+            }
+        }
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.retain(|_, (_, at)| at.elapsed() < SEEN_FOR);
+            for (id, (addr, _)) in seen.iter() {
+                match out
+                    .iter_mut()
+                    .find(|(d, _)| d.as_deref() == Some(id.as_str()))
+                {
+                    Some((_, addrs)) if !addrs.contains(addr) => addrs.push(*addr),
+                    Some(_) => {}
+                    None => out.push((Some(id.clone()), vec![*addr])),
+                }
+            }
+        }
+        for typed in self.inner().settings.addresses.clone() {
+            if let Some(addr) = peer::parse_address(&typed)
+                && !out.iter().any(|(_, a)| a.contains(&addr))
+            {
+                out.push((None, vec![addr]));
+            }
+        }
+        out
+    }
+
+    /// Copies, from every paired device in reach, what it has and this device lacks. The
+    /// devices reached, by id.
+    fn pull_peers(
+        &self,
+        store: &FolderStore,
+        me: &Me,
+        problems: &mut Vec<String>,
+    ) -> Vec<(String, Peer)> {
+        let library = self.hello().library_id();
+        let mut reached: Vec<(String, Peer)> = Vec::new();
+        for (id, addrs) in self.targets(&me.device) {
+            for addr in addrs {
+                // A typed address: who's there, and is it in this library?
+                let id = match &id {
+                    Some(id) => id.clone(),
+                    None => match peer::hello(addr) {
+                        Ok(h) if h.library_id() == library && h.device != me.device => h.device,
+                        _ => continue,
+                    },
+                };
+                if reached.iter().any(|(r, _)| *r == id) {
+                    break;
+                }
+                let p = Peer::new(addr, me.clone());
+                match peer::pull(&p, store, &me.device, &id) {
+                    Ok(_) => {
+                        reached.push((id, p));
+                        break;
+                    }
+                    Err(cadenza_sync::Error::Crypto(e)) => {
+                        problems.push(format!("{addr}: {e}"));
+                        break;
+                    }
+                    // Not there now (asleep, another network): it's tried again next round.
+                    Err(_) => {}
+                }
+            }
+        }
+        reached
     }
 
     /// Publishes what this device is playing (if it changed) and reads what the others are.
@@ -1148,7 +1393,7 @@ impl Syncer {
         }
     }
 
-    fn read_devices(&self, store: &dyn Store) {
+    fn read_devices(&self, store: &dyn Store, online: &BTreeSet<String>) {
         let me = {
             let inner = self.inner();
             inner.saved.as_ref().map(|s| s.replica.device().to_string())
@@ -1162,6 +1407,7 @@ impl Syncer {
                 let d: DeviceInfo = serde_json::from_slice(&bytes).ok()?;
                 Some(SyncDevice {
                     this_device: Some(&d.id) == me.as_ref(),
+                    online: online.contains(&d.id),
                     id: d.id,
                     name: d.name.chars().take(60).collect(),
                     platform: d.platform.chars().take(20).collect(),
@@ -1420,12 +1666,13 @@ impl Syncer {
         }
     }
 
-    /// Copies songs into the folder that no device has shared yet.
-    fn share_audio(&self, store: &dyn Store, problems: &mut Vec<String>) -> Result<()> {
+    /// Offers this device's songs that no device has offered yet: the others can then copy them
+    /// from here. True if there were any.
+    fn share_audio(&self, store: &FolderStore) -> Result<bool> {
         let todo: Vec<cadenza_library::TrackFile> = {
             let inner = self.inner();
             let Some(saved) = inner.saved.as_ref() else {
-                return Ok(());
+                return Ok(false);
             };
             let state = saved.replica.state();
             self.library
@@ -1434,47 +1681,23 @@ impl Syncer {
                 .filter(|f| state.shared(&TrackKey::new(f.audio_hash.clone())).is_none())
                 .collect()
         };
-        let total = todo.len();
-        for (i, file) in todo.into_iter().enumerate() {
-            let (hash, rel, size, path) = (file.audio_hash, file.rel_path, file.size, file.path);
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let Some(blob) = blob_path(&hash, &ext) else {
-                continue;
-            };
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let there = store.size(&blob).ok().flatten() == Some(size);
-            if !there {
-                let mut go = self.progress("upload", &name, size, total - i - 1);
-                match store.put_file(&blob, &path, &mut go) {
-                    Ok(true) => {}
-                    Ok(false) => return Ok(()),
-                    Err(e) => {
-                        problems.push(format!("Sharing {}: {e}", path.display()));
-                        continue;
-                    }
-                }
-            }
-            self.record(vec![Change::Shared {
-                track: TrackKey::new(hash),
-                rel_path: rel.replace('\\', "/"),
-                size,
-            }]);
-            // Push now and then, so other devices can start on a long upload.
-            if i % 20 == 19 {
-                self.push_only(store)?;
-            }
+        if todo.is_empty() {
+            return Ok(false);
         }
-        self.push_only(store)
+        self.record(
+            todo.into_iter()
+                .map(|f| Change::Shared {
+                    track: TrackKey::new(f.audio_hash),
+                    rel_path: f.rel_path.replace('\\', "/"),
+                    size: f.size,
+                })
+                .collect(),
+        );
+        self.push_only(store)?;
+        Ok(true)
     }
 
-    fn push_only(&self, store: &dyn Store) -> Result<()> {
+    fn push_only(&self, store: &FolderStore) -> Result<()> {
         let mut inner = self.inner();
         let name = inner.settings.device_name.clone();
         if let Some(saved) = inner.saved.as_mut() {
@@ -1486,11 +1709,11 @@ impl Syncer {
         self.save(&inner)
     }
 
-    /// Copies songs other devices shared that this device doesn't have into its first music
-    /// folder.
-    fn download_audio(&self, store: &dyn Store, problems: &mut Vec<String>) -> Result<()> {
+    /// Copies songs other devices offer that this device doesn't have into its first music
+    /// folder, from whichever device in reach has each.
+    fn download_audio(&self, peers: &[(String, Peer)], problems: &mut Vec<String>) -> Result<()> {
         let Some(root) = self.library.roots()?.into_iter().next() else {
-            problems.push("Add a music folder to download songs from other devices into.".into());
+            problems.push("Add a music folder to copy songs from other devices into.".into());
             return Ok(());
         };
         let shared: Vec<(String, String, u64, bool)> = {
@@ -1519,6 +1742,7 @@ impl Syncer {
         }
         let total = todo.len();
         let mut got = 0;
+        let mut away = 0;
         for (i, (hash, rel, size)) in todo.into_iter().enumerate() {
             let Some(rel_path) = safe_relative(&rel) else {
                 problems.push(format!("A shared song has an unsafe path: {rel}"));
@@ -1551,11 +1775,23 @@ impl Syncer {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let mut go = self.progress("download", &name, size, total - i - 1);
-            match store.get_file(&blob, &dest, &mut go) {
-                Ok(true) => got += 1,
-                Ok(false) => break,
-                Err(e) => problems.push(format!("Downloading {rel}: {e}")),
+            let mut done = false;
+            for (_, p) in peers {
+                let mut go = self.progress("download", &name, size, total - i - 1);
+                match p.blob_to(&blob, &dest, &mut go) {
+                    Ok(true) => {
+                        got += 1;
+                        done = true;
+                        break;
+                    }
+                    // Stopped (paused, or settings changed).
+                    Ok(false) => return Ok(()),
+                    // That device doesn't have it (or doesn't share): try the next.
+                    Err(_) => {}
+                }
+            }
+            if !done {
+                away += 1;
             }
             if got > 0 && got % 10 == 0 {
                 self.scanner.request();
@@ -1564,8 +1800,29 @@ impl Syncer {
         if got > 0 {
             self.scanner.request();
         }
+        if away > 0 {
+            problems.push(format!(
+                "{away} {} on devices that aren't sharing on this network right now.",
+                if away == 1 { "song is" } else { "songs are" }
+            ));
+        }
         Ok(())
     }
+}
+
+/// This device's address on the local network: the one it would use to reach beyond it. No
+/// packet is sent.
+fn local_addresses() -> Vec<std::net::IpAddr> {
+    let probe = |bind: &str, to: &str| {
+        let s = std::net::UdpSocket::bind(bind).ok()?;
+        s.connect(to).ok()?;
+        let ip = s.local_addr().ok()?.ip();
+        (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+    };
+    probe("0.0.0.0:0", "192.0.2.1:9")
+        .into_iter()
+        .chain(probe("[::]:0", "[2001:db8::1]:9"))
+        .collect()
 }
 
 /// A value not yet applied here: song, register, its version, the value.

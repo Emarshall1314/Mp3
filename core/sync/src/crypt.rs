@@ -1,19 +1,18 @@
-//! Optional encryption of everything in the store (D56), so whoever holds the folder (a cloud
-//! drive, a shared disk) sees only opaque data.
+//! Encryption between paired devices (D64): everything that crosses the network is sealed with
+//! the library key, so another device on the same Wi-Fi sees only opaque data and can't ask for
+//! anything without the key.
 //!
-//! - The key comes from a passphrase with Argon2id. Its salt and cost, and a check value that
-//!   tells a wrong passphrase from a right one, are in `library.json`, which isn't encrypted.
-//! - Small objects (log segments, device files, artwork) are sealed whole with
+//! - The key comes from the pairing code with Argon2id. Its salt and cost, and a check value
+//!   that tells a wrong code from a right one, are public (a device that wants to join reads them
+//!   before the owner types the code).
+//! - Small objects (log segments, device files, artwork, lists) are sealed whole with
 //!   XChaCha20-Poly1305: `CDZE`, a random 24-byte nonce, then the ciphertext.
 //! - Songs are encrypted in 1 MiB chunks (the AEAD "STREAM" construction) so they never have to
 //!   be in memory at once: `CDZF`, a random 19-byte nonce prefix, then the chunks.
 //! - Every object is bound to its path (associated data), so objects can't be swapped around.
-//! - Blob and artwork names are replaced with keyed hashes, so the folder doesn't reveal which
-//!   songs are in it.
+//! - Requests are signed with a keyed hash, so a device without the key is refused.
 
-use std::fs;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::stream::{DecryptorBE32, EncryptorBE32};
@@ -23,12 +22,7 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::store::{Store, part_path};
 use crate::{Error, Result};
-
-/// Describes the library in the store: format, and encryption if any. Never encrypted.
-pub const INFO_PATH: &str = "library.json";
-pub const FORMAT: u32 = 1;
 
 const SEALED: &[u8; 4] = b"CDZE";
 const STREAMED: &[u8; 4] = b"CDZF";
@@ -36,29 +30,6 @@ const CHUNK: usize = 1 << 20;
 const TAG: usize = 16;
 const STREAM_NONCE: usize = 19;
 const CHECK: &[u8] = b"cadenza library key check";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LibraryInfo {
-    pub format: u32,
-    #[serde(default)]
-    pub encryption: Option<Encryption>,
-}
-
-impl LibraryInfo {
-    pub fn read(store: &dyn Store) -> Result<Option<Self>> {
-        match store.get(INFO_PATH)? {
-            None => Ok(None),
-            Some(b) => serde_json::from_slice(&b).map(Some).map_err(|e| {
-                Error::Crypto(format!("the sync folder's {INFO_PATH} is damaged: {e}"))
-            }),
-        }
-    }
-
-    pub fn write(&self, store: &dyn Store) -> Result<()> {
-        let json = serde_json::to_vec_pretty(self).map_err(|e| Error::Encode(e.to_string()))?;
-        store.put(INFO_PATH, &json)
-    }
-}
 
 /// How the key is made from the passphrase, and a check value sealed with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,7 +158,8 @@ impl Key {
         XChaCha20Poly1305::new((&self.data).into())
     }
 
-    fn seal(&self, plain: &[u8], path: &str) -> Result<Vec<u8>> {
+    /// `plain` sealed whole, bound to `path`.
+    pub fn seal(&self, plain: &[u8], path: &str) -> Result<Vec<u8>> {
         let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
         let ct = self
             .cipher()
@@ -202,7 +174,8 @@ impl Key {
         Ok([SEALED.as_slice(), nonce.as_slice(), &ct].concat())
     }
 
-    fn open(&self, sealed: &[u8], path: &str) -> Result<Vec<u8>> {
+    /// What [`seal`](Self::seal) sealed for the same `path`, if it is genuine.
+    pub fn open(&self, sealed: &[u8], path: &str) -> Result<Vec<u8>> {
         let body = sealed
             .strip_prefix(SEALED.as_slice())
             .ok_or_else(|| crypto_err(path))?;
@@ -221,34 +194,63 @@ impl Key {
             .map_err(|_| crypto_err(path))
     }
 
-    /// A blob's or image's name in the store: a keyed hash of its real path.
-    fn name(&self, path: &str) -> String {
+    /// A keyed hash of `message`, hex: signs requests, and names the library without revealing
+    /// the key.
+    pub fn mac(&self, message: &[u8]) -> String {
         let Ok(mut mac) = <Hmac<Sha256> as Mac>::new_from_slice(&self.names) else {
-            return hex(path.as_bytes());
+            return String::new();
         };
-        mac.update(path.as_bytes());
-        hex(&mac.finalize().into_bytes()[..16])
+        mac.update(message);
+        hex(&mac.finalize().into_bytes())
+    }
+
+    /// Whether `tag` is [`mac`](Self::mac) of `message`, compared in constant time.
+    pub fn verify(&self, message: &[u8], tag: &str) -> bool {
+        let Some(tag) = unhex(tag) else { return false };
+        let Ok(mut mac) = <Hmac<Sha256> as Mac>::new_from_slice(&self.names) else {
+            return false;
+        };
+        mac.update(message);
+        mac.verify_slice(&tag).is_ok()
     }
 }
 
-/// Plaintext size of a streamed object from its stored size.
-fn plain_size(stored: u64) -> Option<u64> {
-    let body = stored.checked_sub((STREAMED.len() + STREAM_NONCE) as u64)?;
-    let chunk = (CHUNK + TAG) as u64;
-    let rem = body % chunk;
-    (rem >= TAG as u64).then(|| (body / chunk) * CHUNK as u64 + rem - TAG as u64)
+/// The letters a pairing code is made of: no 0/O or 1/I to confuse.
+const CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// A new pairing code, `XXXX-XXXX-XXXX`: 60 random bits, which with Argon2id is far beyond
+/// guessing from what crosses the network.
+pub fn pairing_code() -> String {
+    let mut bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut bytes);
+    let letters: String = bytes
+        .iter()
+        .map(|b| char::from(CODE_ALPHABET[usize::from(b % 32)]))
+        .collect();
+    format!("{}-{}-{}", &letters[..4], &letters[4..8], &letters[8..])
 }
 
-/// Encrypts `from` into `to` in chunks; `go` hears plaintext bytes done and can stop it.
-fn encrypt_file(
+/// A pairing code as typed (any case, with spaces, dashes or neither) in the form it was made
+/// in; none if it can't be one.
+pub fn normalize_code(typed: &str) -> Option<String> {
+    let letters: String = typed
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    (letters.len() == 12 && letters.bytes().all(|b| CODE_ALPHABET.contains(&b)))
+        .then(|| format!("{}-{}-{}", &letters[..4], &letters[4..8], &letters[8..]))
+}
+
+/// Encrypts `src` onto `out` in chunks, bound to `path`; `go` hears the plaintext bytes done and
+/// returns false to stop (the output is then incomplete and won't decrypt). False if stopped.
+pub fn encrypt_stream(
     key: &Key,
     path: &str,
-    from: &Path,
-    to: &Path,
+    mut src: impl Read,
+    mut out: impl Write,
     go: &mut dyn FnMut(u64) -> bool,
 ) -> Result<bool> {
-    let mut src = fs::File::open(from)?;
-    let mut out = fs::File::create(to)?;
     let mut prefix = [0u8; STREAM_NONCE];
     OsRng.fill_bytes(&mut prefix);
     out.write_all(STREAMED)?;
@@ -278,7 +280,7 @@ fn encrypt_file(
             .map_err(|_| Error::Encode("encryption failed".into()))?;
         out.write_all(&ct)?;
     }
-    out.sync_all()?;
+    out.flush()?;
     go(done);
     Ok(true)
 }
@@ -295,8 +297,16 @@ fn read_full(src: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(n)
 }
 
-/// Decrypts a streamed object from `src` into `out`.
-fn decrypt_stream(key: &Key, path: &str, mut src: impl Read, mut out: impl Write) -> Result<()> {
+/// Decrypts what [`encrypt_stream`] wrote for the same `path` from `src` onto `out`; `go` hears
+/// the plaintext bytes done and returns false to stop. False if stopped; an error if anything
+/// isn't genuine (so a partly written `out` must be thrown away).
+pub fn decrypt_stream(
+    key: &Key,
+    path: &str,
+    mut src: impl Read,
+    mut out: impl Write,
+    go: &mut dyn FnMut(u64) -> bool,
+) -> Result<bool> {
     let mut magic = [0u8; 4];
     let mut prefix = [0u8; STREAM_NONCE];
     src.read_exact(&mut magic).map_err(|_| crypto_err(path))?;
@@ -306,6 +316,7 @@ fn decrypt_stream(key: &Key, path: &str, mut src: impl Read, mut out: impl Write
     }
     let mut dec = DecryptorBE32::from_aead(key.cipher(), (&prefix).into());
     let mut buf = vec![0u8; CHUNK + TAG];
+    let mut done = 0u64;
     // The encryptor always ends with a short chunk (empty when the song is a whole number of
     // chunks), so a full-size chunk is never the last.
     loop {
@@ -317,127 +328,23 @@ fn decrypt_stream(key: &Key, path: &str, mut src: impl Read, mut out: impl Write
         if n == CHUNK + TAG {
             let plain = dec.decrypt_next(payload).map_err(|_| crypto_err(path))?;
             out.write_all(&plain)?;
+            done += plain.len() as u64;
+            if !go(done) {
+                return Ok(false);
+            }
         } else {
             let plain = dec.decrypt_last(payload).map_err(|_| crypto_err(path))?;
             out.write_all(&plain)?;
-            return Ok(());
+            out.flush()?;
+            go(done + plain.len() as u64);
+            return Ok(true);
         }
-    }
-}
-
-fn decrypt_file(key: &Key, path: &str, from: &Path, to: &Path) -> Result<()> {
-    let out = fs::File::create(to)?;
-    decrypt_stream(key, path, fs::File::open(from)?, &out)?;
-    out.sync_all()?;
-    Ok(())
-}
-
-/// Songs and artwork are uploaded as files (streamed); everything else is sealed whole.
-fn streamed(path: &str) -> bool {
-    path.starts_with("blobs/") || path.starts_with("art/")
-}
-
-/// A store whose objects are encrypted with the library key before they reach `inner`.
-#[derive(Debug)]
-pub struct EncryptedStore<S> {
-    inner: S,
-    key: Key,
-    /// Where songs are encrypted before upload and downloaded before decryption.
-    temp: PathBuf,
-}
-
-impl<S: Store> EncryptedStore<S> {
-    pub fn new(inner: S, key: Key, temp: impl Into<PathBuf>) -> Self {
-        Self {
-            inner,
-            key,
-            temp: temp.into(),
-        }
-    }
-
-    /// Blobs and artwork get hashed names; logs and device files keep theirs (they reveal only
-    /// random device ids and counts).
-    fn map(&self, path: &str) -> String {
-        for top in ["blobs/", "art/"] {
-            if path.starts_with(top) {
-                let h = self.key.name(path);
-                return format!("{top}{}/{h}", &h[..2]);
-            }
-        }
-        path.to_owned()
-    }
-}
-
-impl<S: Store> Store for EncryptedStore<S> {
-    fn list(&self, dir: &str) -> Result<Vec<String>> {
-        self.inner.list(dir)
-    }
-
-    fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
-        match self.inner.get(&self.map(path))? {
-            None => Ok(None),
-            Some(b) if b.starts_with(STREAMED) => {
-                let mut out = Vec::new();
-                decrypt_stream(&self.key, path, b.as_slice(), &mut out)?;
-                Ok(Some(out))
-            }
-            Some(b) => self.key.open(&b, path).map(Some),
-        }
-    }
-
-    fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
-        self.inner
-            .put(&self.map(path), &self.key.seal(bytes, path)?)
-    }
-
-    fn size(&self, path: &str) -> Result<Option<u64>> {
-        let stored = self.inner.size(&self.map(path))?;
-        Ok(if streamed(path) {
-            stored.and_then(plain_size)
-        } else {
-            stored.and_then(|n| n.checked_sub((SEALED.len() + 24 + TAG) as u64))
-        })
-    }
-
-    fn put_file(&self, path: &str, local: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
-        fs::create_dir_all(&self.temp)?;
-        let tmp = self.temp.join(format!("{}.up", self.key.name(path)));
-        let total = fs::metadata(local)?.len();
-        // Half the progress for encrypting, half for copying.
-        let ok = encrypt_file(&self.key, path, local, &tmp, &mut |n| go(n / 2))?
-            && self.inner.put_file(&self.map(path), &tmp, &mut |n| {
-                go(total / 2 + n.min(total) / 2)
-            })?;
-        let _ = fs::remove_file(&tmp);
-        if ok {
-            go(total);
-        }
-        Ok(ok)
-    }
-
-    fn get_file(&self, path: &str, dest: &Path, go: &mut dyn FnMut(u64) -> bool) -> Result<bool> {
-        fs::create_dir_all(&self.temp)?;
-        // The encrypted download resumes like any other; decryption happens once it's whole.
-        let tmp = self.temp.join(format!("{}.down", self.key.name(path)));
-        if !self.inner.get_file(&self.map(path), &tmp, go)? {
-            return Ok(false);
-        }
-        let part = part_path(dest)?;
-        let result = decrypt_file(&self.key, path, &tmp, &part);
-        let _ = fs::remove_file(&tmp);
-        if let Err(e) = result {
-            let _ = fs::remove_file(&part);
-            return Err(e);
-        }
-        fs::rename(&part, dest)?;
-        Ok(true)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{FolderStore, MemStore};
 
     fn key() -> (Key, Encryption) {
         Key::create_with("correct horse battery", 256, 1).expect("key")
@@ -459,90 +366,77 @@ mod tests {
     #[test]
     fn small_objects_round_trip_and_are_bound_to_their_paths() {
         let (k, _) = key();
-        let mem = MemStore::new();
-        let store = EncryptedStore::new(mem, k.clone(), std::env::temp_dir());
-        store.put("log/a/0.seg", b"hello ops").expect("put");
-        assert_eq!(
-            store.get("log/a/0.seg").expect("get").as_deref(),
-            Some(&b"hello ops"[..])
-        );
-        let raw = store.inner.get("log/a/0.seg").expect("raw").expect("there");
-        assert!(!raw.windows(5).any(|w| w == b"hello"), "stored encrypted");
+        let sealed = k.seal(b"hello ops", "log/a/0.seg").expect("seal");
+        assert!(!sealed.windows(5).any(|w| w == b"hello"), "sealed");
+        assert_eq!(k.open(&sealed, "log/a/0.seg").expect("open"), b"hello ops");
         // Moved to another path, it no longer opens.
-        store.inner.put("log/a/1.seg", &raw).expect("put");
-        assert!(store.get("log/a/1.seg").is_err());
-        // Artwork names are hidden.
-        store.put("art/ab/abcdef", b"img").expect("put");
-        assert!(store.inner.get("art/ab/abcdef").expect("raw").is_none());
-        assert_eq!(
-            store.get("art/ab/abcdef").expect("get").as_deref(),
-            Some(&b"img"[..])
-        );
+        assert!(k.open(&sealed, "log/a/1.seg").is_err());
+        let (other, _) = key();
+        assert!(other.open(&sealed, "log/a/0.seg").is_err());
     }
 
     #[test]
-    fn songs_round_trip_in_chunks_with_resumable_downloads() {
+    fn songs_round_trip_in_chunks() {
         let (k, _) = key();
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = EncryptedStore::new(
-            FolderStore::new(dir.path().join("store")),
-            k,
-            dir.path().join("tmp"),
-        );
-        for len in [
-            0,
-            10,
-            CHUNK - 1,
-            CHUNK,
-            CHUNK + 1,
-            2 * CHUNK,
-            2 * CHUNK + 5,
-            3 * CHUNK,
-        ] {
+        for len in [0, 10, CHUNK - 1, CHUNK, CHUNK + 1, 2 * CHUNK, 2 * CHUNK + 5] {
             let song: Vec<u8> = (0..len).map(|i| (i * 7 % 253) as u8).collect();
-            let src = dir.path().join("song.flac");
-            fs::write(&src, &song).expect("write");
             let path = format!("blobs/aa/aa{len}.flac");
-            assert!(store.put_file(&path, &src, &mut |_| true).expect("put"));
-            assert_eq!(store.size(&path).expect("size"), Some(len as u64), "{len}");
-            let dest = dir.path().join(format!("out{len}.flac"));
-            assert!(store.get_file(&path, &dest, &mut |_| true).expect("get"));
-            assert_eq!(fs::read(&dest).expect("read"), song, "{len}");
+            let mut wire = Vec::new();
+            assert!(
+                encrypt_stream(&k, &path, song.as_slice(), &mut wire, &mut |_| true).expect("enc")
+            );
+            let mut back = Vec::new();
+            let mut last = 0;
+            assert!(
+                decrypt_stream(&k, &path, wire.as_slice(), &mut back, &mut |d| {
+                    last = d;
+                    true
+                })
+                .expect("dec")
+            );
+            assert_eq!(back, song, "{len}");
+            assert_eq!(last, len as u64);
+            // Cut short or tampered with, it fails rather than giving part of a song.
+            if len > 0 {
+                let mut cut = wire.clone();
+                cut.truncate(wire.len() - 1);
+                assert!(
+                    decrypt_stream(&k, &path, cut.as_slice(), Vec::new(), &mut |_| true).is_err()
+                );
+                assert!(
+                    decrypt_stream(
+                        &k,
+                        "blobs/aa/other.flac",
+                        wire.as_slice(),
+                        Vec::new(),
+                        &mut |_| true
+                    )
+                    .is_err()
+                );
+            }
         }
-        // An image uploaded as a file reads back whole.
-        let img = dir.path().join("cover.jpg");
-        fs::write(&img, b"jpeg bytes").expect("write");
-        assert!(
-            store
-                .put_file("art/ab/abcd", &img, &mut |_| true)
-                .expect("put")
-        );
+    }
+
+    #[test]
+    fn pairing_codes_read_back_however_they_are_typed() {
+        let code = pairing_code();
+        assert_eq!(code.len(), 14);
+        assert_eq!(normalize_code(&code).as_deref(), Some(code.as_str()));
         assert_eq!(
-            store.get("art/ab/abcd").expect("get").as_deref(),
-            Some(&b"jpeg bytes"[..])
+            normalize_code(&code.to_lowercase().replace('-', " ")).as_deref(),
+            Some(code.as_str())
         );
-        assert_eq!(store.size("art/ab/abcd").expect("size"), Some(10));
-        store.put("log/x/0.seg", b"12345").expect("put");
-        assert_eq!(store.size("log/x/0.seg").expect("size"), Some(5));
-        // Names in the folder say nothing about the songs.
-        let names: Vec<String> = fs::read_dir(dir.path().join("store/blobs"))
-            .expect("dir")
-            .flat_map(|d| fs::read_dir(d.expect("e").path()).expect("dir"))
-            .map(|e| e.expect("e").file_name().to_string_lossy().into_owned())
-            .collect();
-        assert!(
-            names
-                .iter()
-                .all(|n| !n.contains("flac") && !n.starts_with("aa")),
-            "{names:?}"
-        );
-        assert!(
-            !dir.path()
-                .join("tmp")
-                .read_dir()
-                .expect("tmp")
-                .any(|_| true),
-            "temp files go"
-        );
+        assert_ne!(pairing_code(), code);
+        assert_eq!(normalize_code("ABCD-EFGH-JKL"), None);
+    }
+
+    #[test]
+    fn requests_are_signed() {
+        let (k, _) = key();
+        let tag = k.mac(b"GET /tree");
+        assert!(k.verify(b"GET /tree", &tag));
+        assert!(!k.verify(b"GET /tree?x", &tag));
+        let (other, _) = key();
+        assert!(!other.verify(b"GET /tree", &tag));
     }
 }

@@ -80,10 +80,11 @@ Platforms per milestone: **D** = Linux desktop, **M** = Android. (Windows, macOS
 
 ## M6 — Sync (D)
 - `sync`: HLC, op log, segment writer/reader, snapshots, apply engine (rewriting local tags safely).
-- Providers through OpenDAL: S3/B2, WebDAV, Dropbox, Google Drive, OneDrive; OAuth flows; keychain.
-- Blob upload/download: resumable, dedupe, rate limits, bandwidth caps; pause/resume; per-device status.
+- Device to device over the same Wi-Fi (D64, replacing the planned cloud providers): mDNS discovery,
+  pairing code, encrypted transfers.
+- Song copies between devices: dedupe, pause/resume; per-device status.
 - Trash (30 days), conflicts view, relative paths, playlist sequence merge, play-event merge.
-- Optional client-side encryption; LAN discovery + peer transfer; handoff + remote control.
+- Encrypted traffic between devices; handoff + remote control.
 - Storage limits + pinning + on-demand streaming cache (desktop side; mobile in M7).
 - Tests: N-device randomised convergence property tests, interrupted transfer resume, trash
   recovery, encrypted round trip.
