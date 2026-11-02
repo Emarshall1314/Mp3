@@ -21,6 +21,9 @@ thiserror = "2"
 alsa = "0.12"
 dbus = "0.9"
 
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.26"
+
 [dev-dependencies]
 tempfile = "3"
 cadenza-testkit = { path = "../testkit" }

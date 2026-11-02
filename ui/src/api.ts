@@ -233,6 +233,9 @@ export function onApiEvent(handler: (e: ApiEvent) => void): Promise<UnlistenFn> 
 /// Android has no separate windows: no mini player, no tray.
 export const isAndroid = /Android/.test(navigator.userAgent);
 
+/// Windows: no DSD to the device (WASAPI has no DSD path), so no DoP option.
+export const isWindows = /Windows/.test(navigator.userAgent);
+
 /// A system-wide shortcut was pressed: the action's id.
 export function onGlobalShortcut(handler: (action: string) => void): Promise<UnlistenFn> {
   return listen<string>('cadenza://global-shortcut', (msg) => handler(msg.payload));

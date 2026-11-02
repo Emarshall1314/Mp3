@@ -520,6 +520,19 @@ glass.
     the desktop. Touch and the phone's smoothness need the phone.
 - Demo script: `docs/demos/M7.md`.
 
+### Windows (started 2026-11-02, D63)
+- Builds and packages on Windows: a CI job checks it (clippy, unit tests) and produces an
+  installer (`cadenza-windows` artifact, an unsigned NSIS `.exe`, so Windows SmartScreen asks
+  before running it the first time).
+- **Sound:** WASAPI. "System Default" goes through the Windows mixer; every playback device is
+  also listed for exclusive (bit-perfect) use. No DSD on Windows.
+- **Media keys**, the Windows media overlay and lock screen through the System Media Transport
+  Controls; system-wide shortcuts as on Linux; the tray icon and mini player as on Linux.
+- Liquid glass refracts on Windows (its web view is Chromium, like Android's).
+- Two Unix-only bits made portable: WavPack file names, and the scanner's quick "unchanged file"
+  check (no inode on Windows; size and time decide).
+- Untested on a real Windows machine: nothing here runs Windows. Try `docs/demos/Windows.md`.
+
 ### Next
 1. **Owner tests**:
    - `docs/demos/Android.md` on the phone (decides whether Tauri stays the Android approach).

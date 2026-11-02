@@ -43,6 +43,33 @@ jobs:
             target/release/bundle/deb/*.deb
             target/release/bundle/appimage/*.AppImage
 
+  windows:
+    name: Windows (checks, installer)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The Windows-only code (WASAPI output, media controls) is checked here; the full test
+      # suite needs the Linux fixture tools, so only the tests that don't run here.
+      - name: clippy
+        run: cargo clippy --workspace --exclude xtask --all-targets -- -D warnings
+      - name: Unit tests
+        run: cargo test -p cadenza-engine -p cadenza-sync -p cadenza-library --lib
+      - name: Installer (NSIS)
+        run: pnpm --filter @cadenza/app tauri build --bundles nsis
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cadenza-windows
+          path: target/release/bundle/nsis/*.exe
+
   android:
     name: Android (APK)
     runs-on: ubuntu-24.04

@@ -8,6 +8,8 @@ pub mod alsa;
 mod dsd;
 #[cfg(target_os = "linux")]
 mod reserve;
+#[cfg(windows)]
+pub mod wasapi;
 
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +23,8 @@ pub(crate) use dsd::DsdPacker;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputDevice {
-    /// Stable identifier: `default`, or an ALSA name such as `hw:CARD=DAC,DEV=0`.
+    /// Stable identifier: `default`, an ALSA name such as `hw:CARD=DAC,DEV=0`, or on Windows
+    /// `wasapi:` and the endpoint id.
     pub id: String,
     pub name: String,
     /// Opened exclusively (bit-perfect capable) rather than through the OS mixer.
@@ -40,7 +43,9 @@ pub fn devices() -> Vec<OutputDevice> {
     };
     #[cfg(target_os = "linux")]
     return std::iter::once(default).chain(alsa::devices()).collect();
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    return std::iter::once(default).chain(wasapi::devices()).collect();
+    #[cfg(not(any(target_os = "linux", windows)))]
     vec![default]
 }
 
@@ -60,8 +65,15 @@ pub fn backend(id: &str, dop: bool) -> Box<dyn OutputBackend> {
         let _ = (id, dop);
         Box::new(aaudio::AAudio)
     }
-    // Linux and Android are the only platforms (D11); elsewhere the core builds for tests only.
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(windows)]
+    {
+        let _ = dop;
+        Box::new(wasapi::Wasapi {
+            device: id.to_owned(),
+        })
+    }
+    // Elsewhere the core builds for tests only.
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
     {
         let _ = (id, dop);
         Box::new(Capture::new())

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Speaker } from 'lucide-react';
-import { api } from '../api';
+import { api, isWindows } from '../api';
 import { attempt, useStore } from '../store';
 import type { Outputs } from '../types';
 import { usePopover } from '../hooks/usePopover';
@@ -71,7 +71,7 @@ export function OutputPicker() {
               </button>
             );
           })}
-          {current?.exclusive && (
+          {current?.exclusive && !isWindows && (
             <label className="output-option">
               <input
                 type="checkbox"

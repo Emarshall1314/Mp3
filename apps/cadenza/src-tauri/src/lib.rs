@@ -22,9 +22,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod android;
 #[cfg(desktop)]
 mod desktop;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod hotkeys;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod mpris;
 
 type App<'a> = State<'a, Arc<Cadenza>>;
@@ -47,7 +47,7 @@ fn build_info() -> BuildInfo {
 }
 
 /// Registers system-wide shortcuts: (action id, key combination) pairs.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[tauri::command]
 fn set_global_shortcuts(
     handle: AppHandle,
@@ -56,7 +56,7 @@ fn set_global_shortcuts(
     hotkeys::set(&handle, bindings)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[tauri::command]
 fn set_global_shortcuts(_bindings: Vec<(String, String)>) -> Res<()> {
     Err("System-wide shortcuts aren't available on this platform".into())
@@ -714,13 +714,13 @@ fn artwork_response(app: &AppHandle, uri: &tauri::http::Uri) -> Response<Vec<u8>
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new().build()
 }
 
 /// Nothing to add where system-wide shortcuts don't exist.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("cadenza-no-global-shortcut").build()
 }
@@ -758,12 +758,21 @@ pub fn run() {
                 }
             }
             let cadenza = Arc::new(cadenza);
-            #[cfg(target_os = "linux")]
+            // Windows: the system media controls (media keys, the volume flyout) belong to the
+            // main window.
+            #[cfg(any(target_os = "linux", windows))]
             {
+                #[cfg(windows)]
+                let hwnd = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.hwnd().ok())
+                    .map(|h| h.0 as usize);
+                #[cfg(not(windows))]
+                let hwnd = None;
                 let (app_ref, handle) = (Arc::clone(&cadenza), app.handle().clone());
                 std::thread::Builder::new()
                     .name("cadenza-mpris".into())
-                    .spawn(move || mpris::run(app_ref, handle, media_events))?;
+                    .spawn(move || mpris::run(app_ref, handle, media_events, hwnd))?;
             }
             // Android: the playback service's media session (lock screen, notification).
             #[cfg(target_os = "android")]
@@ -773,7 +782,7 @@ pub fn run() {
                     .name("cadenza-session".into())
                     .spawn(move || android::run(app_ref, media_events))?;
             }
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
             drop(media_events);
             app.manage(cadenza);
             #[cfg(desktop)]

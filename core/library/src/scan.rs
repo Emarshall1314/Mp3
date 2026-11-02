@@ -9,7 +9,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -133,8 +132,8 @@ fn walk(
             abs: root.join(&child),
             rel: child,
             size: meta.len() as i64,
-            mtime: meta.mtime(),
-            inode: meta.ino() as i64,
+            mtime: mtime(&meta),
+            inode: inode(&meta),
         };
         if ext == "cue" {
             cues.push(stat);
@@ -142,6 +141,37 @@ fn walk(
             found.fetch_add(1, Ordering::Relaxed);
             out.push(stat);
         }
+    }
+}
+
+/// Modification time, whole seconds since 1970.
+fn mtime(meta: &fs::Metadata) -> i64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        meta.mtime()
+    }
+    #[cfg(not(unix))]
+    {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs() as i64)
+    }
+}
+
+/// The file's inode, so a rename in place is recognised without reading it. Windows has no
+/// stable equivalent here (its file index needs an open handle), so size and time decide there.
+fn inode(meta: &fs::Metadata) -> i64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        meta.ino() as i64
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        0
     }
 }
 

@@ -1,5 +1,5 @@
-//! Desktop media controls over MPRIS: media keys, the desktop's media widget and lock-screen
-//! controls see what plays and can control it.
+//! Desktop media controls: MPRIS on Linux, the System Media Transport Controls on Windows. Media
+//! keys, the desktop's media widget and lock-screen controls see what plays and can control it.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -14,12 +14,18 @@ use tauri::{AppHandle, Manager};
 
 const SEEK_STEP: Duration = Duration::from_secs(10);
 
-/// Runs until the channel closes. Player events come in through `events`.
-pub fn run(app: Arc<Cadenza>, handle: AppHandle, events: Receiver<PlayerEvent>) {
+/// Runs until the channel closes. Player events come in through `events`. `hwnd`: the main
+/// window, which Windows' controls are attached to (unused elsewhere).
+pub fn run(
+    app: Arc<Cadenza>,
+    handle: AppHandle,
+    events: Receiver<PlayerEvent>,
+    hwnd: Option<usize>,
+) {
     let config = PlatformConfig {
         display_name: "Cadenza",
         dbus_name: "cadenza",
-        hwnd: None,
+        hwnd: hwnd.map(|h| h as *mut std::ffi::c_void),
     };
     let Ok(mut controls) = MediaControls::new(config) else {
         // No session bus (no desktop session): nothing to integrate with.
@@ -50,7 +56,8 @@ pub fn run(app: Arc<Cadenza>, handle: AppHandle, events: Receiver<PlayerEvent>) 
         return;
     }
     let mut shown_track = None;
-    let mut last: Option<PlayerState> = None;
+    // The volume last shown (only MPRIS shows the app's volume).
+    let mut volume: Option<f32> = None;
     loop {
         match events.recv_timeout(Duration::from_secs(5)) {
             Ok(PlayerEvent::State(state)) => {
@@ -59,10 +66,11 @@ pub fn run(app: Arc<Cadenza>, handle: AppHandle, events: Receiver<PlayerEvent>) 
                     set_metadata(&mut controls, &app, state.track_id);
                 }
                 let _ = controls.set_playback(playback(&state));
-                if last.as_ref().is_none_or(|l| l.volume != state.volume) {
+                if volume != Some(state.volume) {
+                    volume = Some(state.volume);
+                    #[cfg(target_os = "linux")]
                     let _ = controls.set_volume(f64::from(state.volume));
                 }
-                last = Some(state);
             }
             // Positions are interpolated by MPRIS clients; refresh them after a seek only.
             Ok(_) => {}

@@ -114,7 +114,7 @@ export function ShortcutSettings() {
   );
 }
 
-/// Keys that work while other apps have focus. Linux (X11) only; Wayland doesn't allow it.
+/// Keys that work while other apps have focus: Windows and Linux (X11); Wayland doesn't allow it.
 export function GlobalShortcutSettings() {
   const keys = useLook((s) => s.look.globalShortcuts);
   const result = useLook((s) => s.globalShortcuts);

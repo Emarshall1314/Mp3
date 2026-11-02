@@ -1,7 +1,6 @@
 //! WavPack via libwavpack (BSD-3): integer, float, hybrid (+.wvc) and native DSD.
 
 use std::ffi::{CString, c_char, c_int};
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use crate::{Chunk, Decoder, Error, Result, SampleFormat, StreamSpec};
@@ -33,10 +32,28 @@ unsafe extern "C" {
 
 const OPEN_WVC: c_int = 0x1;
 const OPEN_DSD_NATIVE: c_int = 0x100;
+/// Windows: the name is UTF-8 rather than the ANSI code page (ignored elsewhere).
+const OPEN_FILE_UTF8: c_int = 0x80;
 const MODE_FLOAT: c_int = 0x8;
 const MODE_LOSSLESS: c_int = 0x2;
 const QMODE_DSD_AUDIO: c_int = 0x30;
 const CHUNK_FRAMES: u32 = 4096;
+
+/// The path as libwavpack takes it: the bytes on Unix, UTF-8 on Windows.
+fn c_path(path: &Path) -> Result<CString> {
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().to_vec()
+    };
+    #[cfg(not(unix))]
+    let bytes = path
+        .to_str()
+        .ok_or_else(|| Error::Unsupported("path is not valid Unicode".into()))?
+        .as_bytes()
+        .to_vec();
+    CString::new(bytes).map_err(|_| Error::Unsupported("path contains NUL".into()))
+}
 
 pub(crate) struct WavPack {
     ctx: *mut WavpackContext,
@@ -51,15 +68,14 @@ unsafe impl Send for WavPack {}
 
 impl WavPack {
     pub(crate) fn open(path: &Path) -> Result<Self> {
-        let name = CString::new(path.as_os_str().as_bytes())
-            .map_err(|_| Error::Unsupported("path contains NUL".into()))?;
+        let name = c_path(path)?;
         let mut err = [0 as c_char; 81];
         // SAFETY: `name` is a valid C string and `err` has the 80+1 bytes libwavpack requires.
         let ctx = unsafe {
             WavpackOpenFileInput(
                 name.as_ptr(),
                 err.as_mut_ptr(),
-                OPEN_WVC | OPEN_DSD_NATIVE,
+                OPEN_WVC | OPEN_DSD_NATIVE | OPEN_FILE_UTF8,
                 0,
             )
         };
